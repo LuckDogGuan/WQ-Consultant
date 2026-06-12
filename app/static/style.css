@@ -638,7 +638,7 @@ body {
     color: var(--text-muted);
 }
 
-input[type="text"], input[type="password"], input[type="number"], select, textarea {
+input[type="text"], input[type="password"], input[type="number"], input[type="time"], select, textarea {
     background-color: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--border-color);
     padding: 10px 14px;
@@ -648,6 +648,7 @@ input[type="text"], input[type="password"], input[type="number"], select, textar
     font-size: 14px;
     outline: none;
     transition: all 0.3s ease;
+    color-scheme: dark;
 }
 
 input:focus, select:focus, textarea:focus {
