@@ -8,6 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
+import threading
 from typing import Any
 
 from ..paths import CATALOG_DIR, LOG_DIR
