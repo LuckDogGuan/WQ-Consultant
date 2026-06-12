@@ -178,6 +178,7 @@
             <a href="/check?page=1&type_filter=PPA" class="btn btn-sm {% if type_filter == 'PPA' %}btn-primary{% else %}btn-secondary{% endif %}">PPA</a>
             <a href="/check?page=1&type_filter=RA" class="btn btn-sm {% if type_filter == 'RA' %}btn-primary{% else %}btn-secondary{% endif %}">RA</a>
             <a href="/check?page=1&type_filter=ATOM" class="btn btn-sm {% if type_filter == 'ATOM' %}btn-primary{% else %}btn-secondary{% endif %}">ATOM</a>
+            <a href="/check?page=1&type_filter=PASS" class="btn btn-sm {% if type_filter == 'PASS' %}btn-primary{% else %}btn-secondary{% endif %}"><i class="fa-solid fa-square-check"></i> 仅显示 PASS</a>
         </div>
     </div>
     <div class="card-body">
@@ -186,12 +187,13 @@
                 <thead>
                     <tr>
                         <th>Alpha ID</th>
-                        <th>评定类型</th>
-                        <th>三阶分数 (Sharpe / Fitness)</th>
-                        <th>检查判定</th>
-                        <th>生产相关性 (Prod Corr)</th>
-                        <th>候选来源</th>
-                        <th>错误/校验消息</th>
+                        <th>因子评级</th>
+                        <th>评定/判定</th>
+                        <th>分数 (Sharpe/Fitness)</th>
+                        <th>利润率 (Margin)</th>
+                        <th>年化收益 / 回撤</th>
+                        <th>相关性 (Prod Corr)</th>
+                        <th>来源与消息说明</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -203,11 +205,17 @@
                             </a>
                         </td>
                         <td>
-                            {% if r.alpha_type %}
-                            <span class="badge status-{{ r.alpha_type }}">{{ r.alpha_type }}</span>
+                            {% if r.alpha_level %}
+                            <span class="badge status-{{ r.level_class }}">{{ r.alpha_level }}</span>
                             {% else %}
                             <span class="text-muted">—</span>
                             {% endif %}
+                        </td>
+                        <td>
+                            {% if r.alpha_type %}
+                            <span class="badge status-{{ r.alpha_type }}">{{ r.alpha_type }}</span>
+                            {% endif %}
+                            <span class="check-result-badge badge-{{ r.result }}">{{ r.result }}</span>
                         </td>
                         <td>
                             {% if r.sharpe is not none and r.fitness is not none %}
@@ -218,7 +226,20 @@
                             {% endif %}
                         </td>
                         <td>
-                            <span class="check-result-badge badge-{{ r.result }}">{{ r.result }}</span>
+                            {% if r.margin is not none %}
+                            <strong>{{ "%.2f"|format(r.margin * 10000) }}‱</strong>
+                            <span class="text-xs text-muted">({{ "%.2f"|format(r.margin * 100) }}%)</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if r.returns is not none and r.drawdown is not none %}
+                            <span class="stat-tag text-success">Ret: {{ "%.1f"|format(r.returns * 100) }}%</span>
+                            <span class="stat-tag text-danger">DD: {{ "%.1f"|format(r.drawdown * 100) }}%</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
                         </td>
                         <td>
                             {% if r.prod_corr is not none %}
@@ -228,13 +249,13 @@
                             {% endif %}
                         </td>
                         <td>
-                            <span class="text-muted text-sm">{{ r.source }}</span>
+                            <div class="text-xs text-muted" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.source }}</div>
+                            <div class="text-xs text-muted message-cell" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ r.message }}">{{ r.message }}</div>
                         </td>
-                        <td class="text-xs text-muted message-cell">{{ r.message }}</td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center text-muted">暂无历史检查判定结果。请在上方输入框追加或点击启动检查任务。</td>
+                        <td colspan="8" class="text-center text-muted">暂无历史检查判定结果。请在上方输入框追加或点击启动检查任务。</td>
                     </tr>
                     {% endfor %}
                 </tbody>

@@ -26,13 +26,14 @@
                     <thead>
                         <tr>
                             <th>Alpha ID</th>
-                            <th>评定类别</th>
+                            <th>因子评级</th>
+                            <th>评估类型</th>
                             <th>实际名称 (Name)</th>
-                            <th>区域/宇宙</th>
                             <th>分数 (Sharpe/Fitness)</th>
+                            <th>利润率 (Margin)</th>
+                            <th>年化收益 / 回撤</th>
                             <th>相关性 (PPA/Prod)</th>
                             <th>状态</th>
-                            <th>创建时间</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -44,6 +45,13 @@
                                 </a>
                             </td>
                             <td>
+                                {% if a.alpha_level %}
+                                <span class="badge status-{{ a.level_class }}">{{ a.alpha_level }}</span>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
                                 {% if a.alpha_type %}
                                 <span class="badge status-{{ a.alpha_type }}">{{ a.alpha_type }}</span>
                                 {% else %}
@@ -51,10 +59,25 @@
                                 {% endif %}
                             </td>
                             <td class="name-cell text-sm">{{ a.name or '未命名' }}</td>
-                            <td class="text-xs">{{ a.region }} / {{ a.universe }}</td>
                             <td>
                                 <span class="stat-tag">S: {{ "%.2f"|format(a.sharpe) if a.sharpe is not none else 'N/A' }}</span>
                                 <span class="stat-tag">F: {{ "%.2f"|format(a.fitness) if a.fitness is not none else 'N/A' }}</span>
+                            </td>
+                            <td>
+                                {% if a.margin is not none %}
+                                <strong>{{ "%.2f"|format(a.margin * 10000) }}‱</strong>
+                                <span class="text-xs text-muted">({{ "%.2f"|format(a.margin * 100) }}%)</span>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if a.returns is not none and a.drawdown is not none %}
+                                <span class="stat-tag text-success">Ret: {{ "%.1f"|format(a.returns * 100) }}%</span>
+                                <span class="stat-tag text-danger">DD: {{ "%.1f"|format(a.drawdown * 100) }}%</span>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
                             </td>
                             <td>
                                 <span class="stat-tag">PPA: {{ "%.2f"|format(a.ppa_corr) if a.ppa_corr is not none else 'N/A' }}</span>
@@ -63,11 +86,10 @@
                             <td>
                                 <span class="badge secondary">{{ a.status or 'UNSUBMITTED' }}</span>
                             </td>
-                            <td class="text-xs text-muted">{{ a.created_at[:19].replace('T', ' ') }}</td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="8" class="text-center text-muted">本地数据库中暂无 Alpha 记录归档。</td>
+                            <td colspan="9" class="text-center text-muted">本地数据库中暂无 Alpha 记录归档。</td>
                         </tr>
                         {% endfor %}
                     </tbody>

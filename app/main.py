@@ -471,8 +471,11 @@ def get_check(
         where_clause = "1=1"
         params = []
         if type_filter:
-            where_clause += " AND a.alpha_type = ?"
-            params.append(type_filter)
+            if type_filter == "PASS":
+                where_clause += " AND c.result = 'PASS'"
+            else:
+                where_clause += " AND a.alpha_type = ?"
+                params.append(type_filter)
             
         total = conn.execute(
             f"""
@@ -486,9 +489,9 @@ def get_check(
         
         total_pages = math.ceil(total / page_size) if total > 0 else 1
         
-        results = conn.execute(
+        db_results = conn.execute(
             f"""
-            SELECT c.*, a.sharpe, a.fitness, a.alpha_type 
+            SELECT c.*, a.sharpe, a.fitness, a.alpha_type, a.payload 
             FROM check_results c 
             LEFT JOIN alpha_records a ON c.alpha_id = a.alpha_id 
             WHERE {where_clause}
@@ -497,6 +500,37 @@ def get_check(
             """,
             params + [page_size, offset]
         ).fetchall()
+        
+        results = []
+        for r in db_results:
+            row_dict = dict(r)
+            payload = {}
+            if row_dict.get("payload"):
+                try:
+                    payload = json.loads(row_dict["payload"]) if isinstance(row_dict["payload"], str) else row_dict["payload"]
+                except Exception:
+                    pass
+            is_metrics = payload.get("is", {})
+            row_dict["margin"] = is_metrics.get("margin")
+            row_dict["returns"] = is_metrics.get("returns")
+            row_dict["drawdown"] = is_metrics.get("drawdown")
+            
+            fit = row_dict["fitness"] if row_dict["fitness"] is not None else 0.0
+            margin = row_dict["margin"] if row_dict["margin"] is not None else 0.0
+            
+            if fit >= 2.0 and margin >= 0.0015:
+                row_dict["alpha_level"] = "优质因子"
+                row_dict["level_class"] = "premium"
+            elif fit >= 1.2 and margin >= 0.0010:
+                row_dict["alpha_level"] = "一般因子"
+                row_dict["level_class"] = "standard"
+            elif fit >= 1.0:
+                row_dict["alpha_level"] = "普通因子"
+                row_dict["level_class"] = "regular"
+            else:
+                row_dict["alpha_level"] = "未达标"
+                row_dict["level_class"] = "substandard"
+            results.append(row_dict)
         
     settings = get_settings()
     success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
@@ -529,11 +563,42 @@ def get_alphas(request: Request, page: int = 1, type_filter: str = "", admin: st
     rows, total = list_rows("alpha_records", page=page, page_size=page_size, where=where, params=params, order_by="created_at DESC")
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     
+    alphas = []
+    for r in rows:
+        row_dict = dict(r)
+        payload = {}
+        if row_dict.get("payload"):
+            try:
+                payload = json.loads(row_dict["payload"]) if isinstance(row_dict["payload"], str) else row_dict["payload"]
+            except Exception:
+                pass
+        is_metrics = payload.get("is", {})
+        row_dict["margin"] = is_metrics.get("margin")
+        row_dict["returns"] = is_metrics.get("returns")
+        row_dict["drawdown"] = is_metrics.get("drawdown")
+        
+        fit = row_dict["fitness"] if row_dict["fitness"] is not None else 0.0
+        margin = row_dict["margin"] if row_dict["margin"] is not None else 0.0
+        
+        if fit >= 2.0 and margin >= 0.0015:
+            row_dict["alpha_level"] = "优质因子"
+            row_dict["level_class"] = "premium"
+        elif fit >= 1.2 and margin >= 0.0010:
+            row_dict["alpha_level"] = "一般因子"
+            row_dict["level_class"] = "standard"
+        elif fit >= 1.0:
+            row_dict["alpha_level"] = "普通因子"
+            row_dict["level_class"] = "regular"
+        else:
+            row_dict["alpha_level"] = "未达标"
+            row_dict["level_class"] = "substandard"
+        alphas.append(row_dict)
+        
     return templates.TemplateResponse(
         request,
         "alphas.html",
         {
-            "alphas": rows,
+            "alphas": alphas,
             "page": page,
             "total_pages": total_pages,
             "type_filter": type_filter,
