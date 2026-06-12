@@ -42,7 +42,7 @@ function checkNetworkStatus() {
                     textEl.innerText = "系统状态正常";
                 } else {
                     indicator.classList.add("disconnected");
-                    textEl.innerText = data.message || "网络连接已断开 (10秒轮询中...)";
+                    textEl.innerText = data.message || "网络连接已断开 (10分钟重连中...)";
                 }
             }
         })

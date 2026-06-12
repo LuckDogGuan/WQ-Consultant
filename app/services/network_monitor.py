@@ -107,8 +107,8 @@ class NetworkMonitor:
                                 (job_id, utc_now())
                             )
                             
-            # 每 10 秒进行一次扫描检测
+            # 每 10 分钟 (600 秒) 进行一次扫描检测
             slept = 0
-            while slept < 10 and not self.stop_event.is_set():
+            while slept < 600 and not self.stop_event.is_set():
                 time.sleep(1)
                 slept += 1
