@@ -68,6 +68,18 @@ def main():
         print(f"\n{YELLOW}请先运行以下命令安装缺失的依赖库：{RESET}")
         print("pip install -r requirements.txt\n")
 
+    # 2.1 检测后台核心算法模块 consultant_core
+    try:
+        # 模拟 run_gui.py 添加 sys.path 的逻辑进行检测
+        sys.path.insert(0, str(gui_dir.parent / "src"))
+        import consultant_core
+        log_ok("后台核心库 consultant_core 导入成功")
+    except ImportError:
+        log_err("缺失核心算法库: consultant_core")
+        log_warn("说明: 本 GUI 服务需要调用父项目中的核心算法包 `consultant_core`。")
+        log_warn("解决方案 A (推荐): 克隆完整的顾问父项目 (包含 src/ 目录)，并进入根目录运行 `python gui/run_gui.py`。")
+        log_warn("解决方案 B: 如果只单独部署了 wq-gui 仓库，请将父项目中的 `src/consultant_core` 文件夹直接拷贝复制到服务器的 `gui/` 目录下。")
+
     # 3. 路径及写权限检测
     gui_dir = Path(__file__).resolve().parent
     data_dir = gui_dir / "data"
