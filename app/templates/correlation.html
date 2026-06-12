@@ -186,16 +186,16 @@
                             </td>
                             <td class="text-sm">{{ a.name or '未命名' }}</td>
                             <td>
-                                <span class="stat-tag">S: {{ "%.2f"|format(a.sharpe) }}</span>
-                                <span class="stat-tag">F: {{ "%.2f"|format(a.fitness) }}</span>
+                                <span class="stat-tag">S: {{ "%.2f"|format(a.sharpe) if a.sharpe is not none else '—' }}</span>
+                                <span class="stat-tag">F: {{ "%.2f"|format(a.fitness) if a.fitness is not none else '—' }}</span>
                             </td>
                             <td>
-                                <span class="stat-tag">PPA: {{ "%.2f"|format(a.ppa_corr) }}</span>
-                                <span class="stat-tag">Prod: {{ "%.2f"|format(a.prod_corr) }}</span>
+                                <span class="stat-tag">PPA: {{ "%.2f"|format(a.ppa_corr) if a.ppa_corr is not none else '—' }}</span>
+                                <span class="stat-tag">Prod: {{ "%.2f"|format(a.prod_corr) if a.prod_corr is not none else '—' }}</span>
                             </td>
                             <td>
                                 <code class="target-name-code">
-                                    {{ payload.target_name if payload and payload.target_name else (a.alpha_type + '_' + "%.2f"|format(a.prod_corr) + '_' + "%.2f"|format(a.fitness)) }}
+                                    {{ payload.target_name if payload and payload.target_name else (a.alpha_type + '_' + ("%.2f"|format(a.prod_corr) if a.prod_corr is not none else 'N/A') + '_' + ("%.2f"|format(a.fitness) if a.fitness is not none else 'N/A')) }}
                                 </code>
                             </td>
                             <td>
@@ -203,7 +203,10 @@
                                 <span class="badge success"><i class="fa-solid fa-check"></i> 已在平台重命名</span>
                                 {% else %}
                                 <form action="/api/alphas/{{ a.alpha_id }}/rename" method="POST" class="rename-inline-form">
-                                    <input type="hidden" name="target_name" value="{{ payload.target_name if payload and payload.target_name else (a.alpha_type + '_' + (a.ppa_corr if a.alpha_type == 'PPA' else a.prod_corr) | round(2) | string + '_' + a.fitness | round(2) | string) }}">
+                                    {% set raw_corr = (a.ppa_corr if a.alpha_type == 'PPA' else a.prod_corr) %}
+                                    {% set corr_str = (raw_corr | round(2) | string) if raw_corr is not none else '0.00' %}
+                                    {% set fit_str = (a.fitness | round(2) | string) if a.fitness is not none else '0.00' %}
+                                    <input type="hidden" name="target_name" value="{{ payload.target_name if payload and payload.target_name else (a.alpha_type + '_' + corr_str + '_' + fit_str) }}">
                                     <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('确定要向平台调用 set_alpha_properties 将此 Alpha 名字修改为推荐名字吗？')">
                                         <i class="fa-solid fa-pen-to-square"></i> 确认远程改名
                                     </button>
