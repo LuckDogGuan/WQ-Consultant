@@ -465,6 +465,22 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
         
     finally:
         session.close()
+        try:
+            import gc
+            # 必须使用 globals() 或 locals() 检查
+            locs = locals()
+            if 'ppa_rets' in locs:
+                del ppa_rets
+            if 'all_rets' in locs:
+                del all_rets
+            if 'ppa_ids' in locs:
+                del ppa_ids
+            if 'all_ids' in locs:
+                del all_ids
+            gc.collect()
+            logger.info("Memory cleaned up after correlation job.")
+        except Exception as e:
+            logger.error(f"Failed to clean up memory in correlation job: {e}")
 
 
 def rename_alpha_remote(alpha_id: str, target_name: str) -> None:

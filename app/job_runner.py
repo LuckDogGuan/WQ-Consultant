@@ -216,3 +216,5 @@ class JobRunner:
         finally:
             with self._lock:
                 self.active_jobs.pop(job_id, None)
+            import gc
+            gc.collect()
