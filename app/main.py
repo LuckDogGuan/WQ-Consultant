@@ -82,6 +82,34 @@ def format_datetime(value: str) -> str:
 templates.env.filters["format_datetime"] = format_datetime
 
 
+from fastapi import Request
+from fastapi.responses import JSONResponse, HTMLResponse
+import traceback
+
+@app.exception_handler(Exception)
+def debug_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled exception during request to {request.url.path}:")
+    is_api = request.url.path.startswith("/api/") or "application/json" in request.headers.get("Accept", "")
+    if is_api:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error", "error": str(exc), "traceback": traceback.format_exc()}
+        )
+    else:
+        err_msg = f"""
+        <html>
+            <head><title>500 Internal Server Error</title></head>
+            <body style="font-family: sans-serif; padding: 20px; background: #f8f9fa;">
+                <h2 style="color: #dc3545;">500 Internal Server Error</h2>
+                <p><strong>Path:</strong> {request.url.path}</p>
+                <p><strong>Error:</strong> {exc}</p>
+                <pre style="background: #e9ecef; padding: 15px; border-radius: 5px; overflow-x: auto;">{traceback.format_exc()}</pre>
+            </body>
+        </html>
+        """
+        return HTMLResponse(status_code=500, content=err_msg)
+
+
 @app.on_event("startup")
 def on_startup():
     """Web 服务启动时初始化配置与数据克隆"""

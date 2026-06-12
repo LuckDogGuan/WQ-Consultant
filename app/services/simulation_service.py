@@ -444,6 +444,27 @@ def derive_prune_prefix(fields: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def is_simulation_stage_complete(log_path: Path) -> bool:
+    """读取日志文件，判定这一阶段是否已经完整跑完"""
+    if not log_path.exists():
+        return False
+    try:
+        import json
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("event") == "simulation_run_complete":
+                        return True
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return False
+
+
 def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     """后台任务主入口：三阶段回测业务控制层"""
     from consultant_core import machine_lib
@@ -554,6 +575,12 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
             
             # 逐个 neutralization 分组执行
             for neut_name, neut_fields in groups.items():
+                # 设定日志断点文件
+                fo_log_path = LOG_DIR / f"fo_progress_{job_id}_{dataset_id}_{neut_name}.jsonl"
+                if is_simulation_stage_complete(fo_log_path):
+                    logger.info(f"[{dataset_id}] FO Stage for group {neut_name} already completed. Skipping.")
+                    continue
+                
                 logger.info(f"[{dataset_id}] Neutralization group: {neut_name} ({len(neut_fields)} fields)")
                 
                 # 生成一阶表达式
@@ -563,9 +590,6 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 
                 # 构建 Pool
                 fo_pools = load_task_pool(fo_tuples, fo_children, fo_threads)
-                
-                # 设定日志断点文件
-                fo_log_path = LOG_DIR / f"fo_progress_{job_id}_{dataset_id}_{neut_name}.jsonl"
                 
                 run_simulation_pool_with_control(
                     job_id=job_id,
@@ -580,166 +604,172 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
         # 阶段二：二阶 SO
         # ==========================================
         if run_so:
-            logger.info(f"[{dataset_id}] Starting SO Stage...")
-            update_job(job_id, message=f"[{dataset_id}] Running SO Stage...")
-            
-            # 获取 SO 参数
-            fo_track_lookback = int(get_setting("fo_track_lookback_days", "90"))
-            fo_track_sharpe = float(get_setting("fo_track_sharpe", "1.0"))
-            fo_track_fitness = float(get_setting("fo_track_fitness", "0.7"))
-            fo_track_num = int(get_setting("fo_track_alpha_num", "100"))
-            
-            # 拉取一阶追踪候选
-            session = login_with_credentials(username, password)
-            try:
-                fo_tracker = get_recent_alphas(
-                    lookback_days=fo_track_lookback,
-                    sharpe_th=fo_track_sharpe,
-                    fitness_th=fo_track_fitness,
-                    region=region,
-                    universe=universe,
-                    alpha_num=fo_track_num,
-                    usage="track",
-                    timezone_name=timezone_name,
-                    fetch_limit_multiplier=fetch_limit_multiplier,
-                    session=session,
-                    verbose=True
-                )
-            finally:
-                session.close()
-                
-            if not fo_tracker:
-                logger.info(f"[{dataset_id}] No eligible FO tracker candidates. Skipping SO Stage.")
-                add_job_event(job_id, "warning", f"[{dataset_id}] No FO tracker candidates. Skipping SO.")
+            so_log_path = LOG_DIR / f"so_progress_{job_id}_{dataset_id}.jsonl"
+            if is_simulation_stage_complete(so_log_path):
+                logger.info(f"[{dataset_id}] SO Stage already completed. Skipping.")
             else:
-                # 剪枝与 Fallback 策略
-                prefix = derive_prune_prefix(fields)
-                keep_num = int(get_setting("prune_keep_num", "5"))
+                logger.info(f"[{dataset_id}] Starting SO Stage...")
+                update_job(job_id, message=f"[{dataset_id}] Running SO Stage...")
                 
-                pruned_candidates = []
-                if prefix:
-                    try:
-                        pruned_candidates = prune(fo_tracker, prefix, keep_num)
-                        logger.info(f"[{dataset_id}] Pruned using prefix '{prefix}' -> {len(pruned_candidates)} left.")
-                    except Exception as e:
-                        logger.warning(f"Prune failed: {e}. Fallback to sorting.")
+                # 获取 SO 参数
+                fo_track_lookback = int(get_setting("fo_track_lookback_days", "90"))
+                fo_track_sharpe = float(get_setting("fo_track_sharpe", "1.0"))
+                fo_track_fitness = float(get_setting("fo_track_fitness", "0.7"))
+                fo_track_num = int(get_setting("fo_track_alpha_num", "100"))
+                
+                # 拉取一阶追踪候选
+                session = login_with_credentials(username, password)
+                try:
+                    fo_tracker = get_recent_alphas(
+                        lookback_days=fo_track_lookback,
+                        sharpe_th=fo_track_sharpe,
+                        fitness_th=fo_track_fitness,
+                        region=region,
+                        universe=universe,
+                        alpha_num=fo_track_num,
+                        usage="track",
+                        timezone_name=timezone_name,
+                        fetch_limit_multiplier=fetch_limit_multiplier,
+                        session=session,
+                        verbose=True
+                    )
+                finally:
+                    session.close()
+                    
+                if not fo_tracker:
+                    logger.info(f"[{dataset_id}] No eligible FO tracker candidates. Skipping SO Stage.")
+                    add_job_event(job_id, "warning", f"[{dataset_id}] No FO tracker candidates. Skipping SO.")
+                else:
+                    # 剪枝与 Fallback 策略
+                    prefix = derive_prune_prefix(fields)
+                    keep_num = int(get_setting("prune_keep_num", "5"))
+                    
+                    pruned_candidates = []
+                    if prefix:
+                        try:
+                            pruned_candidates = prune(fo_tracker, prefix, keep_num)
+                            logger.info(f"[{dataset_id}] Pruned using prefix '{prefix}' -> {len(pruned_candidates)} left.")
+                        except Exception as e:
+                            logger.warning(f"Prune failed: {e}. Fallback to sorting.")
+                            
+                    if not pruned_candidates:
+                        fallback_keep = int(get_setting("track_fallback_keep_num", "50"))
+                        # 已经默认按 Sharpe 排序，截取前 N 项并组合
+                        pruned_candidates = [[rec[1], rec[-1]] for rec in fo_tracker[:fallback_keep]]
+                        logger.info(f"[{dataset_id}] Prune failed/skipped. Used global fallback selection: {len(pruned_candidates)} candidates.")
                         
-                if not pruned_candidates:
-                    fallback_keep = int(get_setting("track_fallback_keep_num", "50"))
-                    # 已经默认按 Sharpe 排序，截取前 N 项并组合
-                    pruned_candidates = [[rec[1], rec[-1]] for rec in fo_tracker[:fallback_keep]]
-                    logger.info(f"[{dataset_id}] Prune failed/skipped. Used global fallback selection: {len(pruned_candidates)} candidates.")
+                    # 生成二阶算子表达式
+                    group_ops = get_setting("group_ops", "group_neutralize,group_rank,group_zscore").split(",")
+                    # pruned_candidates 是 [[expr, decay]] 结构。需要只传递其中的 expr 列表
+                    expr_list = [c[0] for c in pruned_candidates]
+                    so_alphas = get_group_second_order_factory(expr_list, group_ops, region)
                     
-                # 生成二阶算子表达式
-                group_ops = get_setting("group_ops", "group_neutralize,group_rank,group_zscore").split(",")
-                # pruned_candidates 是 [[expr, decay]] 结构。需要只传递其中的 expr 列表
-                expr_list = [c[0] for c in pruned_candidates]
-                so_alphas = get_group_second_order_factory(expr_list, group_ops, region)
-                
-                # 默认二阶 decay 继承一阶
-                so_tuples = []
-                # 建立字典映射以便寻找原始 decay
-                decay_map = {c[0]: c[1] for c in pruned_candidates}
-                for so_alpha in so_alphas:
-                    # 匹配原字段的 decay
-                    decay = 0
-                    for k, v in decay_map.items():
-                        if k in so_alpha:
-                            decay = v
-                            break
-                    so_tuples.append((so_alpha, decay))
+                    # 默认二阶 decay 继承一阶
+                    so_tuples = []
+                    # 建立字典映射以便寻找原始 decay
+                    decay_map = {c[0]: c[1] for c in pruned_candidates}
+                    for so_alpha in so_alphas:
+                        # 匹配原字段的 decay
+                        decay = 0
+                        for k, v in decay_map.items():
+                            if k in so_alpha:
+                                decay = v
+                                break
+                        so_tuples.append((so_alpha, decay))
+                        
+                    so_pools = load_task_pool(so_tuples, so_children, so_threads)
                     
-                so_pools = load_task_pool(so_tuples, so_children, so_threads)
-                so_log_path = LOG_DIR / f"so_progress_{job_id}_{dataset_id}.jsonl"
-                
-                # 二阶的 neutralization 使用默认
-                run_simulation_pool_with_control(
-                    job_id=job_id,
-                    alpha_pools=so_pools,
-                    neut="INDUSTRY", # SO 默认 neut 级别
-                    region=region,
-                    universe=universe,
-                    log_path=so_log_path
-                )
+                    # 二阶的 neutralization 使用默认
+                    run_simulation_pool_with_control(
+                        job_id=job_id,
+                        alpha_pools=so_pools,
+                        neut="INDUSTRY", # SO 默认 neut 级别
+                        region=region,
+                        universe=universe,
+                        log_path=so_log_path
+                    )
                 
         # ==========================================
         # 阶段三：三阶 TH
         # ==========================================
         if run_th:
-            logger.info(f"[{dataset_id}] Starting TH Stage...")
-            update_job(job_id, message=f"[{dataset_id}] Running TH Stage...")
-            
-            # 获取 TH 参数
-            so_track_lookback = int(get_setting("so_track_lookback_days", "90"))
-            so_track_sharpe = float(get_setting("so_track_sharpe", "1.3"))
-            so_track_fitness = float(get_setting("so_track_fitness", "0.8"))
-            so_track_num = int(get_setting("so_track_alpha_num", "100"))
-            
-            # 拉取二阶追踪候选
-            session = login_with_credentials(username, password)
-            try:
-                so_tracker = get_recent_alphas(
-                    lookback_days=so_track_lookback,
-                    sharpe_th=so_track_sharpe,
-                    fitness_th=so_track_fitness,
-                    region=region,
-                    universe=universe,
-                    alpha_num=so_track_num,
-                    usage="track",
-                    timezone_name=timezone_name,
-                    fetch_limit_multiplier=fetch_limit_multiplier,
-                    session=session,
-                    verbose=True
-                )
-            finally:
-                session.close()
-                
-            if not so_tracker:
-                logger.info(f"[{dataset_id}] No eligible SO tracker candidates. Skipping TH Stage.")
-                add_job_event(job_id, "warning", f"[{dataset_id}] No SO tracker candidates. Skipping TH.")
+            th_log_path = LOG_DIR / f"th_progress_{job_id}_{dataset_id}.jsonl"
+            if is_simulation_stage_complete(th_log_path):
+                logger.info(f"[{dataset_id}] TH Stage already completed. Skipping.")
             else:
-                prefix = derive_prune_prefix(fields)
-                keep_num = int(get_setting("prune_keep_num", "5"))
+                logger.info(f"[{dataset_id}] Starting TH Stage...")
+                update_job(job_id, message=f"[{dataset_id}] Running TH Stage...")
                 
-                pruned_candidates = []
-                if prefix:
-                    try:
-                        pruned_candidates = prune(so_tracker, prefix, keep_num)
-                        logger.info(f"[{dataset_id}] Pruned using prefix '{prefix}' -> {len(pruned_candidates)} left.")
-                    except Exception as e:
-                        logger.warning(f"Prune failed: {e}. Fallback to sorting.")
+                # 获取 TH 参数
+                so_track_lookback = int(get_setting("so_track_lookback_days", "90"))
+                so_track_sharpe = float(get_setting("so_track_sharpe", "1.3"))
+                so_track_fitness = float(get_setting("so_track_fitness", "0.8"))
+                so_track_num = int(get_setting("so_track_alpha_num", "100"))
+                
+                # 拉取二阶追踪候选
+                session = login_with_credentials(username, password)
+                try:
+                    so_tracker = get_recent_alphas(
+                        lookback_days=so_track_lookback,
+                        sharpe_th=so_track_sharpe,
+                        fitness_th=so_track_fitness,
+                        region=region,
+                        universe=universe,
+                        alpha_num=so_track_num,
+                        usage="track",
+                        timezone_name=timezone_name,
+                        fetch_limit_multiplier=fetch_limit_multiplier,
+                        session=session,
+                        verbose=True
+                    )
+                finally:
+                    session.close()
+                    
+                if not so_tracker:
+                    logger.info(f"[{dataset_id}] No eligible SO tracker candidates. Skipping TH Stage.")
+                    add_job_event(job_id, "warning", f"[{dataset_id}] No SO tracker candidates. Skipping TH.")
+                else:
+                    prefix = derive_prune_prefix(fields)
+                    keep_num = int(get_setting("prune_keep_num", "5"))
+                    
+                    pruned_candidates = []
+                    if prefix:
+                        try:
+                            pruned_candidates = prune(so_tracker, prefix, keep_num)
+                            logger.info(f"[{dataset_id}] Pruned using prefix '{prefix}' -> {len(pruned_candidates)} left.")
+                        except Exception as e:
+                            logger.warning(f"Prune failed: {e}. Fallback to sorting.")
+                            
+                    if not pruned_candidates:
+                        fallback_keep = int(get_setting("track_fallback_keep_num", "50"))
+                        pruned_candidates = [[rec[1], rec[-1]] for rec in so_tracker[:fallback_keep]]
+                        logger.info(f"[{dataset_id}] Prune failed/skipped. Used global fallback selection: {len(pruned_candidates)} candidates.")
                         
-                if not pruned_candidates:
-                    fallback_keep = int(get_setting("track_fallback_keep_num", "50"))
-                    pruned_candidates = [[rec[1], rec[-1]] for rec in so_tracker[:fallback_keep]]
-                    logger.info(f"[{dataset_id}] Prune failed/skipped. Used global fallback selection: {len(pruned_candidates)} candidates.")
+                    # 生成三阶交易控制表达式
+                    th_alphas = []
+                    decay_map = {c[0]: c[1] for c in pruned_candidates}
+                    for c in pruned_candidates:
+                        th_alphas += trade_when_factory("trade_when", c[0], region)
+                        
+                    th_tuples = []
+                    for th_alpha in th_alphas:
+                        decay = 0
+                        for k, v in decay_map.items():
+                            if k in th_alpha:
+                                decay = v
+                                break
+                        th_tuples.append((th_alpha, decay))
+                        
+                    th_pools = load_task_pool(th_tuples, th_children, th_threads)
                     
-                # 生成三阶交易控制表达式
-                th_alphas = []
-                decay_map = {c[0]: c[1] for c in pruned_candidates}
-                for c in pruned_candidates:
-                    th_alphas += trade_when_factory("trade_when", c[0], region)
-                    
-                th_tuples = []
-                for th_alpha in th_alphas:
-                    decay = 0
-                    for k, v in decay_map.items():
-                        if k in th_alpha:
-                            decay = v
-                            break
-                    th_tuples.append((th_alpha, decay))
-                    
-                th_pools = load_task_pool(th_tuples, th_children, th_threads)
-                th_log_path = LOG_DIR / f"th_progress_{job_id}_{dataset_id}.jsonl"
-                
-                run_simulation_pool_with_control(
-                    job_id=job_id,
-                    alpha_pools=th_pools,
-                    neut="INDUSTRY",
-                    region=region,
-                    universe=universe,
-                    log_path=th_log_path
-                )
+                    run_simulation_pool_with_control(
+                        job_id=job_id,
+                        alpha_pools=th_pools,
+                        neut="INDUSTRY",
+                        region=region,
+                        universe=universe,
+                        log_path=th_log_path
+                    )
                 
         # 单个数据集成功结束
         add_job_event(job_id, "info", f"Dataset {dataset_id} completed through all requested stages.")

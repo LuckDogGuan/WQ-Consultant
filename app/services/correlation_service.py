@@ -286,14 +286,28 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
         
         alphas_filtered = alphas_df[valid_metrics & valid_status]
         eligible_alphas = alphas_filtered.to_dict('records')
-        total_eligible = len(eligible_alphas)
         
-        msg = f"Filtered {total_fetched} alphas down to {total_eligible} eligible candidates."
+        # 增量断点恢复：过滤在这个 Job 中已经跑完并入库的项目
+        with connect() as conn:
+            finished_ids = {
+                row["alpha_id"] 
+                for row in conn.execute(
+                    "SELECT alpha_id FROM alpha_records WHERE source = ?", 
+                    (f"corr_check_{job_id}",)
+                ).fetchall()
+            }
+        
+        eligible_alphas = [a for a in eligible_alphas if a['alpha_id'] not in finished_ids]
+        total_eligible = len(eligible_alphas) + len(finished_ids)
+        completed = len(finished_ids)
+        
+        msg = f"Filtered {total_fetched} alphas down to {total_eligible} eligible candidates. (Already finished: {len(finished_ids)})"
         logger.info(msg)
         update_job(job_id, message=msg)
         add_job_event(job_id, "info", msg)
         
-        if total_eligible == 0:
+        if len(eligible_alphas) == 0:
+            update_job(job_id, progress_current=total_eligible, progress_total=total_eligible, message="All candidates already analyzed.")
             return
             
         results = []
@@ -400,7 +414,6 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
             }
 
         workers = int(get_setting("corr_workers", "5"))
-        completed = 0
         
         auto_rename_enabled = params.get("auto_rename")
         if auto_rename_enabled is None:

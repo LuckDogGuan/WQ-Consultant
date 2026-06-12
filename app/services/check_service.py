@@ -214,9 +214,24 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
             id_sources.setdefault(clean_aid, []).append("manual")
             
     check_queue = list(id_sources)
-    total_checks = len(check_queue)
     
-    msg = f"Check queue constructed. Total unique candidates: {total_checks} (Recent: {len(recent_submit_ids)}, Corr: {len(correlation_candidates)}, Manual: {len(manual_ids)})."
+    # 增量断点恢复：过滤自当前 Job 创建时间以来，已写入 check_results 的记录
+    with connect() as conn:
+        job_row = conn.execute("SELECT created_at FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        job_created_at = job_row["created_at"] if job_row else "1970-01-01 00:00:00"
+        
+        finished_ids = {
+            r["alpha_id"] 
+            for r in conn.execute(
+                "SELECT alpha_id FROM check_results WHERE created_at >= ?", 
+                (job_created_at,)
+            ).fetchall()
+        }
+        
+    check_queue = [aid for aid in check_queue if aid not in finished_ids]
+    total_checks = len(check_queue) + len(finished_ids)
+    
+    msg = f"Check queue constructed. Total unique candidates: {total_checks} (Already check: {len(finished_ids)}, Pending: {len(check_queue)})."
     logger.info(msg)
     update_job(job_id, message=msg)
     add_job_event(job_id, "info", msg, {
@@ -226,15 +241,15 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
         "manual_count": len(manual_ids)
     })
     
-    if total_checks == 0:
-        update_job(job_id, message="No candidates to check.", progress_current=100, progress_total=100)
+    if len(check_queue) == 0:
+        update_job(job_id, message="All check candidates already processed.", progress_current=total_checks, progress_total=total_checks)
         return
         
     # 2. 启动 3 线程并发检查
     session_container = {"session": login_with_credentials(username, password)}
     session_lock = threading.Lock()
     reconnect_count = 0
-    completed_count = 0
+    completed_count = len(finished_ids)
     
     def check_worker(alpha_id: str) -> dict[str, Any]:
         nonlocal reconnect_count
