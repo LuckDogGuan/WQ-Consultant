@@ -95,6 +95,10 @@ def on_startup():
     from .services.network_monitor import NetworkMonitor
     NetworkMonitor().start()
     
+    # 启动定时任务调度服务
+    from .services.scheduler_service import SchedulerService
+    SchedulerService().start()
+    
     logger.info("WorldQuant Consultant GUI startup checklist complete.")
 
 
@@ -105,7 +109,14 @@ def on_shutdown():
         from .services.network_monitor import NetworkMonitor
         NetworkMonitor().stop()
     except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
+        logger.error(f"Error during shutdown network monitor: {e}")
+        
+    try:
+        from .services.scheduler_service import SchedulerService
+        SchedulerService().stop()
+    except Exception as e:
+        logger.error(f"Error during shutdown scheduler: {e}")
+        
     logger.info("WorldQuant Consultant GUI shutdown complete.")
 
 
@@ -198,12 +209,13 @@ def get_settings_page(request: Request, admin: str = Depends(get_current_admin))
     settings = get_settings()
     cached_scopes = get_cached_scopes()
     day1_scopes = get_all_day1_scopes()
+    success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
     return templates.TemplateResponse(
         request, 
         "settings.html", 
         {
             "settings": settings, 
-            "success": None, 
+            "success": success_msg, 
             "cached_scopes": cached_scopes,
             "day1_scopes": day1_scopes,
             "region_names": REGION_DISPLAY_NAMES
@@ -223,6 +235,16 @@ def post_settings_page(
     delay: str = Form("1"),
     backtest_children: str = Form("5"),
     backtest_threads: str = Form("8"),
+    fo_backtest_children: str = Form("6"),
+    fo_backtest_threads: str = Form("10"),
+    so_backtest_children: str = Form("5"),
+    so_backtest_threads: str = Form("8"),
+    th_backtest_children: str = Form("5"),
+    th_backtest_threads: str = Form("8"),
+    alpha_date_timezone: str = Form("Asia/Shanghai"),
+    alpha_fetch_limit_multiplier: str = Form("3"),
+    daily_alpha_count_usage: str = Form("track"),
+    daily_alpha_count_status: str = Form("UNSUBMITTED%1FIS_FAIL"),
     backtest_daily_limit: str = Form("4500"),
     check_daily_limit: str = Form("4500"),
     check_threads: str = Form("3"),
@@ -259,6 +281,16 @@ def post_settings_page(
         "delay": delay,
         "backtest_children": backtest_children,
         "backtest_threads": backtest_threads,
+        "fo_backtest_children": fo_backtest_children,
+        "fo_backtest_threads": fo_backtest_threads,
+        "so_backtest_children": so_backtest_children,
+        "so_backtest_threads": so_backtest_threads,
+        "th_backtest_children": th_backtest_children,
+        "th_backtest_threads": th_backtest_threads,
+        "alpha_date_timezone": alpha_date_timezone,
+        "alpha_fetch_limit_multiplier": alpha_fetch_limit_multiplier,
+        "daily_alpha_count_usage": daily_alpha_count_usage,
+        "daily_alpha_count_status": daily_alpha_count_status,
         "backtest_daily_limit": backtest_daily_limit,
         "check_daily_limit": check_daily_limit,
         "check_threads": check_threads,
@@ -320,6 +352,35 @@ def post_settings_page(
             "region_names": REGION_DISPLAY_NAMES
         }
     )
+ 
+ 
+@app.post("/api/settings/update")
+async def api_update_settings(request: Request, admin: str = Depends(get_current_admin)):
+    form_data = await request.form()
+    updates = {}
+    for key, value in form_data.items():
+        if key == "admin_password":
+            if value.strip():
+                updates[key] = hash_password(value.strip())
+        elif key == "wq_password":
+            if value.strip():
+                updates[key] = value.strip()
+        else:
+            updates[key] = value
+            
+    if updates:
+        update_settings(updates)
+        
+    referer = request.headers.get("referer", "/settings")
+    if "?" in referer:
+        if "success=1" not in referer:
+            redirect_url = referer + "&success=1"
+        else:
+            redirect_url = referer
+    else:
+        redirect_url = referer + "?success=1"
+        
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/catalog", response_class=HTMLResponse)
@@ -342,6 +403,8 @@ def get_catalog(
     expired, refresh_str = check_cache_expired(region, universe, delay)
     cached_scopes = get_cached_scopes()
     day1_scopes = get_all_day1_scopes()
+    settings = get_settings()
+    success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
     
     return templates.TemplateResponse(
         request,
@@ -358,7 +421,9 @@ def get_catalog(
             "default_delay": default_delay,
             "cached_scopes": cached_scopes,
             "day1_scopes": day1_scopes,
-            "region_names": REGION_DISPLAY_NAMES
+            "region_names": REGION_DISPLAY_NAMES,
+            "settings": settings,
+            "success": success_msg
         }
     )
 
@@ -368,7 +433,9 @@ def get_backtest(request: Request, admin: str = Depends(get_current_admin)):
     # 查询最近运行的回测 Job
     with connect() as conn:
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'backtest' ORDER BY id DESC LIMIT 5").fetchall()
-    return templates.TemplateResponse(request, "backtest.html", {"jobs": jobs})
+    settings = get_settings()
+    success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
+    return templates.TemplateResponse(request, "backtest.html", {"jobs": jobs, "settings": settings, "success": success_msg})
 
 
 @app.get("/correlation", response_class=HTMLResponse)
@@ -383,22 +450,71 @@ def get_correlation(request: Request, admin: str = Depends(get_current_admin)):
             ORDER BY created_at DESC
             """
         ).fetchall()
-    return templates.TemplateResponse(request, "correlation.html", {"jobs": jobs, "alphas": alphas})
+    settings = get_settings()
+    success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
+    return templates.TemplateResponse(request, "correlation.html", {"jobs": jobs, "alphas": alphas, "settings": settings, "success": success_msg})
 
 
 @app.get("/check", response_class=HTMLResponse)
-def get_check(request: Request, admin: str = Depends(get_current_admin)):
+def get_check(
+    request: Request,
+    page: int = 1,
+    type_filter: str = "",
+    admin: str = Depends(get_current_admin)
+):
+    page_size = 50
+    offset = (page - 1) * page_size
+    
     with connect() as conn:
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'check_submission' ORDER BY id DESC LIMIT 5").fetchall()
+        
+        where_clause = "1=1"
+        params = []
+        if type_filter:
+            where_clause += " AND a.alpha_type = ?"
+            params.append(type_filter)
+            
+        total = conn.execute(
+            f"""
+            SELECT COUNT(*) 
+            FROM check_results c
+            LEFT JOIN alpha_records a ON c.alpha_id = a.alpha_id
+            WHERE {where_clause}
+            """,
+            params
+        ).fetchone()[0]
+        
+        total_pages = math.ceil(total / page_size) if total > 0 else 1
+        
         results = conn.execute(
-            """
+            f"""
             SELECT c.*, a.sharpe, a.fitness, a.alpha_type 
             FROM check_results c 
             LEFT JOIN alpha_records a ON c.alpha_id = a.alpha_id 
-            ORDER BY c.created_at DESC LIMIT 100
-            """
+            WHERE {where_clause}
+            ORDER BY c.created_at DESC 
+            LIMIT ? OFFSET ?
+            """,
+            params + [page_size, offset]
         ).fetchall()
-    return templates.TemplateResponse(request, "check.html", {"jobs": jobs, "results": results})
+        
+    settings = get_settings()
+    success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
+    
+    return templates.TemplateResponse(
+        request, 
+        "check.html", 
+        {
+            "jobs": jobs, 
+            "results": results,
+            "settings": settings,
+            "success": success_msg,
+            "page": page,
+            "total_pages": total_pages,
+            "type_filter": type_filter,
+            "total": total
+        }
+    )
 
 
 @app.get("/alphas", response_class=HTMLResponse)

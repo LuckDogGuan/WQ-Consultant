@@ -151,6 +151,8 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
     logger.info("Fetching recent submit candidates from WorldQuant Brain...")
     session = login_with_credentials(username, password)
     
+    timezone_name = get_setting("alpha_date_timezone", "Asia/Shanghai")
+    fetch_limit_multiplier = int(get_setting("alpha_fetch_limit_multiplier", "3"))
     recent_submit_ids = []
     try:
         recent_alphas = get_recent_alphas(
@@ -161,6 +163,8 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
             universe=universe,
             alpha_num=alpha_num,
             usage="submit",
+            timezone_name=timezone_name,
+            fetch_limit_multiplier=fetch_limit_multiplier,
             session=session,
             verbose=False
         )
@@ -173,17 +177,21 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
     # 来源 2：本地相关性分析的 PPA/RA/ATOM 优质候选
     correlation_candidates = []
     try:
+        from datetime import timezone, timedelta
+        check_lookback = int(get_setting("check_lookback_days", "60"))
+        check_max = int(get_setting("check_max_candidates", "4000"))
+        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=check_lookback)).isoformat()
+        
         with connect() as conn:
-            # 获取 PPA/RA/ATOM 且未 check 或上次结果为 ERROR 的
             rows = conn.execute(
                 """
                 SELECT alpha_id FROM alpha_records 
                 WHERE alpha_type IN ('PPA', 'RA', 'ATOM')
-                  AND (
-                    alpha_id NOT IN (SELECT alpha_id FROM check_results)
-                    OR alpha_id IN (SELECT alpha_id FROM check_results WHERE result = 'ERROR')
-                  )
-                """
+                  AND created_at >= ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (cutoff_date, check_max)
             ).fetchall()
             correlation_candidates = [r["alpha_id"] for r in rows]
     except Exception as e:

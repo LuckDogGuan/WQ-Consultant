@@ -77,6 +77,12 @@
             </header>
             
             <section class="content-body">
+                {% if success %}
+                <div class="alert alert-success page-alert">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <span>{{ success }}</span>
+                </div>
+                {% endif %}
                 {% block content %}{% endblock %}
             </section>
         </main>

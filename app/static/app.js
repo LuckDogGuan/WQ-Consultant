@@ -511,3 +511,16 @@ function showToast(message, type = "success") {
     }, 4000);
 }
 
+// 绑定折叠卡片点击展开与隐藏的处理逻辑
+document.addEventListener("DOMContentLoaded", () => {
+    document.body.addEventListener("click", (e) => {
+        const header = e.target.closest(".card-header.collapsible");
+        if (header) {
+            const card = header.closest(".card");
+            if (card) {
+                card.classList.toggle("collapsed");
+            }
+        }
+    });
+});
+

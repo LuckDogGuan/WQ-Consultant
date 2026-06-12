@@ -160,6 +160,7 @@ def run_simulation_pool_with_control(
         write_simulation_log,
         _response_content_text
     )
+    import concurrent.futures
     
     runner = JobRunner()
     
@@ -181,6 +182,11 @@ def run_simulation_pool_with_control(
     username = get_setting("wq_username")
     password = get_setting("wq_password")
     s = login_with_credentials(username, password)
+    
+    session_container = {"session": s}
+    session_lock = threading.Lock()
+    limit_lock = threading.Lock()
+    status_lock = threading.Lock()
     reconnect_count = 0
     
     total_pools = len(alpha_pools)
@@ -196,17 +202,20 @@ def run_simulation_pool_with_control(
             pct = int((x / total_pools) * 100) if total_pools > 0 else 0
             update_job(job_id, progress_current=x+1, progress_total=total_pools, message=f"Processing pool {x+1}/{total_pools}...")
             
-            pool_failed = False
+            pool_failed = [False]
             write_simulation_log(str(log_path), {"event": "pool_start", "pool_index": x, "task_count": len(pool)})
-            progress_urls = []
             
-            # 1. 提交 POST 任务
-            for y, task in enumerate(pool):
+            def run_single_task(y, task):
+                nonlocal reconnect_count
                 runner.check_paused(job_id)
-                check_limits_and_wait(job_id, s)
                 
+                # A. 额度和时间窗口检查
+                with limit_lock:
+                    with session_lock:
+                        cur_sess = session_container["session"]
+                    check_limits_and_wait(job_id, cur_sess)
+                    
                 sim_data = generate_sim_data(task, region, universe, neut)
-                simulation_response = None
                 write_simulation_log(
                     str(log_path),
                     {
@@ -217,12 +226,16 @@ def run_simulation_pool_with_control(
                     },
                 )
                 
+                progress_url = None
                 attempts = 0
                 max_post_retries = 3
                 while attempts < max_post_retries:
+                    runner.check_paused(job_id)
+                    with session_lock:
+                        thread_session = session_container["session"]
+                        
                     try:
-                        runner.check_paused(job_id)
-                        simulation_response = s.post('https://api.worldquantbrain.com/simulations', json=sim_data, timeout=60)
+                        simulation_response = thread_session.post('https://api.worldquantbrain.com/simulations', json=sim_data, timeout=60)
                         
                         if simulation_response.status_code == 429:
                             retry_after = int(simulation_response.headers.get("Retry-After", 5))
@@ -233,15 +246,14 @@ def run_simulation_pool_with_control(
                         if simulation_response.status_code == 401:
                             raise ConnectionResetError("Unauthorized token.")
                             
-                        simulation_progress_url = simulation_response.headers['Location']
-                        progress_urls.append(simulation_progress_url)
+                        progress_url = simulation_response.headers['Location']
                         write_simulation_log(
                             str(log_path),
                             {
                                 "event": "task_post_submitted",
                                 "pool_index": x,
                                 "task_index": y,
-                                "progress_url": simulation_progress_url,
+                                "progress_url": progress_url,
                             },
                         )
                         break
@@ -250,7 +262,8 @@ def run_simulation_pool_with_control(
                         attempts += 1
                         logger.warning(f"Error POSTing simulation: {exc}. Attempt {attempts}/{max_post_retries}")
                         if attempts >= max_post_retries:
-                            pool_failed = True
+                            with status_lock:
+                                pool_failed[0] = True
                             content = _response_content_text(simulation_response) if simulation_response else str(exc)
                             write_simulation_log(
                                 str(log_path),
@@ -266,34 +279,41 @@ def run_simulation_pool_with_control(
                             print(f"Location key error: {content}")
                             
                             if isinstance(exc, (requests.exceptions.RequestException, OSError, ConnectionResetError)):
-                                s = handle_reconnect(job_id, reconnect_count)
-                                reconnect_count += 1
+                                with session_lock:
+                                    if session_container["session"] == thread_session:
+                                        session_container["session"] = handle_reconnect(job_id, reconnect_count)
+                                        reconnect_count += 1
                             else:
                                 time.sleep(60)
                             break
                         else:
                             time.sleep(5)
                             
-            print(f"Pool {x} POST done.")
-            
-            # 2. 轮询并提取结果
-            for j, progress in enumerate(progress_urls):
-                runner.check_paused(job_id)
+                if not progress_url:
+                    return
+                    
+                # B. 轮询并提取结果
                 try:
                     simulation_progress = None
                     while True:
                         runner.check_paused(job_id)
-                        
+                        with session_lock:
+                            thread_session = session_container["session"]
+                            
                         try:
-                            simulation_progress = s.get(progress, timeout=30)
+                            simulation_progress = thread_session.get(progress_url, timeout=30)
                         except (requests.exceptions.RequestException, OSError) as exc:
-                            s = handle_reconnect(job_id, reconnect_count)
-                            reconnect_count += 1
+                            with session_lock:
+                                if session_container["session"] == thread_session:
+                                    session_container["session"] = handle_reconnect(job_id, reconnect_count)
+                                    reconnect_count += 1
                             continue
                             
                         if simulation_progress.status_code == 401:
-                            s = handle_reconnect(job_id, reconnect_count)
-                            reconnect_count += 1
+                            with session_lock:
+                                if session_container["session"] == thread_session:
+                                    session_container["session"] = handle_reconnect(job_id, reconnect_count)
+                                    reconnect_count += 1
                             continue
                             
                         retry_after = float(simulation_progress.headers.get("Retry-After", 0))
@@ -303,52 +323,65 @@ def run_simulation_pool_with_control(
                         
                     status_str = simulation_progress.json().get("status", "")
                     if status_str != "COMPLETE":
-                        pool_failed = True
+                        with status_lock:
+                            pool_failed[0] = True
                         write_simulation_log(
                             str(log_path),
                             {
                                 "event": "simulation_not_complete",
                                 "pool_index": x,
-                                "progress_index": j,
-                                "progress_url": progress,
+                                "task_index": y,
+                                "progress_url": progress_url,
                                 "status": status_str,
                             },
                         )
-                        print(f"Simulation not complete: {progress}")
+                        print(f"Simulation not complete: {progress_url}")
                     else:
                         write_simulation_log(
                             str(log_path),
                             {
                                 "event": "simulation_complete",
                                 "pool_index": x,
-                                "progress_index": j,
-                                "progress_url": progress,
+                                "task_index": y,
+                                "progress_url": progress_url,
                             },
                         )
-                        # 保存成功生成的 Alpha ID
-                        save_children_alphas(s, progress, region, universe, f"job_{job_id}")
+                        with session_lock:
+                            current_s = session_container["session"]
+                        save_children_alphas(current_s, progress_url, region, universe, f"job_{job_id}")
                         
                 except Exception as e:
-                    pool_failed = True
+                    with status_lock:
+                        pool_failed[0] = True
                     write_simulation_log(
                         str(log_path),
                         {
                             "event": "simulation_poll_error",
                             "pool_index": x,
-                            "progress_index": j,
-                            "progress_url": progress,
+                            "task_index": y,
+                            "progress_url": progress_url,
                             "exception": repr(e),
                         },
                     )
                     print(f"Poll error: {e}")
-                    
-            if not pool_failed:
+            
+            # 使用 ThreadPoolExecutor 并发处理当前 pool 的所有任务
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(pool)) as executor:
+                # 提交所有任务
+                futures = [executor.submit(run_single_task, y, task) for y, task in enumerate(pool)]
+                # 等待所有任务完成
+                concurrent.futures.wait(futures)
+                
+            print(f"Pool {x} done.")
+            
+            if not pool_failed[0]:
                 write_simulation_log(str(log_path), {"event": "pool_complete", "pool_index": x})
                 
         write_simulation_log(str(log_path), {"event": "simulation_run_complete"})
         
     finally:
-        s.close()
+        with session_lock:
+            session_container["session"].close()
 
 
 def derive_prune_prefix(fields: list[dict[str, Any]]) -> str | None:
@@ -410,8 +443,15 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     delay = int(get_setting("delay", "1"))
     instrument_type = get_setting("instrument_type", "EQUITY")
     
-    fo_children = int(get_setting("backtest_children", "5"))
-    fo_threads = int(get_setting("backtest_threads", "8"))
+    fo_children = int(get_setting("fo_backtest_children") or get_setting("backtest_children", "6"))
+    fo_threads = int(get_setting("fo_backtest_threads") or get_setting("backtest_threads", "10"))
+    so_children = int(get_setting("so_backtest_children") or get_setting("backtest_children", "5"))
+    so_threads = int(get_setting("so_backtest_threads") or get_setting("backtest_threads", "8"))
+    th_children = int(get_setting("th_backtest_children") or get_setting("backtest_children", "5"))
+    th_threads = int(get_setting("th_backtest_threads") or get_setting("backtest_threads", "8"))
+    
+    timezone_name = get_setting("alpha_date_timezone", "Asia/Shanghai")
+    fetch_limit_multiplier = int(get_setting("alpha_fetch_limit_multiplier", "3"))
     
     # 校验数据集
     if not dataset_ids:
@@ -521,6 +561,8 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                     universe=universe,
                     alpha_num=fo_track_num,
                     usage="track",
+                    timezone_name=timezone_name,
+                    fetch_limit_multiplier=fetch_limit_multiplier,
                     session=session,
                     verbose=True
                 )
@@ -568,7 +610,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                             break
                     so_tuples.append((so_alpha, decay))
                     
-                so_pools = load_task_pool(so_tuples, fo_children, fo_threads)
+                so_pools = load_task_pool(so_tuples, so_children, so_threads)
                 so_log_path = LOG_DIR / f"so_progress_{job_id}_{dataset_id}.jsonl"
                 
                 # 二阶的 neutralization 使用默认
@@ -605,6 +647,8 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                     universe=universe,
                     alpha_num=so_track_num,
                     usage="track",
+                    timezone_name=timezone_name,
+                    fetch_limit_multiplier=fetch_limit_multiplier,
                     session=session,
                     verbose=True
                 )
@@ -646,7 +690,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                             break
                     th_tuples.append((th_alpha, decay))
                     
-                th_pools = load_task_pool(th_tuples, fo_children, fo_threads)
+                th_pools = load_task_pool(th_tuples, th_children, th_threads)
                 th_log_path = LOG_DIR / f"th_progress_{job_id}_{dataset_id}.jsonl"
                 
                 run_simulation_pool_with_control(

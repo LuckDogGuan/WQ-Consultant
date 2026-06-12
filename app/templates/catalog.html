@@ -5,6 +5,60 @@
 
 {% block content %}
 <div class="catalog-container">
+    <div class="card page-settings-card collapsed">
+        <div class="card-header collapsible">
+            <div class="card-header-title">
+                <i class="fa-solid fa-earth-americas"></i>
+                <h2>默认 Scope 及同步设置</h2>
+            </div>
+            <i class="fa-solid fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="card-body">
+            <form action="/api/settings/update" method="POST" class="settings-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="region">默认同步地区 (Region)</label>
+                        <select id="region" name="region">
+                            {% for r in day1_scopes.scopes.keys() | sort %}
+                            <option value="{{ r }}" {% if settings.region == r %}selected{% endif %}>
+                                {% if r in region_names %}{{ region_names[r] }}{% else %}{{ r }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="universe">默认同步股票池 (Universe)</label>
+                        <select id="universe" name="universe">
+                            <!-- Populated by JS -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="delay">默认数据延时 (Delay)</label>
+                        <select id="delay" name="delay">
+                            <!-- Populated by JS -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="instrument_type">资产类型 (Instrument Type)</label>
+                        <input type="text" id="instrument_type" name="instrument_type" value="{{ settings.instrument_type or 'EQUITY' }}" readonly>
+                        <small class="form-help">当前系统固定只支持 EQUITY 股票资产。</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="weekly_catalog_refresh">每周自动同步一次</label>
+                        <select id="weekly_catalog_refresh" name="weekly_catalog_refresh">
+                            <option value="1" {% if settings.weekly_catalog_refresh == '1' %}selected{% endif %}>开启</option>
+                            <option value="0" {% if settings.weekly_catalog_refresh == '0' %}selected{% endif %}>关闭</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">确认保存默认 Scope</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="card catalog-header-card">
         <div class="card-body">
             <div class="catalog-scope-selectors" style="display: flex; gap: 16px; align-items: flex-end; margin-bottom: 20px; flex-wrap: wrap; border-bottom: 1px solid var(--border-color); padding-bottom: 20px;">
@@ -129,15 +183,25 @@ document.addEventListener("DOMContentLoaded", function() {
     // 读取后端缓存的地区结构
     const cachedScopes = {{ cached_scopes | tojson | safe }};
 
+    // 1. 数据目录查看选择器
     const regionSelect = document.getElementById("catalog-region");
     const universeSelect = document.getElementById("catalog-universe");
     const delaySelect = document.getElementById("catalog-delay");
     const cacheWarningBox = document.getElementById("cache-warning-box");
 
-    // 读取当前页面展示的 Scope
+    // 2. 默认 Scope 设置选择器
+    const settingsRegionSelect = document.getElementById("region");
+    const settingsUniverseSelect = document.getElementById("universe");
+    const settingsDelaySelect = document.getElementById("delay");
+
+    // 读取当前页面展示的 Scope 和数据库默认 Scope
     const currentRegion = "{{ region }}";
     const currentUniverse = "{{ universe }}";
     const currentDelay = "{{ delay }}";
+
+    const defaultRegion = "{{ settings.region or 'USA' }}";
+    const defaultUniverse = "{{ settings.universe or 'TOP3000' }}";
+    const defaultDelay = "{{ settings.delay or '1' }}";
 
     function checkCacheAvailability() {
         const r = regionSelect.value;
@@ -184,12 +248,48 @@ document.addEventListener("DOMContentLoaded", function() {
         checkCacheAvailability();
     }
 
+    // 更新设置表单联动
+    function updateSettingsUniversesAndDelays(useDefault = false) {
+        if (!settingsRegionSelect) return;
+        const region = settingsRegionSelect.value;
+        
+        const universes = scopeMapping[region] || ["TOP3000", "TOP2000", "TOP1000", "TOP500"];
+        settingsUniverseSelect.innerHTML = "";
+        universes.forEach(u => {
+            const opt = document.createElement("option");
+            opt.value = u;
+            opt.textContent = u;
+            if (useDefault && u === defaultUniverse) {
+                opt.selected = true;
+            }
+            settingsUniverseSelect.appendChild(opt);
+        });
+
+        const delays = delayMapping[region] || ["1"];
+        settingsDelaySelect.innerHTML = "";
+        delays.forEach(d => {
+            const opt = document.createElement("option");
+            opt.value = d;
+            opt.textContent = d === "0" ? "0 (无延时)" : `${d} (天延时)`;
+            if (useDefault && d === defaultDelay) {
+                opt.selected = true;
+            }
+            settingsDelaySelect.appendChild(opt);
+        });
+    }
+
     regionSelect.addEventListener("change", function() {
         updateUniversesAndDelays(false);
     });
 
     universeSelect.addEventListener("change", checkCacheAvailability);
     delaySelect.addEventListener("change", checkCacheAvailability);
+
+    if (settingsRegionSelect) {
+        settingsRegionSelect.addEventListener("change", function() {
+            updateSettingsUniversesAndDelays(false);
+        });
+    }
 
     // 设置初始选中状态
     for (let i = 0; i < regionSelect.options.length; i++) {
@@ -200,6 +300,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     updateUniversesAndDelays(true);
+    updateSettingsUniversesAndDelays(true);
 });
 
 function loadSelectedCatalogScope() {

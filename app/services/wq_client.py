@@ -47,9 +47,20 @@ def test_wq_credentials(username: str, password: str) -> bool:
 
 def get_current_daily_limit_count(session: requests.Session) -> int:
     """获取当天已生成的 Alpha 数量（用于回测额度限制参考）"""
-    # 默认使用 usage="track" 统计已提交至系统的 Alpha
+    from ..storage import get_setting
     try:
-        count = get_daily_alpha_count(session=session, usage="track")
+        limit = int(get_setting("backtest_daily_limit", "4500"))
+        usage = get_setting("daily_alpha_count_usage", "track")
+        timezone_name = get_setting("alpha_date_timezone", "Asia/Shanghai")
+        status = get_setting("daily_alpha_count_status", "UNSUBMITTED%1FIS_FAIL")
+        
+        count = get_daily_alpha_count(
+            alpha_num=limit,
+            usage=usage,
+            timezone_name=timezone_name,
+            status=status,
+            session=session
+        )
         logger.info(f"Retrieved current daily alpha count: {count}")
         return count
     except Exception as e:

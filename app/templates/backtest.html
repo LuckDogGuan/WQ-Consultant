@@ -4,6 +4,110 @@
 {% block header_title %}回测任务管理器{% endblock %}
 
 {% block content %}
+<div class="card page-settings-card collapsed">
+    <div class="card-header collapsible">
+        <div class="card-header-title">
+            <i class="fa-solid fa-sliders"></i>
+            <h2>回测与 Prune 算法参数设置</h2>
+        </div>
+        <i class="fa-solid fa-chevron-down toggle-icon"></i>
+    </div>
+    <div class="card-body">
+        <form action="/api/settings/update" method="POST" class="settings-form">
+            <!-- Fallback hidden values -->
+            <input type="hidden" name="backtest_children" value="{{ settings.backtest_children or '5' }}">
+            <input type="hidden" name="backtest_threads" value="{{ settings.backtest_threads or '8' }}">
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="fo_backtest_children">一阶 FO 每个 Multi-Sim 的 Alpha 数量</label>
+                    <input type="number" id="fo_backtest_children" name="fo_backtest_children" value="{{ settings.fo_backtest_children or '6' }}">
+                </div>
+                <div class="form-group">
+                    <label for="fo_backtest_threads">一阶 FO 并发的 Multi-Sim 请求数 (线程数)</label>
+                    <input type="number" id="fo_backtest_threads" name="fo_backtest_threads" value="{{ settings.fo_backtest_threads or '10' }}">
+                </div>
+                <div class="form-group">
+                    <label for="so_backtest_children">二阶 SO 每个 Multi-Sim 的 Alpha 数量</label>
+                    <input type="number" id="so_backtest_children" name="so_backtest_children" value="{{ settings.so_backtest_children or '5' }}">
+                </div>
+                <div class="form-group">
+                    <label for="so_backtest_threads">二阶 SO 并发的 Multi-Sim 请求数 (线程数)</label>
+                    <input type="number" id="so_backtest_threads" name="so_backtest_threads" value="{{ settings.so_backtest_threads or '8' }}">
+                </div>
+                <div class="form-group">
+                    <label for="th_backtest_children">三阶 TH 每个 Multi-Sim 的 Alpha 数量</label>
+                    <input type="number" id="th_backtest_children" name="th_backtest_children" value="{{ settings.th_backtest_children or '5' }}">
+                </div>
+                <div class="form-group">
+                    <label for="th_backtest_threads">三阶 TH 并发的 Multi-Sim 请求数 (线程数)</label>
+                    <input type="number" id="th_backtest_threads" name="th_backtest_threads" value="{{ settings.th_backtest_threads or '8' }}">
+                </div>
+                <div class="form-group">
+                    <label for="prune_keep_num">Prune 每个前缀保留数 (Keep Num)</label>
+                    <input type="number" id="prune_keep_num" name="prune_keep_num" value="{{ settings.prune_keep_num or '5' }}">
+                </div>
+                <div class="form-group">
+                    <label for="prune_prefix_min_share">前缀自动推导可信占比</label>
+                    <input type="text" id="prune_prefix_min_share" name="prune_prefix_min_share" value="{{ settings.prune_prefix_min_share or '0.6' }}">
+                </div>
+                <div class="form-group">
+                    <label for="track_fallback_keep_num">Prune 失败全局降序保留数</label>
+                    <input type="number" id="track_fallback_keep_num" name="track_fallback_keep_num" value="{{ settings.track_fallback_keep_num or '50' }}">
+                </div>
+                <div class="form-group">
+                    <label for="group_ops">二阶分组操作算子 (逗号分隔)</label>
+                    <input type="text" id="group_ops" name="group_ops" value="{{ settings.group_ops or 'group_neutralize,group_rank,group_zscore' }}">
+                </div>
+                <div class="form-group">
+                    <label for="fo_track_lookback_days">FO 一阶追踪回看天数</label>
+                    <input type="number" id="fo_track_lookback_days" name="fo_track_lookback_days" value="{{ settings.fo_track_lookback_days or '90' }}">
+                </div>
+                <div class="form-group">
+                    <label for="fo_track_sharpe">FO 一阶追踪 Sharpe 阈值</label>
+                    <input type="text" id="fo_track_sharpe" name="fo_track_sharpe" value="{{ settings.fo_track_sharpe or '1.0' }}">
+                </div>
+                <div class="form-group">
+                    <label for="fo_track_fitness">FO 一阶追踪 Fitness 阈值</label>
+                    <input type="text" id="fo_track_fitness" name="fo_track_fitness" value="{{ settings.fo_track_fitness or '0.7' }}">
+                </div>
+                <div class="form-group">
+                    <label for="fo_track_alpha_num">FO 一阶追踪候选上限数</label>
+                    <input type="number" id="fo_track_alpha_num" name="fo_track_alpha_num" value="{{ settings.fo_track_alpha_num or '100' }}">
+                </div>
+                <div class="form-group">
+                    <label for="so_track_lookback_days">SO 二阶追踪回看天数</label>
+                    <input type="number" id="so_track_lookback_days" name="so_track_lookback_days" value="{{ settings.so_track_lookback_days or '90' }}">
+                </div>
+                <div class="form-group">
+                    <label for="so_track_sharpe">SO 二阶追踪 Sharpe 阈值</label>
+                    <input type="text" id="so_track_sharpe" name="so_track_sharpe" value="{{ settings.so_track_sharpe or '1.3' }}">
+                </div>
+                <div class="form-group">
+                    <label for="so_track_fitness">SO 二阶追踪 Fitness 阈值</label>
+                    <input type="text" id="so_track_fitness" name="so_track_fitness" value="{{ settings.so_track_fitness or '0.8' }}">
+                </div>
+                <div class="form-group">
+                    <label for="so_track_alpha_num">SO 二阶追踪候选上限数</label>
+                    <input type="number" id="so_track_alpha_num" name="so_track_alpha_num" value="{{ settings.so_track_alpha_num or '100' }}">
+                </div>
+                <div class="form-group">
+                    <label for="alpha_date_timezone">追踪 Alpha 拉取与限额计算时区</label>
+                    <input type="text" id="alpha_date_timezone" name="alpha_date_timezone" value="{{ settings.alpha_date_timezone or 'Asia/Shanghai' }}">
+                </div>
+                <div class="form-group">
+                    <label for="alpha_fetch_limit_multiplier">候选预拉取倍数 (Multiplier)</label>
+                    <input type="number" id="alpha_fetch_limit_multiplier" name="alpha_fetch_limit_multiplier" value="{{ settings.alpha_fetch_limit_multiplier or '3' }}">
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">确认保存回测参数</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="backtest-grid">
     <!-- Left Panel: Launch Form -->
     <div class="card backtest-form-card">

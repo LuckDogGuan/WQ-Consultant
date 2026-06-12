@@ -1,0 +1,170 @@
+import time
+import logging
+import threading
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+from ..storage import get_setting, connect, create_job
+from ..job_runner import JobRunner
+
+logger = logging.getLogger(__name__)
+
+class SchedulerService:
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls, *args, **kwargs):
+        with cls._lock:
+            if not cls._instance:
+                cls._instance = super().__new__(cls)
+                cls._instance.thread = None
+                cls._instance.stop_event = threading.Event()
+            return cls._instance
+            
+    def start(self) -> None:
+        """启动定时任务调度线程"""
+        with self._lock:
+            if self.thread is None or not self.thread.is_alive():
+                self.stop_event.clear()
+                self.thread = threading.Thread(target=self._run_scheduler, daemon=True, name="SchedulerService")
+                self.thread.start()
+                logger.info("SchedulerService background thread started.")
+                
+    def stop(self) -> None:
+        """停止定时任务调度线程"""
+        with self._lock:
+            if self.thread is not None:
+                self.stop_event.set()
+                self.thread.join(timeout=1.0)
+                self.thread = None
+                logger.info("SchedulerService background thread stopped.")
+                
+    def _run_scheduler(self) -> None:
+        # 启动后等待 10 秒以避开系统启动瞬态
+        slept = 0
+        while slept < 10 and not self.stop_event.is_set():
+            time.sleep(1)
+            slept += 1
+            
+        while not self.stop_event.is_set():
+            try:
+                self._check_and_trigger()
+            except Exception as e:
+                logger.error(f"Error in scheduler check: {e}")
+                
+            # 每 3600 秒轮询一次 (1 小时)
+            slept = 0
+            while slept < 3600 and not self.stop_event.is_set():
+                time.sleep(1)
+                slept += 1
+                
+    def _check_and_trigger(self) -> None:
+        sh_tz = ZoneInfo("Asia/Shanghai")
+        now_sh = datetime.now(sh_tz)
+        
+        # 1. 定时自动提交检查任务
+        check_enabled = get_setting("check_schedule_enabled", "0") == "1"
+        if check_enabled:
+            interval_hours = int(get_setting("check_schedule_interval_hours", "24"))
+            schedule_hour = int(get_setting("check_schedule_hour", "0"))
+            last_run_str = get_setting("check_schedule_last_run", "")
+            
+            trigger = False
+            
+            if interval_hours >= 24:
+                # 每天在特定小时运行
+                current_date_str = now_sh.strftime("%Y-%m-%d")
+                if now_sh.hour == schedule_hour:
+                    last_run_date = ""
+                    if last_run_str:
+                        try:
+                            last_run_dt = datetime.fromisoformat(last_run_str).astimezone(sh_tz)
+                            last_run_date = last_run_dt.strftime("%Y-%m-%d")
+                        except Exception:
+                            pass
+                    if last_run_date != current_date_str:
+                        trigger = True
+            else:
+                # 每隔 N 小时运行一次
+                if last_run_str:
+                    try:
+                        last_run_dt = datetime.fromisoformat(last_run_str)
+                        now_utc = datetime.now(timezone.utc)
+                        elapsed = (now_utc - last_run_dt).total_seconds() / 3600.0
+                        if elapsed >= interval_hours:
+                            trigger = True
+                    except Exception:
+                        trigger = True
+                else:
+                    trigger = True
+                    
+            if trigger:
+                logger.info("Scheduler triggering auto check submission job...")
+                now_iso = datetime.now(timezone.utc).isoformat()
+                
+                # 更新上次执行时间
+                with connect() as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('check_schedule_last_run', ?, datetime('now'))",
+                        (now_iso,)
+                    )
+                    
+                # 发起任务
+                lookback = int(get_setting("check_lookback_days", "60"))
+                max_candidates = int(get_setting("check_max_candidates", "4000"))
+                params = {"manual_ids": []}
+                job_id = create_job(
+                    "check_submission",
+                    f"定时自动提交检查 (最近 {lookback} 天, 前 {max_candidates} 个)",
+                    params
+                )
+                JobRunner().start_job(job_id, "check_submission", params)
+
+        # 2. 定时自动相关性诊断任务
+        corr_enabled = get_setting("corr_schedule_enabled", "0") == "1"
+        if corr_enabled:
+            corr_hour = int(get_setting("corr_schedule_hour", "11"))
+            corr_last_run_str = get_setting("corr_schedule_last_run", "")
+            
+            corr_trigger = False
+            current_date_str = now_sh.strftime("%Y-%m-%d")
+            
+            # 每天在特定小时运行
+            if now_sh.hour == corr_hour:
+                last_run_date = ""
+                if corr_last_run_str:
+                    try:
+                        last_run_dt = datetime.fromisoformat(corr_last_run_str).astimezone(sh_tz)
+                        last_run_date = last_run_dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+                if last_run_date != current_date_str:
+                    corr_trigger = True
+                    
+            if corr_trigger:
+                logger.info("Scheduler triggering auto correlation job...")
+                now_iso = datetime.now(timezone.utc).isoformat()
+                
+                # 更新上次执行时间
+                with connect() as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('corr_schedule_last_run', ?, datetime('now'))",
+                        (now_iso,)
+                    )
+                    
+                # 发起相关性任务
+                lookback = int(get_setting("corr_schedule_lookback_days", "7"))
+                max_candidates = int(get_setting("corr_schedule_max_candidates", "4000"))
+                auto_rename_val = get_setting("auto_rename", "1") == "1"
+                
+                params = {
+                    "lookback_days": lookback,
+                    "limit": str(max_candidates) if max_candidates > 0 else "",
+                    "auto_rename": auto_rename_val
+                }
+                job_id = create_job(
+                    "correlation",
+                    f"定时自动相关性检测 (最近 {lookback} 天, 限额 {max_candidates} 个)",
+                    params
+                )
+                JobRunner().start_job(job_id, "correlation", params)

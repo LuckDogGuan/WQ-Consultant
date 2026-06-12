@@ -4,6 +4,64 @@
 {% block header_title %}相关性诊断 & 改名评定{% endblock %}
 
 {% block content %}
+<div class="card page-settings-card collapsed">
+    <div class="card-header collapsible">
+        <div class="card-header-title">
+            <i class="fa-solid fa-diagram-project"></i>
+            <h2>相关性检测参数设置</h2>
+        </div>
+        <i class="fa-solid fa-chevron-down toggle-icon"></i>
+    </div>
+    <div class="card-body">
+        <form action="/api/settings/update" method="POST" class="settings-form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="corr_lookback_days">相关性检测候选回看天数 (最近 N 天的待检因子)</label>
+                    <input type="number" id="corr_lookback_days" name="corr_lookback_days" value="{{ settings.corr_lookback_days or '14' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_workers">检测计算并发线程数 (线程数)</label>
+                    <input type="number" id="corr_workers" name="corr_workers" value="{{ settings.corr_workers or '5' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_fetch_limit">相关性检测拉取限额 (留空不限制)</label>
+                    <input type="text" id="corr_fetch_limit" name="corr_fetch_limit" value="{{ settings.corr_fetch_limit or '' }}">
+                </div>
+                <div class="form-group">
+                    <label for="auto_rename">默认自动重命名相关性优秀因子</label>
+                    <select id="auto_rename" name="auto_rename">
+                        <option value="1" {% if settings.auto_rename == '1' %}selected{% endif %}>开启</option>
+                        <option value="0" {% if settings.auto_rename == '0' %}selected{% endif %}>关闭</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="corr_schedule_enabled">开启定时相关性检测任务</label>
+                    <select id="corr_schedule_enabled" name="corr_schedule_enabled">
+                        <option value="1" {% if settings.corr_schedule_enabled == '1' %}selected{% endif %}>开启</option>
+                        <option value="0" {% if settings.corr_schedule_enabled != '1' %}selected{% endif %}>关闭</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="corr_schedule_hour">定时检测启动时间 (点, 0-23)</label>
+                    <input type="number" id="corr_schedule_hour" name="corr_schedule_hour" min="0" max="23" value="{{ settings.corr_schedule_hour or '11' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_schedule_lookback_days">定时任务回看范围 (天数)</label>
+                    <input type="number" id="corr_schedule_lookback_days" name="corr_schedule_lookback_days" value="{{ settings.corr_schedule_lookback_days or '7' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_schedule_max_candidates">定时任务候选上限 (个数)</label>
+                    <input type="number" id="corr_schedule_max_candidates" name="corr_schedule_max_candidates" value="{{ settings.corr_schedule_max_candidates or '4000' }}">
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">确认保存相关性设置</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="correlation-container">
     <div class="card correlation-header-card">
         <div class="card-body correlation-actions-box">

@@ -4,6 +4,77 @@
 {% block header_title %}检查提交结果 (check_submission){% endblock %}
 
 {% block content %}
+<div class="card page-settings-card collapsed">
+    <div class="card-header collapsible">
+        <div class="card-header-title">
+            <i class="fa-solid fa-clipboard-check"></i>
+            <h2>提交检查及定时任务设置</h2>
+        </div>
+        <i class="fa-solid fa-chevron-down toggle-icon"></i>
+    </div>
+    <div class="card-body">
+        <form action="/api/settings/update" method="POST" class="settings-form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="check_lookback_days">相关性诊断合格候选过滤回看天数</label>
+                    <input type="number" id="check_lookback_days" name="check_lookback_days" value="{{ settings.check_lookback_days or '60' }}">
+                </div>
+                <div class="form-group">
+                    <label for="check_max_candidates">相关性诊断合格候选提检上限数</label>
+                    <input type="number" id="check_max_candidates" name="check_max_candidates" value="{{ settings.check_max_candidates or '4000' }}">
+                </div>
+                <div class="form-group">
+                    <label for="submit_lookback_days">最近 Submit 提测拉取回看天数 (天)</label>
+                    <input type="number" id="submit_lookback_days" name="submit_lookback_days" value="{{ settings.submit_lookback_days or '30' }}">
+                </div>
+                <div class="form-group">
+                    <label for="submit_sharpe">最近 Submit 提测拉取 Sharpe 阈值</label>
+                    <input type="text" id="submit_sharpe" name="submit_sharpe" value="{{ settings.submit_sharpe or '1.58' }}">
+                </div>
+                <div class="form-group">
+                    <label for="submit_fitness">最近 Submit 提测拉取 Fitness 阈值</label>
+                    <input type="text" id="submit_fitness" name="submit_fitness" value="{{ settings.submit_fitness or '1.0' }}">
+                </div>
+                <div class="form-group">
+                    <label for="submit_alpha_num">最近 Submit 提测拉取上限数量</label>
+                    <input type="number" id="submit_alpha_num" name="submit_alpha_num" value="{{ settings.submit_alpha_num or '200' }}">
+                </div>
+                <div class="form-group">
+                    <label for="check_daily_limit">Check 检查每日参考上限数</label>
+                    <input type="number" id="check_daily_limit" name="check_daily_limit" value="{{ settings.check_daily_limit or '4500' }}">
+                </div>
+                <div class="form-group">
+                    <label for="check_threads">Check 检查并发线程数 (线程数)</label>
+                    <input type="number" id="check_threads" name="check_threads" value="{{ settings.check_threads or '3' }}">
+                </div>
+                <div class="form-group">
+                    <label for="check_schedule_enabled">自动定时任务调度状态</label>
+                    <select id="check_schedule_enabled" name="check_schedule_enabled">
+                        <option value="1" {% if settings.check_schedule_enabled == '1' %}selected{% endif %}>开启</option>
+                        <option value="0" {% if settings.check_schedule_enabled == '0' %}selected{% endif %}>关闭</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="check_schedule_hour">定时触发整点小时数 (0-23 整点)</label>
+                    <input type="number" id="check_schedule_hour" name="check_schedule_hour" value="{{ settings.check_schedule_hour or '0' }}" min="0" max="23">
+                </div>
+                <div class="form-group">
+                    <label for="check_schedule_interval_hours">调度间隔时间点小时 (24表示每日运行)</label>
+                    <input type="number" id="check_schedule_interval_hours" name="check_schedule_interval_hours" value="{{ settings.check_schedule_interval_hours or '24' }}">
+                </div>
+                <div class="form-group">
+                    <label>定时任务上次自动触发时间</label>
+                    <input type="text" value="{{ settings.check_schedule_last_run or '暂未执行过' }}" readonly disabled style="opacity: 0.7;">
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">确认保存提交检查配置</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="check-grid">
     <!-- Left Panel: Manual Submission form -->
     <div class="card check-form-card">
@@ -100,10 +171,13 @@
 
 <!-- Results Panel -->
 <div class="card check-results-card">
-    <div class="card-header">
-        <h2><i class="fa-solid fa-list-check"></i> 最近 100 条检查判定结果</h2>
-        <div class="card-actions">
-            <span class="badge info">历史判定明细</span>
+    <div class="card-header" style="flex-wrap: wrap; gap: 16px;">
+        <h2><i class="fa-solid fa-list-check"></i> 历史检查判定明细 (共 {{ total }} 条)</h2>
+        <div class="filter-group-buttons" style="display: flex; gap: 8px;">
+            <a href="/check?page=1" class="btn btn-sm {% if type_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
+            <a href="/check?page=1&type_filter=PPA" class="btn btn-sm {% if type_filter == 'PPA' %}btn-primary{% else %}btn-secondary{% endif %}">PPA</a>
+            <a href="/check?page=1&type_filter=RA" class="btn btn-sm {% if type_filter == 'RA' %}btn-primary{% else %}btn-secondary{% endif %}">RA</a>
+            <a href="/check?page=1&type_filter=ATOM" class="btn btn-sm {% if type_filter == 'ATOM' %}btn-primary{% else %}btn-secondary{% endif %}">ATOM</a>
         </div>
     </div>
     <div class="card-body">
@@ -166,6 +240,21 @@
                 </tbody>
             </table>
         </div>
+        
+        <!-- Pagination -->
+        {% if total_pages > 1 %}
+        <div class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+            {% if page > 1 %}
+            <a href="/check?page={{ page - 1 }}&type_filter={{ type_filter }}" class="btn btn-secondary btn-sm">上一页</a>
+            {% endif %}
+            
+            <span class="pagination-info" style="color: var(--text-muted); font-size: 14px;">第 {{ page }} / {{ total_pages }} 页</span>
+            
+            {% if page < total_pages %}
+            <a href="/check?page={{ page + 1 }}&type_filter={{ type_filter }}" class="btn btn-secondary btn-sm">下一页</a>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

@@ -243,9 +243,9 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
         all_ids, all_rets = load_correlation_data(tag=None)
         
         # 3. 拉取最近 unsubmitted 的 alphas
-        lookback = int(get_setting("corr_lookback_days", "14"))
-        limit = get_setting("corr_fetch_limit", "")
-        limit_val = int(limit) if limit and limit.isdigit() else None
+        lookback = int(params.get("lookback_days") or get_setting("corr_lookback_days", "14"))
+        limit = params.get("limit") or get_setting("corr_fetch_limit", "")
+        limit_val = int(limit) if limit and str(limit).isdigit() else None
         
         region = get_setting("region", "USA")
         universe = get_setting("universe", "TOP3000")
@@ -340,15 +340,49 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
             alpha_type = None
             target_name = None
             
-            if sharpe > 1.0 and ppa_corr < 0.5:
-                alpha_type = "PPA"
-                target_name = f"PPA_{ppa_corr:.2f}_{fitness:.2f}"
-            elif l2y_sharpe > 2.38 and prod_corr < 0.7:
-                alpha_type = "ATOM"
-                target_name = f"ATOM_{prod_corr:.2f}_{fitness:.2f}"
-            elif sharpe > 1.58 and prod_corr < 0.7 and is_ladder_pass:
-                alpha_type = "RA"
-                target_name = f"RA_{prod_corr:.2f}_{fitness:.2f}"
+            # 先判断 sharpe < 1.0 或者是任何 correlation > 0.7 的，直接设为 anonymous
+            if sharpe < 1.0 or prod_corr > 0.7 or ppa_corr > 0.7:
+                alpha_type = "SKIP"
+                target_name = "anonymous"
+            else:
+                # 获取 IS checks 异常数
+                error_count = 0
+                try:
+                    check_resp = session.get(f"https://api.worldquantbrain.com/alphas/{alpha_id}/check", timeout=30)
+                    if check_resp.status_code == 200:
+                        check_data = check_resp.json()
+                        checks = check_data.get("is", {}).get("checks", [])
+                        for chk in checks:
+                            if chk.get("result") in ["FAIL", "ERROR"]:
+                                error_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to fetch checks for correlation analysis of {alpha_id}: {e}")
+                    
+                # 判定后续类型
+                if sharpe > 1.0 and ppa_corr < 0.5:
+                    if error_count > 0:
+                        alpha_type = "SKIP"
+                        target_name = "anonymous"
+                    else:
+                        alpha_type = "PPA"
+                        target_name = f"PPA_{ppa_corr:.2f}_{fitness:.2f}"
+                elif l2y_sharpe > 2.38 and prod_corr < 0.7:
+                    if error_count < 2:
+                        alpha_type = "ATOM"
+                        target_name = f"ATOM_{prod_corr:.2f}_{fitness:.2f}_err{error_count}"
+                    else:
+                        alpha_type = "SKIP"
+                        target_name = "anonymous"
+                elif sharpe > 1.58 and prod_corr < 0.7 and is_ladder_pass:
+                    if error_count > 0:
+                        alpha_type = "SKIP"
+                        target_name = "anonymous"
+                    else:
+                        alpha_type = "RA"
+                        target_name = f"RA_{prod_corr:.2f}_{fitness:.2f}"
+                else:
+                    alpha_type = "SKIP"
+                    target_name = "anonymous"
                 
             return {
                 'alpha_id': alpha_id,
@@ -360,7 +394,7 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
                 'ppa_corr': ppa_corr,
                 'prod_corr': prod_corr,
                 'alpha_type': alpha_type or "SKIP",
-                'target_name': target_name or "",
+                'target_name': target_name or "anonymous",
                 'status': row.get('status', ''),
                 'payload': row
             }

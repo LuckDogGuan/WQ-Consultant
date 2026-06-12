@@ -1164,3 +1164,53 @@ select option {
     gap: 12px;
 }
 
+/* Collapsible setting cards */
+.card-header.collapsible {
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.3s ease;
+}
+
+.card-header.collapsible:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.card.collapsed .card-body {
+    display: none;
+}
+
+.card .toggle-icon {
+    font-size: 14px;
+    color: var(--text-muted);
+    transition: transform 0.3s ease;
+}
+
+.card.collapsed .toggle-icon {
+    transform: rotate(-90deg);
+}
+
+.card-header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Page action settings panel styling */
+.page-settings-card {
+    margin-bottom: 24px;
+    border-color: rgba(9, 132, 227, 0.3); /* Sleek highlight border */
+}
+
+.page-settings-card .card-header {
+    background: rgba(9, 132, 227, 0.05);
+}
+
+.page-settings-card .form-actions {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+}
+
+
