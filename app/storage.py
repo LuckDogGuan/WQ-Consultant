@@ -1,0 +1,327 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+from .paths import DB_PATH, ensure_dirs
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+@contextmanager
+def connect():
+    ensure_dirs()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def init_db() -> None:
+    with connect() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                title TEXT NOT NULL,
+                params TEXT NOT NULL,
+                progress_current INTEGER NOT NULL DEFAULT 0,
+                progress_total INTEGER NOT NULL DEFAULT 0,
+                message TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS job_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS alpha_records (
+                alpha_id TEXT PRIMARY KEY,
+                alpha_type TEXT NOT NULL DEFAULT '',
+                name TEXT NOT NULL DEFAULT '',
+                region TEXT NOT NULL DEFAULT '',
+                universe TEXT NOT NULL DEFAULT '',
+                sharpe REAL,
+                fitness REAL,
+                prod_corr REAL,
+                ppa_corr REAL,
+                status TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
+                platform_url TEXT NOT NULL DEFAULT '',
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS check_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alpha_id TEXT NOT NULL,
+                result TEXT NOT NULL,
+                prod_corr REAL,
+                source TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL DEFAULT '',
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS errors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                area TEXT NOT NULL,
+                message TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        seed_defaults(conn)
+
+
+DEFAULT_SETTINGS = {
+    "admin_password": "admin",
+    "wq_username": "",
+    "wq_password": "",
+    "region": "USA",
+    "universe": "TOP3000",
+    "delay": "1",
+    "instrument_type": "EQUITY",
+    "backtest_children": "5",
+    "backtest_threads": "8",
+    "backtest_max_jobs": "3",
+    "backtest_daily_limit": "4500",
+    "check_daily_limit": "4500",
+    "check_threads": "3",
+    "poll_minutes": "20",
+    "blocked_start_cn": "00:00",
+    "blocked_end_cn": "00:00",
+    "auto_rename": "1",
+    "weekly_catalog_refresh": "1",
+    # 相关性检测与 check_submission 相关参数
+    "corr_lookback_days": "14",
+    "corr_fetch_limit": "",
+    "corr_workers": "5",
+    "submit_lookback_days": "30",
+    "submit_sharpe": "1.58",
+    "submit_fitness": "1.0",
+    "submit_alpha_num": "200",
+    # 跟踪过滤相关参数
+    "fo_track_lookback_days": "90",
+    "fo_track_sharpe": "1.0",
+    "fo_track_fitness": "0.7",
+    "fo_track_alpha_num": "100",
+    "so_track_lookback_days": "90",
+    "so_track_sharpe": "1.3",
+    "so_track_fitness": "0.8",
+    "so_track_alpha_num": "100",
+    "prune_keep_num": "5",
+    "prune_prefix_min_share": "0.6",
+    "track_fallback_keep_num": "50",
+    "group_ops": "group_neutralize,group_rank,group_zscore",
+    # 重新连接参数
+    "reconnect_short_sleep_seconds": "300",
+    "reconnect_long_sleep_seconds": "3600",
+    # 修改属性二次确认选项
+    "need_confirm_on_modify": "0",
+}
+
+
+def seed_defaults(conn: sqlite3.Connection) -> None:
+    now = utc_now()
+    for key, value in DEFAULT_SETTINGS.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO settings(key, value, updated_at) VALUES (?, ?, ?)",
+            (key, value, now),
+        )
+
+
+def get_setting(key: str, default: str = "") -> str:
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+
+def get_settings() -> dict[str, str]:
+    with connect() as conn:
+        return {row["key"]: row["value"] for row in conn.execute("SELECT key, value FROM settings")}
+
+
+def update_settings(values: dict[str, Any]) -> None:
+    now = utc_now()
+    with connect() as conn:
+        for key, value in values.items():
+            conn.execute(
+                """
+                INSERT INTO settings(key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                (key, str(value), now),
+            )
+
+
+def create_job(kind: str, title: str, params: dict[str, Any]) -> int:
+    now = utc_now()
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO jobs(kind, status, title, params, created_at, updated_at)
+            VALUES (?, 'queued', ?, ?, ?, ?)
+            """,
+            (kind, title, json.dumps(params, ensure_ascii=False), now, now),
+        )
+        return int(cur.lastrowid)
+
+
+def update_job(job_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = utc_now()
+    keys = list(fields)
+    sql = ", ".join(f"{key} = ?" for key in keys)
+    values = [fields[key] for key in keys]
+    values.append(job_id)
+    with connect() as conn:
+        conn.execute(f"UPDATE jobs SET {sql} WHERE id = ?", values)
+
+
+def add_job_event(job_id: int, level: str, message: str, payload: dict[str, Any] | None = None) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO job_events(job_id, level, message, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+            (job_id, level, message, json.dumps(payload or {}, ensure_ascii=False), utc_now()),
+        )
+
+
+def add_error(area: str, message: str, payload: dict[str, Any] | None = None) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO errors(area, message, payload, created_at) VALUES (?, ?, ?, ?)",
+            (area, message, json.dumps(payload or {}, ensure_ascii=False), utc_now()),
+        )
+
+
+def upsert_alpha(record: dict[str, Any]) -> None:
+    alpha_id = record["alpha_id"]
+    now = utc_now()
+    payload = json.dumps(record.get("payload", {}), ensure_ascii=False)
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO alpha_records(
+                alpha_id, alpha_type, name, region, universe, sharpe, fitness,
+                prod_corr, ppa_corr, status, source, platform_url, payload, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(alpha_id) DO UPDATE SET
+                alpha_type = excluded.alpha_type,
+                name = excluded.name,
+                region = excluded.region,
+                universe = excluded.universe,
+                sharpe = excluded.sharpe,
+                fitness = excluded.fitness,
+                prod_corr = excluded.prod_corr,
+                ppa_corr = excluded.ppa_corr,
+                status = excluded.status,
+                source = excluded.source,
+                platform_url = excluded.platform_url,
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            """,
+            (
+                alpha_id,
+                record.get("alpha_type") or "",
+                record.get("name") or "",
+                record.get("region") or "",
+                record.get("universe") or "",
+                record.get("sharpe"),
+                record.get("fitness"),
+                record.get("prod_corr"),
+                record.get("ppa_corr"),
+                record.get("status") or "",
+                record.get("source") or "",
+                record.get("platform_url") or f"https://platform.worldquantbrain.com/alpha/{alpha_id}",
+                payload,
+                now,
+                now,
+            ),
+        )
+
+
+def add_check_result(alpha_id: str, result: str, prod_corr: float | None, message: str, source: str = "", payload: dict[str, Any] | None = None) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO check_results(alpha_id, result, prod_corr, source, message, payload, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (alpha_id, result, prod_corr, source, message, json.dumps(payload or {}, ensure_ascii=False), utc_now()),
+        )
+
+
+def list_rows(table: str, page: int = 1, page_size: int = 50, where: str = "", params: Iterable[Any] = (), order_by: str = "id DESC") -> tuple[list[sqlite3.Row], int]:
+    page = max(1, int(page))
+    page_size = max(1, min(200, int(page_size)))
+    offset = (page - 1) * page_size
+    where_sql = f" WHERE {where}" if where else ""
+    with connect() as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS n FROM {table}{where_sql}", tuple(params)).fetchone()["n"]
+        rows = conn.execute(
+            f"SELECT * FROM {table}{where_sql} ORDER BY {order_by} LIMIT ? OFFSET ?",
+            tuple(params) + (page_size, offset),
+        ).fetchall()
+        return rows, int(total)
+
+
+def list_jobs(limit: int = 20) -> list[sqlite3.Row]:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def delete_job(job_id: int) -> None:
+    from .job_runner import JobRunner
+    runner = JobRunner()
+    # 如果任务在运行，请求暂停
+    if job_id in runner.active_jobs:
+        runner.pause_job(job_id)
+        
+    with connect() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        conn.execute("DELETE FROM job_events WHERE job_id = ?", (job_id,))
+
+
+def list_job_events(job_id: int, limit: int = 200) -> list[sqlite3.Row]:
+    with connect() as conn:
+        return conn.execute(
+            "SELECT * FROM job_events WHERE job_id = ? ORDER BY id DESC LIMIT ?",
+            (job_id, limit),
+        ).fetchall()
+
+
+def read_log_tail(path: Path, max_lines: int = 200) -> list[str]:
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return lines[-max_lines:]
+

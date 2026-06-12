@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}系统日志 - WQ Consultant{% endblock %}
+{% block header_title %}系统运行日志{% endblock %}
+
+{% block content %}
+<div class="logs-container">
+    <!-- Live GUI Log View -->
+    <div class="card logs-viewer-card">
+        <div class="card-header">
+            <h2><i class="fa-solid fa-terminal"></i> 运行日志 (gui.log)</h2>
+            <div class="card-actions">
+                <label class="checkbox-label text-sm">
+                    <input type="checkbox" id="auto-scroll-gui-log" checked>
+                    <span>自动滚动</span>
+                </label>
+            </div>
+        </div>
+        <div class="card-body">
+            <pre class="log-viewer bg-dark" id="gui-log-viewer">正在读取系统运行日志...</pre>
+        </div>
+    </div>
+
+    <!-- DB Captured Errors Table -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fa-solid fa-triangle-exclamation text-danger"></i> 捕获的系统异常记录</h2>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>发生时间</th>
+                            <th>发生模块</th>
+                            <th>异常消息 (Error Message)</th>
+                            <th>堆栈 Payload (JSON)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for err in errors %}
+                        <tr>
+                            <td class="text-xs text-muted">{{ err.created_at[:19].replace('T', ' ') }}</td>
+                            <td><span class="badge status-ATOM">{{ err.area }}</span></td>
+                            <td class="text-sm text-danger font-mono font-bold">{{ err.message }}</td>
+                            <td class="text-xs text-muted max-width-cell">
+                                <code>{{ err.payload }}</code>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">暂无系统异常记录。</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// 初始化 live log 读取
+document.addEventListener("DOMContentLoaded", function() {
+    startGuiLogTailing();
+});
+</script>
+{% endblock %}

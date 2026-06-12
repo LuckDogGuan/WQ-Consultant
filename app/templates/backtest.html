@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}回测任务 - WQ Consultant{% endblock %}
+{% block header_title %}回测任务管理器{% endblock %}
+
+{% block content %}
+<div class="backtest-grid">
+    <!-- Left Panel: Launch Form -->
+    <div class="card backtest-form-card">
+        <div class="card-header">
+            <h2><i class="fa-solid fa-play"></i> 新建批量回测任务</h2>
+        </div>
+        <div class="card-body">
+            <form action="/api/jobs/backtest" method="POST" class="backtest-launch-form">
+                <div class="form-group">
+                    <label for="dataset_ids">数据集 ID 列表 (每行输入一个)</label>
+                    <textarea id="dataset_ids" name="dataset_ids" rows="8" placeholder="例如:&#10;macro38&#10;fundamental6&#10;analyst4" required></textarea>
+                    <small class="form-help">系统将对每个输入的数据集依次跑完勾选的回测阶段（串行执行）。</small>
+                </div>
+                
+                <div class="form-group checkbox-group">
+                    <label>运行回测阶段：</label>
+                    <div class="checkbox-options">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="run_fo" value="true" checked>
+                            <span>一阶 FO (算子因子化)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="run_so" value="true" checked>
+                            <span>二阶 SO (分组 neutralization 交叉)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="run_th" value="true" checked>
+                            <span>三阶 TH (交易控制过滤)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">启动批量回测流程</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Right Panel: Jobs List -->
+    <div class="card backtest-history-card">
+        <div class="card-header">
+            <h2><i class="fa-solid fa-list-check"></i> 最近的回测任务</h2>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table" id="backtest-jobs-table">
+                    <thead>
+                        <tr>
+                            <th>Job ID</th>
+                            <th>状态</th>
+                            <th>任务说明与参数</th>
+                            <th>进度</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for j in jobs %}
+                        <tr class="job-row" onclick="viewJobDetails({{ j.id }})" id="job-tr-{{ j.id }}" data-job-id="{{ j.id }}">
+                            <td>#{{ j.id }}</td>
+                            <td class="job-status-cell">
+                                <span class="job-status-badge status-{{ j.status }}">{{ j.status }}</span>
+                            </td>
+                            <td class="job-title-cell">
+                                <div class="font-bold">{{ j.title }}</div>
+                                {% if j.params %}
+                                    {% set p = j.params | json_loads if j.params is string else j.params %}
+                                    {% if p %}
+                                        <div class="job-params-display text-muted" style="margin-top: 4px; font-size: 11px;">
+                                            <i class="fa-solid fa-sliders"></i>
+                                            一阶: {{ '是' if p.run_fo else '否' }} | 二阶: {{ '是' if p.run_so else '否' }} | 三阶: {{ '是' if p.run_th else '否' }}
+                                            {% if p.dataset_ids %} | 数据集: {{ p.dataset_ids | join(', ') | truncate(40) }}{% endif %}
+                                        </div>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                            <td class="job-progress-cell">
+                                {% set cur = j.progress_current or 0 %}
+                                {% set tot = j.progress_total or 0 %}
+                                {% set pct = (cur * 100 / tot) | round | int if tot > 0 else 0 %}
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" style="width: {{ pct }}%"></div>
+                                    <span class="progress-bar-text">
+                                        {% if tot > 0 and tot != 100 %}
+                                            {{ cur }} / {{ tot }} ({{ pct }}%)
+                                        {% else %}
+                                            {{ cur }}%
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </td>
+                            <td class="job-action-cell">
+                                <div class="btn-group">
+                                    {% if j.status in ['running', 'waiting_limit', 'waiting_time_window', 'reconnecting'] %}
+                                    <button class="btn btn-sm btn-warning pause-job-btn" onclick="event.stopPropagation(); pauseJob({{ j.id }})">停止</button>
+                                    {% else %}
+                                    <button class="btn btn-sm btn-success resume-job-btn" onclick="event.stopPropagation(); resumeJob({{ j.id }})">启动</button>
+                                    <button class="btn btn-sm btn-primary modify-job-btn" onclick="event.stopPropagation(); editJob({{ j.id }})">修改</button>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-danger delete-job-btn" onclick="event.stopPropagation(); deleteJob({{ j.id }})">删除</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">暂无回测任务记录</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bottom Panel: Job Log and Events -->
+<div class="job-details-section card" id="job-details-panel" style="display: none;">
+    <div class="card-header details-header">
+        <h2 id="details-job-title">任务详情 - Job #</h2>
+        <div class="card-actions">
+            <button class="btn btn-sm btn-secondary" onclick="closeJobDetails()">关闭面板</button>
+        </div>
+    </div>
+    <div class="card-body details-body">
+        <div class="details-tabs">
+            <button class="tab-btn active" onclick="switchDetailsTab('log')">运行日志 (Live Log)</button>
+            <button class="tab-btn" onclick="switchDetailsTab('events')">事件轨迹 (Events)</button>
+        </div>
+        
+        <div class="tab-content" id="tab-log">
+            <pre class="log-viewer" id="job-log-viewer">加载日志中...</pre>
+            <div class="log-viewer-footer">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="auto-scroll-log" checked>
+                    <span>自动滚动到底部</span>
+                </label>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="tab-events" style="display: none;">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>发生时间</th>
+                            <th>等级</th>
+                            <th>事件信息</th>
+                        </tr>
+                    </thead>
+                    <tbody id="job-events-list">
+                        <!-- Filled by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

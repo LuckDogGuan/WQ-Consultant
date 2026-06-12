@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Alpha 数据库记录 - WQ Consultant{% endblock %}
+{% block header_title %}本地 Alpha 数据库归档{% endblock %}
+
+{% block content %}
+<div class="alphas-container">
+    <div class="card filter-card">
+        <div class="card-body filter-bar-box">
+            <div class="filter-group-buttons">
+                <a href="/alphas?page=1" class="btn btn-sm {% if type_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
+                <a href="/alphas?page=1&type_filter=PPA" class="btn btn-sm {% if type_filter == 'PPA' %}btn-primary{% else %}btn-secondary{% endif %}">PPA</a>
+                <a href="/alphas?page=1&type_filter=RA" class="btn btn-sm {% if type_filter == 'RA' %}btn-primary{% else %}btn-secondary{% endif %}">RA</a>
+                <a href="/alphas?page=1&type_filter=ATOM" class="btn btn-sm {% if type_filter == 'ATOM' %}btn-primary{% else %}btn-secondary{% endif %}">ATOM</a>
+            </div>
+            <div class="filter-count">
+                <span>总共记录: <strong>{{ total }}</strong> 个 Alpha</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Alpha ID</th>
+                            <th>评定类别</th>
+                            <th>实际名称 (Name)</th>
+                            <th>区域/宇宙</th>
+                            <th>分数 (Sharpe/Fitness)</th>
+                            <th>相关性 (PPA/Prod)</th>
+                            <th>状态</th>
+                            <th>创建时间</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for a in alphas %}
+                        <tr>
+                            <td>
+                                <a href="{{ a.platform_url }}" target="_blank" class="platform-link-code">
+                                    <i class="fa-solid fa-arrow-up-right-from-square"></i> {{ a.alpha_id }}
+                                </a>
+                            </td>
+                            <td>
+                                {% if a.alpha_type %}
+                                <span class="badge status-{{ a.alpha_type }}">{{ a.alpha_type }}</span>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="name-cell text-sm">{{ a.name or '未命名' }}</td>
+                            <td class="text-xs">{{ a.region }} / {{ a.universe }}</td>
+                            <td>
+                                <span class="stat-tag">S: {{ "%.2f"|format(a.sharpe) if a.sharpe is not none else 'N/A' }}</span>
+                                <span class="stat-tag">F: {{ "%.2f"|format(a.fitness) if a.fitness is not none else 'N/A' }}</span>
+                            </td>
+                            <td>
+                                <span class="stat-tag">PPA: {{ "%.2f"|format(a.ppa_corr) if a.ppa_corr is not none else 'N/A' }}</span>
+                                <span class="stat-tag">Prod: {{ "%.2f"|format(a.prod_corr) if a.prod_corr is not none else 'N/A' }}</span>
+                            </td>
+                            <td>
+                                <span class="badge secondary">{{ a.status or 'UNSUBMITTED' }}</span>
+                            </td>
+                            <td class="text-xs text-muted">{{ a.created_at[:19].replace('T', ' ') }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted">本地数据库中暂无 Alpha 记录归档。</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            {% if total_pages > 1 %}
+            <div class="pagination">
+                {% if page > 1 %}
+                <a href="/alphas?page={{ page - 1 }}&type_filter={{ type_filter }}" class="btn btn-secondary btn-sm">上一页</a>
+                {% endif %}
+                
+                <span class="pagination-info">第 {{ page }} / {{ total_pages }} 页</span>
+                
+                {% if page < total_pages %}
+                <a href="/alphas?page={{ page + 1 }}&type_filter={{ type_filter }}" class="btn btn-secondary btn-sm">下一页</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

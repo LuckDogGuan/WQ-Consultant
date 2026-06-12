@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}WorldQuant Consultant GUI{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <i class="fa-solid fa-brain brand-icon"></i>
+                <span class="brand-text">WQ Consultant</span>
+            </div>
+            
+            <nav class="sidebar-menu">
+                <a href="/dashboard" class="menu-item {% if request.url.path == '/dashboard' or request.url.path == '/' %}active{% endif %}">
+                    <i class="fa-solid fa-chart-line"></i>
+                    <span>仪表盘</span>
+                </a>
+                <a href="/settings" class="menu-item {% if request.url.path == '/settings' %}active{% endif %}">
+                    <i class="fa-solid fa-sliders"></i>
+                    <span>设置</span>
+                </a>
+                <a href="/catalog" class="menu-item {% if request.url.path == '/catalog' %}active{% endif %}">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <span>数据目录</span>
+                </a>
+                <a href="/backtest" class="menu-item {% if request.url.path == '/backtest' %}active{% endif %}">
+                    <i class="fa-solid fa-flask"></i>
+                    <span>回测任务</span>
+                </a>
+                <a href="/correlation" class="menu-item {% if request.url.path == '/correlation' %}active{% endif %}">
+                    <i class="fa-solid fa-diagram-project"></i>
+                    <span>相关性检测</span>
+                </a>
+                <a href="/check" class="menu-item {% if request.url.path == '/check' %}active{% endif %}">
+                    <i class="fa-solid fa-clipboard-check"></i>
+                    <span>检查提交</span>
+                </a>
+                <a href="/alphas" class="menu-item {% if request.url.path == '/alphas' %}active{% endif %}">
+                    <i class="fa-solid fa-database"></i>
+                    <span>Alpha 记录</span>
+                </a>
+                <a href="/logs" class="menu-item {% if request.url.path == '/logs' %}active{% endif %}">
+                    <i class="fa-solid fa-terminal"></i>
+                    <span>日志</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <a href="/logout" class="logout-btn">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>注销登录</span>
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="top-bar-title">
+                    <h1>{% block header_title %}仪表盘{% endblock %}</h1>
+                </div>
+                <div class="top-bar-status">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">系统状态正常</span>
+                    </div>
+                </div>
+            </header>
+            
+            <section class="content-body">
+                {% block content %}{% endblock %}
+            </section>
+        </main>
+    </div>
+
+    <!-- Edit Job Modal -->
+    <div id="edit-job-modal" class="modal-overlay" onclick="closeEditModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>修改任务参数 - Job #<span id="modal-job-id"></span></h3>
+                <button class="modal-close-btn" onclick="closeEditModal()">&times;</button>
+            </div>
+            <form id="edit-job-form" onsubmit="saveJobParams(event)">
+                <input type="hidden" id="edit-job-id-input" name="job_id">
+                <div class="modal-body" id="modal-body-fields">
+                    <!-- Fields dynamically populated by JS -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        window.NEED_CONFIRM_ON_MODIFY = "{{ need_confirm_on_modify or '0' }}";
+    </script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

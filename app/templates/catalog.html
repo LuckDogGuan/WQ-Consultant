@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}数据目录 - WQ Consultant{% endblock %}
+{% block header_title %}数据目录缓存{% endblock %}
+
+{% block content %}
+<div class="catalog-container">
+    <div class="card catalog-header-card">
+        <div class="card-body">
+            <div class="catalog-scope-selectors" style="display: flex; gap: 16px; align-items: flex-end; margin-bottom: 20px; flex-wrap: wrap; border-bottom: 1px solid var(--border-color); padding-bottom: 20px;">
+                <div class="form-group" style="margin-bottom: 0; min-width: 140px;">
+                    <label for="catalog-region" style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">地区 (Region)</label>
+                    <select id="catalog-region" style="width: 100%;">
+                        {% for r in day1_scopes.scopes.keys() | sort %}
+                        <option value="{{ r }}">
+                            {% if r in region_names %}{{ region_names[r] }}{% else %}{{ r }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0; min-width: 140px;">
+                    <label for="catalog-universe" style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">股票池 (Universe)</label>
+                    <select id="catalog-universe" style="width: 100%;">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0; min-width: 110px;">
+                    <label for="catalog-delay" style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">数据延时 (Delay)</label>
+                    <select id="catalog-delay" style="width: 100%;">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-secondary" onclick="loadSelectedCatalogScope()"><i class="fa-solid fa-eye"></i> 切换查看该区域</button>
+                    <button class="btn btn-primary" onclick="refreshCatalogForScope()"><i class="fa-solid fa-arrows-rotate"></i> 刷新同步该地区数据</button>
+                </div>
+            </div>
+
+            <!-- Current Scope Status Muted Row -->
+            <div class="catalog-scope-summary" style="display: flex; gap: 24px; margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
+                <div>当前展示：<strong style="color: var(--text-main);">{{ region }}/{{ universe }} (Delay {{ delay }})</strong></div>
+                <div>已缓存数据集：<strong style="color: var(--text-main);">{{ datasets | length }} 个</strong></div>
+                <div>
+                    缓存状态：
+                    {% if not datasets %}
+                    <span class="badge status-FAIL"><i class="fa-solid fa-circle-exclamation"></i> 暂无本地数据</span>
+                    {% elif cache_expired %}
+                    <span class="badge warning"><i class="fa-solid fa-circle-exclamation"></i> 已过期 ({{ cache_last_refresh }})</span>
+                    {% else %}
+                    <span class="badge success"><i class="fa-solid fa-circle-check"></i> 有效 ({{ cache_last_refresh }})</span>
+                    {% endif %}
+                </div>
+                <div id="cache-warning-box" style="display: none;">
+                    <span class="badge status-FAIL" style="background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #f87171;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> 目标地区未缓存，切换查看将显示为空，请点击右侧刷新按钮！
+                    </span>
+                </div>
+            </div>
+            
+            <div class="catalog-actions-bar">
+                <div class="search-bar">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="catalog-search" onkeyup="filterCatalog()" placeholder="在当前地区中搜索数据集 ID 或名称...">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table" id="catalog-table">
+                    <thead>
+                        <tr>
+                            <th>数据集 ID (ID)</th>
+                            <th>数据集名称 (Name)</th>
+                            <th>分类主题 (Theme)</th>
+                            <th>字段数 (Field Count)</th>
+                            <th>说明描述 (Description)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for d in datasets %}
+                        <tr>
+                            <td><code class="dataset-id-code">{{ d.id }}</code></td>
+                            <td class="dataset-name-cell">{{ d.name }}</td>
+                            <td><span class="badge secondary">{{ d.theme_group or d.category or 'Other' }}</span></td>
+                            <td><strong>{{ d.field_count }}</strong></td>
+                            <td class="text-muted text-sm description-cell">{{ d.description }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted">暂无本地缓存数据。请点击上方按钮刷新获取。</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function filterCatalog() {
+    var input = document.getElementById("catalog-search");
+    var filter = input.value.toUpperCase();
+    var table = document.getElementById("catalog-table");
+    var tr = table.getElementsByTagName("tr");
+
+    for (var i = 1; i < tr.length; i++) {
+        var tdId = tr[i].getElementsByTagName("td")[0];
+        var tdName = tr[i].getElementsByTagName("td")[1];
+        if (tdId || tdName) {
+            var txtValueId = tdId.textContent || tdId.innerText;
+            var txtValueName = tdName.textContent || tdName.innerText;
+            if (txtValueId.toUpperCase().indexOf(filter) > -1 || txtValueName.toUpperCase().indexOf(filter) > -1) {
+                tr[i].style.display = "";
+            } else {
+                tr[i].style.display = "none";
+            }
+        }       
+    }
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    const scopeMapping = {{ day1_scopes.scopes | tojson | safe }};
+    const delayMapping = {{ day1_scopes.delays | tojson | safe }};
+
+    // 读取后端缓存的地区结构
+    const cachedScopes = {{ cached_scopes | tojson | safe }};
+
+    const regionSelect = document.getElementById("catalog-region");
+    const universeSelect = document.getElementById("catalog-universe");
+    const delaySelect = document.getElementById("catalog-delay");
+    const cacheWarningBox = document.getElementById("cache-warning-box");
+
+    // 读取当前页面展示的 Scope
+    const currentRegion = "{{ region }}";
+    const currentUniverse = "{{ universe }}";
+    const currentDelay = "{{ delay }}";
+
+    function checkCacheAvailability() {
+        const r = regionSelect.value;
+        const u = universeSelect.value;
+        const d = parseInt(delaySelect.value);
+
+        const isCached = cachedScopes[r] && cachedScopes[r][u] && cachedScopes[r][u].includes(d);
+        if (isCached || (r === currentRegion && u === currentUniverse && d === parseInt(currentDelay) && {{ datasets | length }} > 0)) {
+            cacheWarningBox.style.display = "none";
+        } else {
+            cacheWarningBox.style.display = "block";
+        }
+    }
+
+    function updateUniversesAndDelays(useCurrent = false) {
+        const region = regionSelect.value;
+        
+        // 股票池
+        const universes = scopeMapping[region] || ["TOP3000", "TOP2000", "TOP1000", "TOP500"];
+        universeSelect.innerHTML = "";
+        universes.forEach(u => {
+            const opt = document.createElement("option");
+            opt.value = u;
+            opt.textContent = u;
+            if (useCurrent && u === currentUniverse) {
+                opt.selected = true;
+            }
+            universeSelect.appendChild(opt);
+        });
+
+        // 延时
+        const delays = delayMapping[region] || ["1"];
+        delaySelect.innerHTML = "";
+        delays.forEach(d => {
+            const opt = document.createElement("option");
+            opt.value = d;
+            opt.textContent = d === "0" ? "0 (无延时)" : `${d} (天延时)`;
+            if (useCurrent && d === currentDelay) {
+                opt.selected = true;
+            }
+            delaySelect.appendChild(opt);
+        });
+
+        checkCacheAvailability();
+    }
+
+    regionSelect.addEventListener("change", function() {
+        updateUniversesAndDelays(false);
+    });
+
+    universeSelect.addEventListener("change", checkCacheAvailability);
+    delaySelect.addEventListener("change", checkCacheAvailability);
+
+    // 设置初始选中状态
+    for (let i = 0; i < regionSelect.options.length; i++) {
+        if (regionSelect.options[i].value === currentRegion) {
+            regionSelect.selectedIndex = i;
+            break;
+        }
+    }
+
+    updateUniversesAndDelays(true);
+});
+
+function loadSelectedCatalogScope() {
+    const region = document.getElementById("catalog-region").value;
+    const universe = document.getElementById("catalog-universe").value;
+    const delay = document.getElementById("catalog-delay").value;
+    window.location.href = `/catalog?region=${region}&universe=${universe}&delay=${delay}`;
+}
+
+function refreshCatalogForScope() {
+    const region = document.getElementById("catalog-region").value;
+    const universe = document.getElementById("catalog-universe").value;
+    const delay = document.getElementById("catalog-delay").value;
+    
+    if (confirm(`确定要刷新并同步 ${region}/${universe} (Delay ${delay}) 的本地数据目录缓存吗？此操作将连接平台，拉取该区域下所有的最新数据集与字段结构，可能需要几分钟。`)) {
+        const formData = new FormData();
+        formData.append("region", region);
+        formData.append("universe", universe);
+        formData.append("delay", delay);
+        
+        fetch("/api/jobs/catalog_refresh", {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            alert(`数据目录刷新任务已成功启动，任务 ID 为 #${data.job_id}。已自动为您跳转至控制面板以查看实时进度。`);
+            window.location.href = "/dashboard";
+        })
+        .catch(err => alert("启动更新任务失败: " + err));
+    }
+}
+</script>
+{% endblock %}
