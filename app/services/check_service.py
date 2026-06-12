@@ -80,49 +80,60 @@ def check_limits_and_wait_check(job_id: int, session_container: dict[str, Any], 
 def check_alpha_remotely(s: requests.Session, alpha_id: str) -> tuple[str, float | None, str, dict[str, Any]]:
     """查询远程 WorldQuant API 以核验 Alpha 的 checks"""
     url = f"https://api.worldquantbrain.com/alphas/{alpha_id}/check"
-    resp = s.get(url, timeout=30)
     
-    if resp.status_code == 401:
-        raise ConnectionResetError("Session expired (401)")
-    if resp.status_code == 429:
-        retry_after = int(resp.headers.get("Retry-After", 5))
-        time.sleep(retry_after)
+    for attempt in range(5):
         resp = s.get(url, timeout=30)
         
-    if resp.status_code != 200:
-        return "ERROR", None, f"HTTP Error {resp.status_code}", {}
-        
-    data = resp.json()
-    if data.get("is", 0) == 0:
-        raise ConnectionResetError("Logged out indicator in body")
-        
-    checks = data.get("is", {}).get("checks", [])
-    checks_df = pd.DataFrame(checks)
-    
-    if checks_df.empty:
-        return "ERROR", None, "No check results found in response", data
-        
-    # 获取 PROD_CORRELATION
-    prod_corr = None
-    if "name" in checks_df.columns and "value" in checks_df.columns:
-        corr_rows = checks_df[checks_df.name == "PROD_CORRELATION"]
-        if not corr_rows.empty:
-            val = corr_rows["value"].values[0]
-            try:
-                prod_corr = float(val)
-            except Exception:
-                pass
-                
-    # 判定是否有 FAIL
-    if "result" in checks_df.columns:
-        has_fail = any(checks_df["result"] == "FAIL")
-        if has_fail:
-            failed_items = checks_df[checks_df.result == "FAIL"]["name"].tolist()
-            return "FAIL", prod_corr, f"Failed checks: {', '.join(failed_items)}", data
-        else:
-            return "PASS", prod_corr, "", data
+        if resp.status_code == 401:
+            raise ConnectionResetError("Session expired (401)")
+        if resp.status_code == 429:
+            retry_after = int(resp.headers.get("Retry-After", 5))
+            sleep_time = min(60, retry_after)
+            logger.warning(f"Rate limited (429) checking {alpha_id}. Sleeping for {sleep_time}s...")
+            time.sleep(sleep_time)
+            continue
             
-    return "ERROR", None, "Invalid checks schema", data
+        if resp.status_code != 200:
+            return "ERROR", None, f"HTTP Error {resp.status_code}", {}
+            
+        try:
+            data = resp.json()
+        except Exception as je:
+            logger.warning(f"JSONDecodeError checking {alpha_id}: {je}. Response: {resp.text[:200]}")
+            raise requests.exceptions.ContentDecodingError(f"Invalid JSON response: {je}", response=resp)
+            
+        if data.get("is", 0) == 0:
+            raise ConnectionResetError("Logged out indicator in body")
+            
+        checks = data.get("is", {}).get("checks", [])
+        checks_df = pd.DataFrame(checks)
+        
+        if checks_df.empty:
+            return "ERROR", None, "No check results found in response", data
+            
+        # 获取 PROD_CORRELATION
+        prod_corr = None
+        if "name" in checks_df.columns and "value" in checks_df.columns:
+            corr_rows = checks_df[checks_df.name == "PROD_CORRELATION"]
+            if not corr_rows.empty:
+                val = corr_rows["value"].values[0]
+                try:
+                    prod_corr = float(val)
+                except Exception:
+                    pass
+                    
+        # 判定是否有 FAIL
+        if "result" in checks_df.columns:
+            has_fail = any(checks_df["result"] == "FAIL")
+            if has_fail:
+                failed_items = checks_df[checks_df.result == "FAIL"]["name"].tolist()
+                return "FAIL", prod_corr, f"Failed checks: {', '.join(failed_items)}", data
+            else:
+                return "PASS", prod_corr, "", data
+                
+        return "ERROR", None, "Invalid checks schema", data
+        
+    return "ERROR", None, "Max 429 retries exceeded", {}
 
 
 def run_check_job(job_id: int, params: dict[str, Any]) -> None:
@@ -296,7 +307,7 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
                     "error_msg": error_msg
                 }
                 
-            except (requests.exceptions.RequestException, OSError, ConnectionResetError) as exc:
+            except (requests.exceptions.RequestException, OSError, ConnectionResetError, ValueError) as exc:
                 attempts += 1
                 logger.warning(f"Connection error checking {alpha_id}: {exc}. Retry {attempts}/3")
                 
