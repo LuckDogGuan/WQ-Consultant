@@ -8,6 +8,8 @@ import webbrowser
 from pathlib import Path
 
 
+import socket
+
 GUI_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = GUI_ROOT.parent
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -16,6 +18,18 @@ if str(GUI_ROOT) not in sys.path:
     sys.path.insert(0, str(GUI_ROOT))
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
+
+
+def get_local_ip() -> str:
+    """获取本机的局域网 IP 地址"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,7 +59,25 @@ def main() -> None:
     except Exception:
         pass
 
-    url = f"http://127.0.0.1:{args.port}"
+    local_ip = get_local_ip()
+    
+    # 动态确定要打开的链接
+    if args.host == "0.0.0.0":
+        url = f"http://{local_ip}:{args.port}"
+        print(f"\n============================================================")
+        print(f"  服务已绑定至 0.0.0.0，您可以通过以下链接进行访问:")
+        print(f"  -> 本地回环: http://127.0.0.1:{args.port}")
+        print(f"  -> 局域网/公网 IP: http://{local_ip}:{args.port}")
+        print(f"============================================================\n")
+    else:
+        url = f"http://{args.host}:{args.port}"
+        print(f"\n============================================================")
+        print(f"  服务已启动，您可以通过以下链接进行访问:")
+        print(f"  -> 访问地址: {url}")
+        if args.host == "127.0.0.1":
+            print(f"  -> 提示: 如需局域网或远程访问，请使用 --host 0.0.0.0 启动")
+        print(f"============================================================\n")
+
     if not args.no_browser:
         threading.Thread(target=open_browser, args=(url,), daemon=True).start()
 
