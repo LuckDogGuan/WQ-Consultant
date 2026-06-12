@@ -466,9 +466,10 @@ def post_backtest_run(
 
 
 @app.post("/api/jobs/correlation")
-def post_correlation_run(admin: str = Depends(get_current_admin)):
-    job_id = create_job("correlation", "相关性检测及改名评定", {})
-    JobRunner().start_job(job_id, "correlation", {})
+def post_correlation_run(auto_rename: str = Form("0"), admin: str = Depends(get_current_admin)):
+    params = {"auto_rename": auto_rename == "1"}
+    job_id = create_job("correlation", "相关性检测及改名评定", params)
+    JobRunner().start_job(job_id, "correlation", params)
     return RedirectResponse(url="/correlation", status_code=status.HTTP_303_SEE_OTHER)
 
 

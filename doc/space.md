@@ -38,5 +38,6 @@
   - **停止**：对运行中的任务提供“停止”操作（原暂停），可通知后台工作线程安全退出。
   - **修改**：提供精美的任务修改 Modal 弹窗。针对不同任务类别（如批量回测、数据目录刷新等）自适应渲染可配置参数，允许用户直接进行参数修改。
   - **删除**：提供“删除”按钮，安全地将任务及其关联事件从数据库中清空，如果任务在运行中则会同步发出停止信号，并实时移除前端表格的对应行。
+* **相关性诊断自动改名勾选框**：在“相关性检测”页面顶部启动区域新增了“诊断合格后自动在平台改名 (Auto Rename)”勾选框，默认处于勾选状态。允许用户在创建相关性诊断任务时，决定是否对诊断出的 PPA/ATOM/RA 优质候选自动进行平台远程改名。
 * **回测 NameError 异常修复**：排查并修复了在 `simulation_service.py` 内部 `run_backtest_job` 函数在执行二阶 (SO) 或三阶 (TH) 阶段时，由于凭证变量（`username`, `password`）未在函数主体中定义，导致调用 `login_with_credentials` 时抛出 `NameError: name 'username' is not defined` 的致命 Bug。
 * **SQLite 约束冲突异常修复**：修复了在 `upsert_alpha` 存储 Alpha 信息时，部分字段（如 `name`）由于平台数据返回为 `None`，导致 SQLite 抛出 `NOT NULL constraint failed: alpha_records.name` 写入失败的 Bug。已通过空值合并逻辑（`or ""`）确保强制合并为字符串。

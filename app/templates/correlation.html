@@ -11,7 +11,11 @@
                 <h3><i class="fa-solid fa-bolt"></i> 运行相关性检测</h3>
                 <p class="text-muted text-sm">拉取并增量缓存平台最新的 OS Alpha PnL，对比并识别出低相关性的 PPA/RA/ATOM 优质候选，生成推荐名称。</p>
             </div>
-            <form action="/api/jobs/correlation" method="POST" class="inline-form">
+            <form action="/api/jobs/correlation" method="POST" class="inline-form" style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+                <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; margin:0;">
+                    <input type="checkbox" name="auto_rename" value="1" checked style="width:16px; height:16px; cursor:pointer; margin:0;">
+                    <span style="font-size:14px; font-weight:500; color:var(--text-main);">诊断合格后自动在平台改名 (Auto Rename)</span>
+                </label>
                 <button type="submit" class="btn btn-primary btn-lg"><i class="fa-solid fa-play"></i> 启动相关性诊断 Job</button>
             </form>
         </div>

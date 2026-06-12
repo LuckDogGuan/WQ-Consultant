@@ -368,6 +368,10 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
         workers = int(get_setting("corr_workers", "5"))
         completed = 0
         
+        auto_rename_enabled = params.get("auto_rename")
+        if auto_rename_enabled is None:
+            auto_rename_enabled = get_setting("auto_rename", "1") == "1"
+            
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {executor.submit(analyze_single_alpha, row): row for row in eligible_alphas}
             for future in concurrent.futures.as_completed(futures):
@@ -381,20 +385,32 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
                         pct = int((completed / total_eligible) * 100)
                         msg = f"[{completed}/{total_eligible}] {alpha_id} | Sharpe: {res['sharpe']:.2f}, PPA: {res['ppa_corr']:.2f}, Prod: {res['prod_corr']:.2f} -> {res['alpha_type']}"
                         logger.info(msg)
+                        
+                        db_status = res["status"]
+                        if auto_rename_enabled and res["target_name"] and res["alpha_type"] != "SKIP" and db_status != 'RENAMED':
+                            try:
+                                logger.info(f"Auto-renaming remote alpha {alpha_id} to '{res['target_name']}'...")
+                                from consultant_core.machine_lib import set_alpha_properties
+                                set_alpha_properties(session, alpha_id, name=res["target_name"])
+                                db_status = 'RENAMED'
+                                msg += " (Auto Renamed)"
+                            except Exception as re_err:
+                                logger.error(f"Auto-rename failed for {alpha_id}: {re_err}")
+                        
                         update_job(job_id, progress_current=completed, progress_total=total_eligible, message=msg)
                         
                         # 入库
                         upsert_alpha({
                             "alpha_id": res["alpha_id"],
                             "alpha_type": res["alpha_type"],
-                            "name": res["name"],
+                            "name": res["target_name"] if db_status == 'RENAMED' else res["name"],
                             "region": res["region"],
                             "universe": res["universe"],
                             "sharpe": res["sharpe"],
                             "fitness": res["fitness"],
                             "prod_corr": res["prod_corr"],
                             "ppa_corr": res["ppa_corr"],
-                            "status": res["status"],
+                            "status": db_status,
                             "source": f"corr_check_{job_id}",
                             "payload": {
                                 "target_name": res["target_name"],
