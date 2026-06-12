@@ -346,8 +346,10 @@ def run_simulation_pool_with_control(
                         retry_after = float(simulation_progress.headers.get("Retry-After", 0))
                         if retry_after == 0:
                             break
-                        print(f"[Pool {x+1}] [Slot {y+1}] Simulation in progress. Checking again in {retry_after}s...", flush=True)
-                        time.sleep(retry_after)
+                        # 将回测的检查间隔从5秒变成20秒
+                        sleep_time = max(20.0, retry_after)
+                        print(f"[Pool {x+1}] [Slot {y+1}] Simulation in progress. Checking again in {sleep_time}s...", flush=True)
+                        time.sleep(sleep_time)
                         
                     status_str = simulation_progress.json().get("status", "")
                     if status_str != "COMPLETE":

@@ -719,10 +719,12 @@ def multi_simulate(
                 simulation_progress = None
                 while True:
                     simulation_progress = s.get(progress)
-                    if simulation_progress.headers.get("Retry-After", 0) == 0:
+                    retry_after = float(simulation_progress.headers.get("Retry-After", 0))
+                    if retry_after == 0:
                         break
-                    #print("Sleeping for " + simulation_progress.headers["Retry-After"] + " seconds")
-                    sleep(float(simulation_progress.headers["Retry-After"]))
+                    # 将回测的检查间隔从5秒变成20秒
+                    sleep_time = max(20.0, retry_after)
+                    sleep(sleep_time)
 
                 status = simulation_progress.json().get("status", 0)
                 if status != "COMPLETE":

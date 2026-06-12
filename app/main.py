@@ -787,6 +787,22 @@ def post_import_credentials(admin: str = Depends(get_current_admin)):
     return {"status": "ok"}
 
 
+@app.post("/api/settings/test_credentials")
+def post_test_credentials(
+    wq_username: str = Form(...),
+    wq_password: str = Form(...),
+    admin: str = Depends(get_current_admin)
+):
+    """测试输入的 WorldQuant 凭据是否能成功登录"""
+    from .services.wq_client import login_with_credentials
+    try:
+        session = login_with_credentials(wq_username.strip(), wq_password.strip())
+        session.close()
+        return {"status": "ok", "message": "测试登录成功，凭据正确！"}
+    except Exception as e:
+        return {"status": "error", "message": f"{str(e)}"}
+
+
 # ==========================================
 # 数据查询与实时日志 Tail API
 # ==========================================

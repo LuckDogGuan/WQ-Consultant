@@ -27,6 +27,7 @@
                 <h2><i class="fa-solid fa-key"></i> WorldQuant Brain 账号凭据配置</h2>
                 <div class="card-actions">
                     <button type="button" class="btn btn-sm btn-secondary" onclick="importCredentials()">一键从 credentials.json 导入</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="btn-test-credentials" onclick="testCredentials()"><i class="fa-solid fa-plug"></i> 测试登录</button>
                 </div>
             </div>
             <div class="card-body form-grid">
@@ -130,5 +131,58 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 });
+
+function testCredentials() {
+    const usernameInput = document.getElementById("wq_username");
+    const passwordInput = document.getElementById("wq_password");
+    if (!usernameInput || !passwordInput) return;
+
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+
+    if (!username || !password) {
+        showToast("请输入 WorldQuant 账号和密码后再进行测试", "error");
+        return;
+    }
+
+    const btn = document.getElementById("btn-test-credentials");
+    let originalText = "";
+    if (btn) {
+        originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 测试中...';
+    }
+
+    const formData = new FormData();
+    formData.append("wq_username", username);
+    formData.append("wq_password", password);
+
+    fetch("/api/settings/test_credentials", {
+        method: "POST",
+        body: formData
+    })
+    .then(res => {
+        if (!res.ok) {
+            throw new Error(`HTTP 错误: ${res.status}`);
+        }
+        return res.json();
+    })
+    .then(data => {
+        if (data.status === "ok") {
+            showToast(data.message || "测试登录成功，凭据正确！", "success");
+        } else {
+            showToast(data.message || "测试登录失败", "error");
+        }
+    })
+    .catch(err => {
+        showToast("请求发生错误: " + err.message, "error");
+    })
+    .finally(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+}
 </script>
 {% endblock %}

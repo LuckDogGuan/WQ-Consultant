@@ -69,6 +69,7 @@ def main():
         print("pip install -r requirements.txt\n")
 
     # 2.1 检测后台核心算法模块 consultant_core
+    gui_dir = Path(__file__).resolve().parent
     try:
         # 模拟 run_gui.py 添加 sys.path 的逻辑进行检测
         sys.path.insert(0, str(gui_dir.parent / "src"))
