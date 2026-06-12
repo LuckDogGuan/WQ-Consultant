@@ -125,12 +125,14 @@ def post_login(request: Request, password: str = Form(...)):
     if verify_password(password, db_password):
         secret = get_secret_key()
         signed_val = sign_cookie("admin", secret)
+        is_secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
         response.set_cookie(
             key="admin_session",
             value=signed_val,
             httponly=True,
-            samesite="lax"
+            samesite="lax",
+            secure=is_secure
         )
         return response
     

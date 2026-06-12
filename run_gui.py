@@ -39,6 +39,12 @@ def main() -> None:
         print("缺少 GUI 依赖，请先运行：python -m pip install -r gui/requirements.txt")
         raise
 
+    try:
+        from app.logging_config import configure_logging
+        configure_logging()
+    except Exception:
+        pass
+
     url = f"http://127.0.0.1:{args.port}"
     if not args.no_browser:
         threading.Thread(target=open_browser, args=(url,), daemon=True).start()

@@ -46,3 +46,17 @@
   - **网络断开时**：自动将所有处于活动中（`running`、`reconnecting`、`waiting_limit`、`waiting_time_window`）的后台任务标记并挂起为 `waiting_network` 状态，输出断开日志与事件，并终止当前执行线程。
   - **网络恢复时**：若监视器检测到连通恢复，会自动寻找所有处于 `waiting_network` 状态的挂起任务，将其重新拉起恢复运行，实现彻底的“自动断线恢复”。
   - **前端顶栏状态联动**：前端通过 AJAX 轮询该状态，对页面顶部的“系统状态指示灯”进行秒级联动更新。断开时指示灯立即变红，并显示“网络连接已断开 (10秒轮询中...)”；恢复时即刻重归绿色常亮，提示“系统状态正常”。
+  - **网络连通兼容性修复**：优化了 API 连通性检测中对 HTTP 异常状态码（如 401 Unauthorized，该 API 默认保护状态下的返回）的处理，确保网络监视器能精确区分“网络彻底断开（超时/解析失败）”与“鉴权失败（表明服务器完全可达）”。
+  - **挂起冲突状态修复**：重构了 `JobRunner` 异常与主动退出处理，当工作线程捕获到暂停时，优先读取 SQLite 检查其当前状态。若是因网络断开引发的挂起（状态已被监视器更改为 `waiting_network`），则跳过重写状态为 `paused`，避免覆盖 `waiting_network` 状态导致网络重连后无法自动恢复。
+
+### 7. 服务器部署优化与环境检测 [New Feature]
+* **Cookie 安全性增强**：重构了 `admin_session` 登录 Cookie 设置机制。程序会自动检测当前 Request 的协议模式（HTTP / HTTPS 以及 `X-Forwarded-Proto` 头），若运行在 HTTPS 模式下，系统将自动把 Session Cookie 的 `Secure` 属性设为 `True`，保障生产环境下凭据免遭会话劫持。
+* **部署环境一键检测工具 (`check_env.py`)**：
+  - 新增了 `gui/check_env.py` 诊断脚本，可在部署至服务器前运行。
+  - 支持检测 Python 版本（>= 3.8）、各项运行依赖包的导入情况。
+  - 检测本地临时数据目录、日志目录的文件夹写权限。
+  - 自动模拟连通 `https://api.worldquantbrain.com` API 并计算网络延迟。
+  - 检测 WQ Brain 凭据配置是否存在，对 `credentials.json` 或 SQLite 中存储的账号进行非明文遮蔽展示。
+  - 检测代理设置 (`http_proxy`/`https_proxy`) 与安全登录环境变量配置。
+  - 强制控制台使用 `utf-8` 编码输出，提供关于反向代理、进程守护（Systemd/PM2/Docker）等方面的中文生产部署建议。
+

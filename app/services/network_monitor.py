@@ -2,6 +2,7 @@ import time
 import logging
 import threading
 import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,9 @@ class NetworkMonitor:
             try:
                 # 3 秒超时轻量请求
                 urllib.request.urlopen("https://api.worldquantbrain.com", timeout=3.0)
+                connected = True
+            except urllib.error.HTTPError:
+                # 即使返回 HTTP 401/403 等错误码，也说明网络连接已建立且 API 服务器可达
                 connected = True
             except Exception:
                 connected = False

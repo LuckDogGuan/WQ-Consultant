@@ -173,8 +173,14 @@ class JobRunner:
             with self._lock:
                 if job_id in self.pause_flags:
                     self.pause_flags.discard(job_id)
-                    update_job(job_id, status="paused", message="Job paused.")
-                    add_job_event(job_id, "info", "Job execution suspended successfully.")
+                    with connect() as conn:
+                        row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                        is_waiting_network = row and row["status"] == "waiting_network"
+                    if is_waiting_network:
+                        add_job_event(job_id, "info", "任务因网络断开被成功挂起。")
+                    else:
+                        update_job(job_id, status="paused", message="任务已暂停。")
+                        add_job_event(job_id, "info", "Job execution suspended successfully.")
                 else:
                     update_job(job_id, status="completed", message="Job completed successfully.", progress_current=100, progress_total=100)
                     add_job_event(job_id, "info", "Job execution finished.")
@@ -183,8 +189,14 @@ class JobRunner:
             # 捕获主动暂停异常
             with self._lock:
                 self.pause_flags.discard(job_id)
-                update_job(job_id, status="paused", message="Job paused.")
-                add_job_event(job_id, "info", "Job paused by user request.")
+                with connect() as conn:
+                    row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                    is_waiting_network = row and row["status"] == "waiting_network"
+                if is_waiting_network:
+                    add_job_event(job_id, "info", "任务已因网络断开而挂起。")
+                else:
+                    update_job(job_id, status="paused", message="Job paused.")
+                    add_job_event(job_id, "info", "Job paused by user request.")
                 
         except Exception as e:
             # 运行中出错
