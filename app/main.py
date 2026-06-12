@@ -52,7 +52,21 @@ app = FastAPI(title="WorldQuant Consultant GUI", version="v0.1")
 import json
 # 挂载静态资源和模板
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "app" / "static")), name="static")
-templates = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
+def inject_global_settings(request: Request):
+    try:
+        from .storage import get_setting
+        return {
+            "need_confirm_on_modify": get_setting("need_confirm_on_modify", "0")
+        }
+    except Exception:
+        return {
+            "need_confirm_on_modify": "0"
+        }
+
+templates = Jinja2Templates(
+    directory=str(APP_ROOT / "app" / "templates"),
+    context_processors=[inject_global_settings]
+)
 templates.env.filters["json_loads"] = json.loads
 
 def format_datetime(value: str) -> str:
@@ -66,18 +80,6 @@ def format_datetime(value: str) -> str:
         return value
 
 templates.env.filters["format_datetime"] = format_datetime
-
-@templates.context_processor
-def inject_global_settings(request: Request):
-    try:
-        from .storage import get_setting
-        return {
-            "need_confirm_on_modify": get_setting("need_confirm_on_modify", "0")
-        }
-    except Exception:
-        return {
-            "need_confirm_on_modify": "0"
-        }
 
 
 @app.on_event("startup")
