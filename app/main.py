@@ -90,7 +90,23 @@ def on_startup():
     auto_import_credentials()
     handle_env_password_override()
     ensure_catalog_data()
+    
+    # 启动网络监视器服务
+    from .services.network_monitor import NetworkMonitor
+    NetworkMonitor().start()
+    
     logger.info("WorldQuant Consultant GUI startup checklist complete.")
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    """Web 服务关闭时释放资源"""
+    try:
+        from .services.network_monitor import NetworkMonitor
+        NetworkMonitor().stop()
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
+    logger.info("WorldQuant Consultant GUI shutdown complete.")
 
 
 # ==========================================
@@ -562,6 +578,16 @@ def post_import_credentials(admin: str = Depends(get_current_admin)):
 # ==========================================
 # 数据查询与实时日志 Tail API
 # ==========================================
+
+@app.get("/api/network_status")
+def get_network_status(admin: str = Depends(get_current_admin)):
+    from .services.network_monitor import NetworkMonitor
+    monitor = NetworkMonitor()
+    return {
+        "connected": monitor.is_connected,
+        "message": "网络连接正常" if monitor.is_connected else "网络连接已断开 (10秒轮询中...)"
+    }
+
 
 @app.get("/api/jobs")
 def get_jobs_json(admin: str = Depends(get_current_admin)):

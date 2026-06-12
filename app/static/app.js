@@ -11,6 +11,10 @@ let currentDetailsTab = 'log'; // 'log' or 'events'
 
 // 启动页面初始挂载
 document.addEventListener("DOMContentLoaded", function() {
+    // 开启网络状态监测轮询
+    checkNetworkStatus();
+    setInterval(checkNetworkStatus, 4000);
+
     // 如果存在 jobs-table，则开启定时轮询任务状态
     if (document.getElementById("jobs-table") || document.getElementById("backtest-jobs-table")) {
         startJobsPolling();
@@ -24,6 +28,32 @@ document.addEventListener("DOMContentLoaded", function() {
 function startJobsPolling() {
     updateJobsState();
     jobsInterval = setInterval(updateJobsState, 4000); // 每 4 秒轮询一次
+}
+
+function checkNetworkStatus() {
+    fetch("/api/network_status")
+        .then(response => response.json())
+        .then(data => {
+            const indicator = document.getElementById("system-status-indicator");
+            const textEl = document.getElementById("system-status-text");
+            if (indicator && textEl) {
+                if (data.connected) {
+                    indicator.classList.remove("disconnected");
+                    textEl.innerText = "系统状态正常";
+                } else {
+                    indicator.classList.add("disconnected");
+                    textEl.innerText = data.message || "网络连接已断开 (10秒轮询中...)";
+                }
+            }
+        })
+        .catch(err => {
+            const indicator = document.getElementById("system-status-indicator");
+            const textEl = document.getElementById("system-status-text");
+            if (indicator && textEl) {
+                indicator.classList.add("disconnected");
+                textEl.innerText = "网络异常 (API 连接失败)";
+            }
+        });
 }
 
 function updateJobsState() {
@@ -97,7 +127,7 @@ function updateJobsState() {
                     const actionTd = row.querySelector(".job-action-cell");
                     if (actionTd) {
                         let btnHtml = '<div class="btn-group">';
-                        if (['running', 'waiting_limit', 'waiting_time_window', 'reconnecting'].includes(job.status)) {
+                        if (['running', 'waiting_limit', 'waiting_time_window', 'reconnecting', 'waiting_network'].includes(job.status)) {
                             btnHtml += `<button class="btn btn-sm btn-warning" onclick="event.stopPropagation(); pauseJob(${job.id})">停止</button>`;
                         } else {
                             btnHtml += `<button class="btn btn-sm btn-success" onclick="event.stopPropagation(); resumeJob(${job.id})">启动</button>`;

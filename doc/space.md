@@ -40,4 +40,9 @@
   - **删除**：提供“删除”按钮，安全地将任务及其关联事件从数据库中清空，如果任务在运行中则会同步发出停止信号，并实时移除前端表格的对应行。
 * **相关性诊断自动改名勾选框**：在“相关性检测”页面顶部启动区域新增了“诊断合格后自动在平台改名 (Auto Rename)”勾选框，默认处于勾选状态。允许用户在创建相关性诊断任务时，决定是否对诊断出的 PPA/ATOM/RA 优质候选自动进行平台远程改名。
 * **回测 NameError 异常修复**：排查并修复了在 `simulation_service.py` 内部 `run_backtest_job` 函数在执行二阶 (SO) 或三阶 (TH) 阶段时，由于凭证变量（`username`, `password`）未在函数主体中定义，导致调用 `login_with_credentials` 时抛出 `NameError: name 'username' is not defined` 的致命 Bug。
-* **SQLite 约束冲突异常修复**：修复了在 `upsert_alpha` 存储 Alpha 信息时，部分字段（如 `name`）由于平台数据返回为 `None`，导致 SQLite 抛出 `NOT NULL constraint failed: alpha_records.name` 写入失败的 Bug。已通过空值合并逻辑（`or ""`）确保强制合并为字符串。
+* **SQLite 约束冲突异常修复**：修复了在 `upsert_alpha` 存储 Alpha 信息时，部分字段（如 `name`）由于平台数据返回为 `None`，导致 SQLite 抛出 `NOT NULL constraint failed: alpha_records.name` 写入失败 of Bug。已通过空值合并逻辑（`or ""`）确保强制合并为字符串。
+* **网络断开监测与任务自动挂起/恢复 [New Feature]**：
+  - **后台监视线程**：新设了后台网络状态监视器 `NetworkMonitor` 线程，每 10 秒对 `https://api.worldquantbrain.com` 连通性进行一次轻量化扫描检测。
+  - **网络断开时**：自动将所有处于活动中（`running`、`reconnecting`、`waiting_limit`、`waiting_time_window`）的后台任务标记并挂起为 `waiting_network` 状态，输出断开日志与事件，并终止当前执行线程。
+  - **网络恢复时**：若监视器检测到连通恢复，会自动寻找所有处于 `waiting_network` 状态的挂起任务，将其重新拉起恢复运行，实现彻底的“自动断线恢复”。
+  - **前端顶栏状态联动**：前端通过 AJAX 轮询该状态，对页面顶部的“系统状态指示灯”进行秒级联动更新。断开时指示灯立即变红，并显示“网络连接已断开 (10秒轮询中...)”；恢复时即刻重归绿色常亮，提示“系统状态正常”。
