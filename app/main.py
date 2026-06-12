@@ -460,6 +460,7 @@ def get_check(
     request: Request,
     page: int = 1,
     type_filter: str = "",
+    level_filter: str = "",
     admin: str = Depends(get_current_admin)
 ):
     page_size = 50
@@ -476,6 +477,16 @@ def get_check(
             else:
                 where_clause += " AND a.alpha_type = ?"
                 params.append(type_filter)
+                
+        if level_filter:
+            if level_filter == "premium":
+                where_clause += " AND a.fitness >= 2.5 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0030"
+            elif level_filter == "standard":
+                where_clause += " AND a.fitness >= 1.5 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0010 AND NOT (a.fitness >= 2.5 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0030)"
+            elif level_filter == "marginal":
+                where_clause += " AND a.fitness >= 1.0 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0005 AND NOT (a.fitness >= 1.5 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0010)"
+            elif level_filter == "substandard":
+                where_clause += " AND (a.fitness < 1.0 OR CAST(json_extract(a.payload, '$.is.margin') AS REAL) < 0.0005 OR a.fitness IS NULL OR json_extract(a.payload, '$.is.margin') IS NULL)"
             
         total = conn.execute(
             f"""
@@ -518,17 +529,17 @@ def get_check(
             fit = row_dict["fitness"] if row_dict["fitness"] is not None else 0.0
             margin = row_dict["margin"] if row_dict["margin"] is not None else 0.0
             
-            if fit >= 2.0 and margin >= 0.0015:
+            if fit >= 2.5 and margin >= 0.0030:
                 row_dict["alpha_level"] = "优质因子"
                 row_dict["level_class"] = "premium"
-            elif fit >= 1.2 and margin >= 0.0010:
+            elif fit >= 1.5 and margin >= 0.0010:
                 row_dict["alpha_level"] = "一般因子"
                 row_dict["level_class"] = "standard"
-            elif fit >= 1.0:
-                row_dict["alpha_level"] = "普通因子"
-                row_dict["level_class"] = "regular"
+            elif fit >= 1.0 and margin >= 0.0005:
+                row_dict["alpha_level"] = "边际因子"
+                row_dict["level_class"] = "marginal"
             else:
-                row_dict["alpha_level"] = "未达标"
+                row_dict["alpha_level"] = "不合格因子"
                 row_dict["level_class"] = "substandard"
             results.append(row_dict)
         
@@ -546,19 +557,36 @@ def get_check(
             "page": page,
             "total_pages": total_pages,
             "type_filter": type_filter,
+            "level_filter": level_filter,
             "total": total
         }
     )
 
 
 @app.get("/alphas", response_class=HTMLResponse)
-def get_alphas(request: Request, page: int = 1, type_filter: str = "", admin: str = Depends(get_current_admin)):
+def get_alphas(
+    request: Request,
+    page: int = 1,
+    type_filter: str = "",
+    level_filter: str = "",
+    admin: str = Depends(get_current_admin)
+):
     page_size = 50
     where = "1=1"
     params = []
     if type_filter:
         where += " AND alpha_type = ?"
         params.append(type_filter)
+        
+    if level_filter:
+        if level_filter == "premium":
+            where += " AND fitness >= 2.5 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0030"
+        elif level_filter == "standard":
+            where += " AND fitness >= 1.5 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0010 AND NOT (fitness >= 2.5 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0030)"
+        elif level_filter == "marginal":
+            where += " AND fitness >= 1.0 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0005 AND NOT (fitness >= 1.5 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0010)"
+        elif level_filter == "substandard":
+            where += " AND (fitness < 1.0 OR CAST(json_extract(payload, '$.is.margin') AS REAL) < 0.0005 OR fitness IS NULL OR json_extract(payload, '$.is.margin') IS NULL)"
         
     rows, total = list_rows("alpha_records", page=page, page_size=page_size, where=where, params=params, order_by="created_at DESC")
     total_pages = math.ceil(total / page_size) if total > 0 else 1
@@ -580,17 +608,17 @@ def get_alphas(request: Request, page: int = 1, type_filter: str = "", admin: st
         fit = row_dict["fitness"] if row_dict["fitness"] is not None else 0.0
         margin = row_dict["margin"] if row_dict["margin"] is not None else 0.0
         
-        if fit >= 2.0 and margin >= 0.0015:
+        if fit >= 2.5 and margin >= 0.0030:
             row_dict["alpha_level"] = "优质因子"
             row_dict["level_class"] = "premium"
-        elif fit >= 1.2 and margin >= 0.0010:
+        elif fit >= 1.5 and margin >= 0.0010:
             row_dict["alpha_level"] = "一般因子"
             row_dict["level_class"] = "standard"
-        elif fit >= 1.0:
-            row_dict["alpha_level"] = "普通因子"
-            row_dict["level_class"] = "regular"
+        elif fit >= 1.0 and margin >= 0.0005:
+            row_dict["alpha_level"] = "边际因子"
+            row_dict["level_class"] = "marginal"
         else:
-            row_dict["alpha_level"] = "未达标"
+            row_dict["alpha_level"] = "不合格因子"
             row_dict["level_class"] = "substandard"
         alphas.append(row_dict)
         
@@ -602,6 +630,7 @@ def get_alphas(request: Request, page: int = 1, type_filter: str = "", admin: st
             "page": page,
             "total_pages": total_pages,
             "type_filter": type_filter,
+            "level_filter": level_filter,
             "total": total
         }
     )

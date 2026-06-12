@@ -475,7 +475,7 @@ body {
 .status-SKIP { background-color: rgba(255, 255, 255, 0.08); color: var(--text-muted); }
 .status-premium { background-color: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
 .status-standard { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-.status-regular { background-color: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+.status-marginal { background-color: rgba(249, 115, 22, 0.18); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.25); }
 .status-substandard { background-color: rgba(156, 163, 175, 0.15); color: #9ca3af; }
 
 /* Job Status Badge */
@@ -1237,5 +1237,27 @@ select option {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     padding-bottom: 8px;
 }
+
+/* Filter select dropdown styles */
+.filter-select {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    padding: 6px 12px;
+    border-radius: 6px;
+    color: var(--text-main);
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s ease;
+}
+.filter-select:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+.filter-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.2);
+}
+
 
 

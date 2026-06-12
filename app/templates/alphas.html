@@ -6,12 +6,24 @@
 {% block content %}
 <div class="alphas-container">
     <div class="card filter-card">
-        <div class="card-body filter-bar-box">
-            <div class="filter-group-buttons">
-                <a href="/alphas?page=1" class="btn btn-sm {% if type_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
-                <a href="/alphas?page=1&type_filter=PPA" class="btn btn-sm {% if type_filter == 'PPA' %}btn-primary{% else %}btn-secondary{% endif %}">PPA</a>
-                <a href="/alphas?page=1&type_filter=RA" class="btn btn-sm {% if type_filter == 'RA' %}btn-primary{% else %}btn-secondary{% endif %}">RA</a>
-                <a href="/alphas?page=1&type_filter=ATOM" class="btn btn-sm {% if type_filter == 'ATOM' %}btn-primary{% else %}btn-secondary{% endif %}">ATOM</a>
+        <div class="card-body filter-bar-box" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+            <div class="filter-left-group" style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+                <div class="filter-group-buttons">
+                    <a href="/alphas?page=1&level_filter={{ level_filter }}" class="btn btn-sm {% if type_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
+                    <a href="/alphas?page=1&type_filter=PPA&level_filter={{ level_filter }}" class="btn btn-sm {% if type_filter == 'PPA' %}btn-primary{% else %}btn-secondary{% endif %}">PPA</a>
+                    <a href="/alphas?page=1&type_filter=RA&level_filter={{ level_filter }}" class="btn btn-sm {% if type_filter == 'RA' %}btn-primary{% else %}btn-secondary{% endif %}">RA</a>
+                    <a href="/alphas?page=1&type_filter=ATOM&level_filter={{ level_filter }}" class="btn btn-sm {% if type_filter == 'ATOM' %}btn-primary{% else %}btn-secondary{% endif %}">ATOM</a>
+                </div>
+                <div class="filter-group-select" style="display: flex; align-items: center; gap: 8px;">
+                    <label for="level_filter_select" style="font-size: 13px; color: var(--text-muted); white-space: nowrap;">因子评级:</label>
+                    <select id="level_filter_select" onchange="window.location.href=this.value" class="filter-select">
+                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=" {% if level_filter == '' %}selected{% endif %}>全部评级</option>
+                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=premium" {% if level_filter == 'premium' %}selected{% endif %}>🏆 优质因子 (Premium)</option>
+                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=standard" {% if level_filter == 'standard' %}selected{% endif %}>⭐ 一般因子 (Standard)</option>
+                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=marginal" {% if level_filter == 'marginal' %}selected{% endif %}>⚠️ 边际因子 (Marginal)</option>
+                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=substandard" {% if level_filter == 'substandard' %}selected{% endif %}>❌ 不合格因子 (Substandard)</option>
+                    </select>
+                </div>
             </div>
             <div class="filter-count">
                 <span>总共记录: <strong>{{ total }}</strong> 个 Alpha</span>
@@ -100,13 +112,13 @@
             {% if total_pages > 1 %}
             <div class="pagination">
                 {% if page > 1 %}
-                <a href="/alphas?page={{ page - 1 }}&type_filter={{ type_filter }}" class="btn btn-secondary btn-sm">上一页</a>
+                <a href="/alphas?page={{ page - 1 }}&type_filter={{ type_filter }}&level_filter={{ level_filter }}" class="btn btn-secondary btn-sm">上一页</a>
                 {% endif %}
                 
                 <span class="pagination-info">第 {{ page }} / {{ total_pages }} 页</span>
                 
                 {% if page < total_pages %}
-                <a href="/alphas?page={{ page + 1 }}&type_filter={{ type_filter }}" class="btn btn-secondary btn-sm">下一页</a>
+                <a href="/alphas?page={{ page + 1 }}&type_filter={{ type_filter }}&level_filter={{ level_filter }}" class="btn btn-secondary btn-sm">下一页</a>
                 {% endif %}
             </div>
             {% endif %}
