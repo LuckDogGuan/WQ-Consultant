@@ -6,7 +6,6 @@ __pycache__/
 # Databases & local data (keeps cache separate and secure)
 data/
 logs/
-consultant_core/
 
 # Environments
 .venv/
