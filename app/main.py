@@ -243,7 +243,7 @@ def get_optimization_page(
 ):
     from .services.optimization_planner import list_optimization_plans
 
-    page_size = 12
+    page_size = 11
     success_map = {
         "optimization_job_started": "优化任务已启动，可以在下方查看进度。",
         "optimization_schedule_saved": "优化定时设置已保存。",
@@ -755,7 +755,7 @@ def get_check(
     date_filter: str = "",
     admin: str = Depends(get_current_admin)
 ):
-    page_size = 12
+    page_size = 11
     offset = (page - 1) * page_size
     
     with connect() as conn:

@@ -376,7 +376,14 @@ function viewJobDetails(jobId) {
     // 显示面板并滚动展示
     const panel = document.getElementById("job-details-panel");
     panel.style.display = "block";
-    document.getElementById("details-job-title").innerText = `任务详情 - Job #${jobId}`;
+    const title = document.getElementById("details-job-title");
+    if (title) {
+        title.innerText = `任务详情 - Job #${jobId}`;
+    }
+    const selectedId = document.getElementById("selected-job-id-display");
+    if (selectedId) {
+        selectedId.innerText = jobId;
+    }
     
     // 清理之前的定时器
     clearInterval(detailLogInterval);
@@ -403,15 +410,24 @@ function closeJobDetails() {
 function switchDetailsTab(tab) {
     currentDetailsTab = tab;
     document.querySelectorAll(".details-body .tab-btn").forEach(b => b.classList.remove("active"));
-    
+    if (typeof event !== "undefined" && event.target) {
+        event.target.classList.add("active");
+    }
+    const logTab = document.getElementById("tab-log");
+    const eventsTab = document.getElementById("tab-events");
+    const legacyLog = document.getElementById("job-log-content");
+    const legacyEvents = document.getElementById("job-events-content");
+
     if (tab === 'log') {
-        event.target.classList.add("active");
-        document.getElementById("tab-log").style.display = "block";
-        document.getElementById("tab-events").style.display = "none";
+        if (logTab && logTab.classList.contains("tab-content")) logTab.style.display = "block";
+        if (eventsTab && eventsTab.classList.contains("tab-content")) eventsTab.style.display = "none";
+        if (legacyLog) legacyLog.style.display = "block";
+        if (legacyEvents) legacyEvents.style.display = "none";
     } else {
-        event.target.classList.add("active");
-        document.getElementById("tab-log").style.display = "none";
-        document.getElementById("tab-events").style.display = "block";
+        if (logTab && logTab.classList.contains("tab-content")) logTab.style.display = "none";
+        if (eventsTab && eventsTab.classList.contains("tab-content")) eventsTab.style.display = "block";
+        if (legacyLog) legacyLog.style.display = "none";
+        if (legacyEvents) legacyEvents.style.display = "block";
     }
 }
 
@@ -420,11 +436,13 @@ function updateJobLogs() {
     fetch(`/api/jobs/${currentSelectedJobId}/log_tail?max_lines=100`)
         .then(res => res.json())
         .then(data => {
-            const viewer = document.getElementById("job-log-viewer");
+            const viewer = document.getElementById("job-log-viewer") || document.getElementById("job-log-content");
+            if (!viewer) return;
             viewer.innerText = data.lines.join("\n");
             
             // 是否开启自动滚动到底部
-            if (document.getElementById("auto-scroll-log").checked) {
+            const autoScroll = document.getElementById("auto-scroll-log");
+            if (!autoScroll || autoScroll.checked) {
                 viewer.scrollTop = viewer.scrollHeight;
             }
         })
@@ -437,13 +455,42 @@ function updateJobEvents() {
         .then(res => res.json())
         .then(data => {
             const tbody = document.getElementById("job-events-list");
+            const legacyContent = document.getElementById("job-events-content");
+            if (!tbody && legacyContent) {
+                if (data.length === 0) {
+                    legacyContent.innerHTML = `<table class="table table-sm"><tbody><tr><td colspan="3" class="text-center text-muted">本任务当前没有后台事件记录</td></tr></tbody></table>`;
+                    return;
+                }
+                const rowsHtml = data.map(e => {
+                    let levelClass = 'secondary';
+                    if (e.level === 'error') levelClass = 'danger';
+                    if (e.level === 'warning') levelClass = 'warning';
+                    if (e.level === 'info') levelClass = 'info';
+                    return `
+                        <tr>
+                            <td class="text-xs text-muted">${escapeHtml(e.created_at || "")}</td>
+                            <td><span class="badge ${levelClass}">${escapeHtml(e.level)}</span></td>
+                            <td class="text-sm">${escapeHtml(e.message)}</td>
+                        </tr>
+                    `;
+                }).join("");
+                legacyContent.innerHTML = `
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead><tr><th>发生时间</th><th>等级</th><th>事件信息</th></tr></thead>
+                            <tbody>${rowsHtml}</tbody>
+                        </table>
+                    </div>
+                `;
+                return;
+            }
             if (data.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">本任务目前没有记录任何后台事件</td></tr>`;
                 return;
             }
             
             tbody.innerHTML = data.map(e => {
-                const date = e.created_at.slice(11, 19); // 只截取 HH:MM:SS
+                const date = escapeHtml(e.created_at || "");
                 let levelClass = 'secondary';
                 if (e.level === 'error') levelClass = 'danger';
                 if (e.level === 'warning') levelClass = 'warning';
@@ -452,8 +499,8 @@ function updateJobEvents() {
                 return `
                     <tr>
                         <td class="text-xs text-muted">${date}</td>
-                        <td><span class="badge ${levelClass}">${e.level}</span></td>
-                        <td class="text-sm">${e.message}</td>
+                        <td><span class="badge ${levelClass}">${escapeHtml(e.level)}</span></td>
+                        <td class="text-sm">${escapeHtml(e.message)}</td>
                     </tr>
                 `;
             }).join("");

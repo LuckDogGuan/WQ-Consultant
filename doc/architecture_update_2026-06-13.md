@@ -54,3 +54,11 @@ python -m unittest tests.test_wq_retry_policy tests.test_maintenance_service tes
 ```bash
 python -m py_compile app\services\wq_retry_policy.py app\services\maintenance_service.py app\services\job_params.py app\services\simulation_service.py app\services\optimization_run_service.py app\services\scheduler_service.py app\job_runner.py app\main.py app\storage.py
 ```
+
+## 2026-06-13 UI 细节修正
+
+- 检查提交、相关性检查、优化规划列表取消内部纵向滚轮，列表跟随页面滚动，只保留必要的横向滚动。
+- 检查提交和优化规划的每页展示数量从 12 条调整为 11 条。
+- 优化规划设置区调整为接近相关性检查设置区的折叠卡片视觉样式，减少嵌套面板背景差异。
+- 优化规划任务详情兼容全局任务详情脚本，日志和事件都能输出；事件时间改为显示完整 `created_at`。
+- 静态资源版本更新为 `20260613_ui2`，避免浏览器继续使用旧 CSS/JS 缓存。
