@@ -180,7 +180,7 @@ DEFAULT_SETTINGS = {
     "group_ops": "group_neutralize,group_rank,group_zscore",
     # 重新连接参数
     "reconnect_short_sleep_seconds": "300",
-    "reconnect_long_sleep_seconds": "3600",
+    "reconnect_long_sleep_seconds": "600",
     # 修改属性二次确认选项
     "need_confirm_on_modify": "0",
     # API 延时判断。超过该毫秒阈值会写入慢请求日志；设为 0 可关闭慢请求记录。
@@ -192,6 +192,9 @@ DEFAULT_SETTINGS = {
     "optimization_schedule_enabled": "0",
     "optimization_schedule_hour": "1",
     "optimization_schedule_last_run": "",
+    "submitted_cleanup_schedule_enabled": "1",
+    "submitted_cleanup_schedule_hour": "0",
+    "submitted_cleanup_schedule_last_run": "",
 }
 
 

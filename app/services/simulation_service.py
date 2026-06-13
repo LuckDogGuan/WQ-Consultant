@@ -14,8 +14,9 @@ from typing import Any
 from ..paths import CATALOG_DIR, LOG_DIR
 from ..storage import get_setting, update_job, add_job_event, upsert_alpha
 from ..job_runner import JobRunner, redirected_stdout, redirected_stderr
-from .wq_client import login_with_credentials, get_current_daily_limit_count
+from .wq_client import WQRateLimitError, login_with_credentials, get_current_daily_limit_count
 from .catalog_service import load_fields_from_cache, run_catalog_refresh
+from .wq_retry_policy import classify_post_exception, next_wait_seconds, should_retry_without_skipping
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def handle_reconnect(job_id: int, reconnect_count: int) -> requests.Session:
     runner = JobRunner()
     
     short_sleep = int(get_setting("reconnect_short_sleep_seconds", "300"))
-    long_sleep = int(get_setting("reconnect_long_sleep_seconds", "3600"))
+    long_sleep = int(get_setting("reconnect_long_sleep_seconds", "600"))
     
     wait_time = short_sleep if reconnect_count < 2 else long_sleep
     msg = f"Connection issues. Reconnecting in {wait_time} seconds (attempt {reconnect_count + 1})..."
@@ -112,14 +113,33 @@ def handle_reconnect(job_id: int, reconnect_count: int) -> requests.Session:
     username = get_setting("wq_username")
     password = get_setting("wq_password")
     
-    try:
-        s = login_with_credentials(username, password)
-        add_job_event(job_id, "info", "Reconnection successful.")
-        update_job(job_id, status="running")
-        return s
-    except Exception as e:
-        logger.error(f"Reconnection login failed: {e}")
-        raise
+    s = login_with_rate_limit_wait(job_id, username, password, context="reconnect")
+    add_job_event(job_id, "info", "Reconnection successful.")
+    update_job(job_id, status="running")
+    return s
+
+
+def login_with_rate_limit_wait(job_id: int, username: str, password: str, context: str = "login") -> requests.Session:
+    runner = JobRunner()
+    rate_limit_failures = 0
+    while True:
+        runner.check_paused(job_id)
+        try:
+            session = login_with_credentials(username, password)
+            if rate_limit_failures:
+                add_job_event(job_id, "info", f"WQ login recovered after {rate_limit_failures} rate-limit response(s).")
+            return session
+        except WQRateLimitError as exc:
+            rate_limit_failures += 1
+            wait_seconds = configured_rate_limit_wait_seconds(rate_limit_failures)
+            msg = (
+                f"WQ login rate limited (429) during {context}. "
+                f"Waiting {wait_seconds}s before retry; consecutive 429 count {rate_limit_failures}."
+            )
+            logger.info(msg)
+            update_job(job_id, status="waiting_limit", message=msg)
+            add_job_event(job_id, "warning", msg, {"error": str(exc), "rate_limit_failures": rate_limit_failures})
+            sleep_with_pause_checks(job_id, wait_seconds)
 
 
 def save_children_alphas(s: requests.Session, progress_url: str, region: str, universe: str, source: str) -> None:
@@ -195,7 +215,7 @@ def run_simulation_pool_with_control(
         
     username = get_setting("wq_username")
     password = get_setting("wq_password")
-    s = login_with_credentials(username, password)
+    s = login_with_rate_limit_wait(job_id, username, password, context="simulation pool startup")
     
     session_container = {"session": s}
     session_lock = threading.Lock()
@@ -289,6 +309,8 @@ def run_simulation_pool_with_control(
             progress_url = None
             attempts = 0
             max_post_retries = 3
+            rate_limit_failures = 0
+            network_failures = 0
             while attempts < max_post_retries:
                 runner.check_paused(job_id)
                 with session_lock:
@@ -299,34 +321,16 @@ def run_simulation_pool_with_control(
                     simulation_response = thread_session.post('https://api.worldquantbrain.com/simulations', json=post_payload, timeout=60)
                     
                     if simulation_response.status_code == 429:
-                        attempts += 1
-                        retry_after = rate_limit_retry_seconds(simulation_response)
+                        rate_limit_failures += 1
+                        retry_after = configured_rate_limit_wait_seconds(rate_limit_failures)
                         msg = (
-                            f"Rate limited by WQ (429). Waiting {retry_after}s "
-                            f"before retry {attempts}/{max_post_retries}."
+                            f"Rate limited by WQ (429). Waiting {retry_after}s before retry; "
+                            f"consecutive 429 count {rate_limit_failures}."
                         )
                         logger.info(msg)
                         update_job(job_id, status="waiting_limit", message=msg)
                         print(f"[Pool {x+1}] [Slot {y+1}] {msg}", flush=True)
-                        if attempts >= max_post_retries:
-                            with status_lock:
-                                pool_failed[x] = True
-                            write_simulation_log(
-                                str(log_path),
-                                {
-                                    "event": "task_post_error",
-                                    "pool_index": x,
-                                    "task_index": y,
-                                    "status_code": 429,
-                                    "message": msg,
-                                },
-                            )
-                            break
-                        slept = 0
-                        while slept < retry_after:
-                            runner.check_paused(job_id)
-                            time.sleep(min(5, retry_after - slept))
-                            slept += min(5, retry_after - slept)
+                        sleep_with_pause_checks(job_id, retry_after)
                         continue
                         
                     if simulation_response.status_code == 401:
@@ -335,6 +339,8 @@ def run_simulation_pool_with_control(
                     progress_url = simulation_response.headers.get("Location")
                     if not progress_url:
                         raise RuntimeError(describe_missing_location_response(simulation_response))
+                    rate_limit_failures = 0
+                    network_failures = 0
                     print(f"[Pool {x+1}] [Slot {y+1}] POST successful. Progress URL: {progress_url}", flush=True)
                     write_simulation_log(
                         str(log_path),
@@ -348,6 +354,42 @@ def run_simulation_pool_with_control(
                     break
                     
                 except Exception as exc:
+                    network_failures += 1
+                    decision = classify_post_exception(
+                        exc,
+                        failure_count=network_failures,
+                        short_wait_seconds=int(get_setting("reconnect_short_sleep_seconds", "300") or "300"),
+                        long_wait_seconds=int(get_setting("reconnect_long_sleep_seconds", "600") or "600"),
+                    )
+                    if should_retry_without_skipping(decision):
+                        msg = (
+                            f"Network error during WQ submit. Waiting {decision.wait_seconds}s before retry; "
+                            f"consecutive network failure count {network_failures}."
+                        )
+                        logger.warning(f"{msg} Error: {exc}")
+                        update_job(job_id, status="reconnecting", message=msg)
+                        add_job_event(
+                            job_id,
+                            "warning",
+                            msg,
+                            {"reason": decision.reason, "exception": repr(exc), "pool_index": x, "task_index": y},
+                        )
+                        print(f"[Pool {x+1}] [Slot {y+1}] {msg}", flush=True)
+                        sleep_with_pause_checks(job_id, decision.wait_seconds)
+                        with session_lock:
+                            if session_container["session"] == thread_session:
+                                try:
+                                    session_container["session"].close()
+                                except Exception:
+                                    pass
+                                session_container["session"] = login_with_rate_limit_wait(
+                                    job_id,
+                                    username,
+                                    password,
+                                    context="simulation post network recovery",
+                                )
+                        continue
+
                     attempts += 1
                     logger.warning(f"Error POSTing simulation: {exc}. Attempt {attempts}/{max_post_retries}")
                     print(f"[Pool {x+1}] [Slot {y+1}] Error POSTing simulation: {exc}. Attempt {attempts}/{max_post_retries}", flush=True)
@@ -668,14 +710,33 @@ def normalize_simulation_post_payload(sim_data: Any) -> Any:
     return sim_data
 
 
-def rate_limit_retry_seconds(response: Any, min_seconds: int = 30, max_seconds: int = 300) -> int:
-    headers = getattr(response, "headers", {}) or {}
-    raw_retry_after = headers.get("Retry-After") if hasattr(headers, "get") else None
-    try:
-        retry_after = int(float(raw_retry_after))
-    except Exception:
-        retry_after = min_seconds
-    return max(min_seconds, min(retry_after, max_seconds))
+def rate_limit_retry_seconds(
+    failure_count: int,
+    short_seconds: int = 30,
+    long_seconds: int = 600,
+    cycle_size: int = 5,
+) -> int:
+    return next_wait_seconds(
+        failure_count,
+        short_seconds=short_seconds,
+        long_seconds=long_seconds,
+        cycle_size=cycle_size,
+    )
+
+
+def configured_rate_limit_wait_seconds(failure_count: int) -> int:
+    long_wait = int(get_setting("reconnect_long_sleep_seconds", "600") or "600")
+    return rate_limit_retry_seconds(failure_count, short_seconds=30, long_seconds=long_wait)
+
+
+def sleep_with_pause_checks(job_id: int, seconds: int) -> None:
+    runner = JobRunner()
+    remaining = max(0, int(seconds))
+    while remaining > 0:
+        runner.check_paused(job_id)
+        chunk = min(5, remaining)
+        time.sleep(chunk)
+        remaining -= chunk
 
 
 def _short_response_text(response: Any, limit: int = 500) -> str:
@@ -735,7 +796,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     def custom_login():
         username = get_setting("wq_username")
         password = get_setting("wq_password")
-        return login_with_credentials(username, password)
+        return login_with_rate_limit_wait(job_id, username, password, context="machine_lib login")
         
     machine_lib.login = custom_login
     
@@ -971,7 +1032,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 fo_track_num = int(get_setting("fo_track_alpha_num", "100"))
                 
                 # 拉取一阶追踪候选
-                session = login_with_credentials(username, password)
+                session = login_with_rate_limit_wait(job_id, username, password, context="FO tracker")
                 try:
                     fo_tracker = get_recent_alphas(
                         lookback_days=fo_track_lookback,
@@ -1064,7 +1125,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 so_track_num = int(get_setting("so_track_alpha_num", "100"))
                 
                 # 拉取二阶追踪候选
-                session = login_with_credentials(username, password)
+                session = login_with_rate_limit_wait(job_id, username, password, context="SO tracker")
                 try:
                     so_tracker = get_recent_alphas(
                         lookback_days=so_track_lookback,

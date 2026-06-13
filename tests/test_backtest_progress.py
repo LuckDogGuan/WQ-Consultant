@@ -103,16 +103,23 @@ class BacktestProgressTests(unittest.TestCase):
         self.assertIs(normalize_simulation_post_payload(simulation), simulation)
 
     def test_rate_limit_retry_seconds_uses_retry_after_with_floor(self):
-        class Response:
-            headers = {"Retry-After": "5"}
+        self.assertEqual(
+            rate_limit_retry_seconds(
+                failure_count=1,
+                short_seconds=30,
+                long_seconds=600,
+            ),
+            30,
+        )
 
-        self.assertEqual(rate_limit_retry_seconds(Response(), min_seconds=30), 30)
+    def test_rate_limit_retry_seconds_uses_long_wait_each_fifth_429(self):
+        self.assertEqual(rate_limit_retry_seconds(4, short_seconds=30, long_seconds=600), 30)
+        self.assertEqual(rate_limit_retry_seconds(5, short_seconds=30, long_seconds=600), 600)
+        self.assertEqual(rate_limit_retry_seconds(6, short_seconds=30, long_seconds=600), 30)
+        self.assertEqual(rate_limit_retry_seconds(10, short_seconds=30, long_seconds=600), 600)
 
-    def test_rate_limit_retry_seconds_handles_bad_retry_after(self):
-        class Response:
-            headers = {"Retry-After": "bad"}
-
-        self.assertEqual(rate_limit_retry_seconds(Response(), min_seconds=30), 30)
+    def test_rate_limit_retry_seconds_does_not_allow_invalid_counts(self):
+        self.assertEqual(rate_limit_retry_seconds(0, short_seconds=30, long_seconds=600), 30)
 
     def test_stage_progress_events_only_emit_at_milestones(self):
         emitted = set()

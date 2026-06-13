@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from ..storage import get_setting, connect, create_job
 from ..job_runner import JobRunner
+from .job_params import normalize_optimization_params
 
 logger = logging.getLogger(__name__)
 
@@ -197,15 +198,44 @@ class SchedulerService:
                         (now_iso,),
                     )
 
-                params = {
+                params = normalize_optimization_params({
                     "source_mode": get_setting("optimization_source_mode", "recent"),
                     "recent_days": int(get_setting("optimization_recent_days", "14")),
                     "candidate_limit": int(get_setting("optimization_candidate_limit", "20")),
                     "children_per_request": int(get_setting("optimization_children_per_request", "1")),
-                }
+                })
                 job_id = create_job(
                     "optimization_run",
                     f"定时 Alpha 优化任务 (最近 {params['recent_days']} 天，最多 {params['candidate_limit']} 个)",
                     params,
                 )
                 JobRunner().start_job(job_id, "optimization_run", params)
+
+        cleanup_enabled = get_setting("submitted_cleanup_schedule_enabled", "1") == "1"
+        if cleanup_enabled:
+            cleanup_hour = int(get_setting("submitted_cleanup_schedule_hour", "0"))
+            cleanup_last_run_str = get_setting("submitted_cleanup_schedule_last_run", "")
+            cleanup_trigger = False
+            current_date_str = now_sh.strftime("%Y-%m-%d")
+            if now_sh.hour == cleanup_hour:
+                last_run_date = ""
+                if cleanup_last_run_str:
+                    try:
+                        last_run_dt = datetime.fromisoformat(cleanup_last_run_str).astimezone(sh_tz)
+                        last_run_date = last_run_dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+                if last_run_date != current_date_str:
+                    cleanup_trigger = True
+
+            if cleanup_trigger:
+                logger.info("Scheduler triggering submitted alpha cleanup job...")
+                now_iso = datetime.now(timezone.utc).isoformat()
+                with connect() as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('submitted_cleanup_schedule_last_run', ?, datetime('now'))",
+                        (now_iso,),
+                    )
+                params = {"schema_version": 1, "limit": 100, "max_pages": 20}
+                job_id = create_job("submitted_cleanup", "每日 submitted Alpha 本地候选清理", params)
+                JobRunner().start_job(job_id, "submitted_cleanup", params)

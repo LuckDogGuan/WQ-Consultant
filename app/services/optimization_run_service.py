@@ -9,6 +9,7 @@ from ..job_runner import JobRunner
 from ..paths import LOG_DIR
 from ..storage import add_job_event, connect, get_setting, update_job
 from .alpha_enhancement import generate_variants_for_plan
+from .job_params import normalize_optimization_params
 from .optimization_planner import build_optimization_plan
 from .simulation_service import run_simulation_pool_with_control
 
@@ -25,6 +26,7 @@ def parse_alpha_ids(text: str) -> list[str]:
 
 
 def collect_optimization_plans(params: dict[str, Any]) -> list[Any]:
+    params = normalize_optimization_params(params)
     mode = str(params.get("source_mode") or "recent")
     limit = _positive_int(params.get("candidate_limit"), 20)
     manual_ids = parse_alpha_ids(str(params.get("alpha_ids") or ""))
@@ -48,6 +50,7 @@ def collect_optimization_plans(params: dict[str, Any]) -> list[Any]:
 
 
 def run_optimization_job(job_id: int, params: dict[str, Any]) -> None:
+    params = normalize_optimization_params(params)
     runner = JobRunner()
     update_job(job_id, progress_current=0, progress_total=100, message="Collecting optimization candidates...")
     add_job_event(job_id, "info", "Collecting optimization candidates.", params)

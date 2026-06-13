@@ -82,7 +82,7 @@
                 </div>
                 <div class="form-group">
                     <label for="reconnect_long_sleep_seconds">网络异常第 3 次及以后等待重连 (秒)</label>
-                    <input type="number" id="reconnect_long_sleep_seconds" name="reconnect_long_sleep_seconds" value="{{ settings.reconnect_long_sleep_seconds or '3600' }}">
+                    <input type="number" id="reconnect_long_sleep_seconds" name="reconnect_long_sleep_seconds" value="{{ settings.reconnect_long_sleep_seconds or '600' }}">
                 </div>
                 <div class="form-group">
                     <label for="need_confirm_on_modify">敏感属性变更时启用二次点击确认</label>

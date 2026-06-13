@@ -511,7 +511,7 @@ def post_settings_page(
     track_fallback_keep_num: str = Form("50"),
     group_ops: str = Form("group_neutralize,group_rank,group_zscore"),
     reconnect_short_sleep_seconds: str = Form("300"),
-    reconnect_long_sleep_seconds: str = Form("3600"),
+    reconnect_long_sleep_seconds: str = Form("600"),
     need_confirm_on_modify: str = Form("0")
 ):
     updates = {
@@ -1316,6 +1316,7 @@ def post_optimization_run(
     admin: str = Depends(get_current_admin),
 ):
     from .services.optimization_run_service import parse_alpha_ids
+    from .services.job_params import normalize_optimization_params
 
     schedule_enabled_value = "1" if schedule_enabled == "1" else "0"
     update_settings(
@@ -1329,7 +1330,7 @@ def post_optimization_run(
         }
     )
 
-    params = {
+    params = normalize_optimization_params({
         "source_mode": source_mode,
         "recent_days": recent_days,
         "candidate_limit": candidate_limit,
@@ -1337,7 +1338,7 @@ def post_optimization_run(
         "end_date": end_date,
         "alpha_ids": "\n".join(parse_alpha_ids(alpha_ids)),
         "children_per_request": children_per_request,
-    }
+    })
     if action == "save_schedule":
         return RedirectResponse(url="/optimization?success=optimization_schedule_saved", status_code=status.HTTP_303_SEE_OTHER)
 

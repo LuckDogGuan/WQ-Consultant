@@ -9,6 +9,10 @@ from consultant_core.machine_lib import get_daily_alpha_count
 logger = logging.getLogger(__name__)
 
 
+class WQRateLimitError(RuntimeError):
+    pass
+
+
 def login_with_credentials(username: str, password: str) -> requests.Session:
     """使用指定的账号密码登录 WorldQuant Brain"""
     if not username or not password:
@@ -28,6 +32,8 @@ def login_with_credentials(username: str, password: str) -> requests.Session:
             msg = error_data.get("message", response.text)
         except Exception:
             msg = response.text
+        if response.status_code == 429:
+            raise WQRateLimitError(f"WorldQuant Brain login rate limited (status=429): {msg}")
         raise RuntimeError(f"WorldQuant Brain login failed (status={response.status_code}): {msg}")
     
     logger.info("WorldQuant Brain login successful.")

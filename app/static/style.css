@@ -1046,12 +1046,160 @@ input:focus, select:focus, textarea:focus {
 }
 
 @media (max-width: 800px) {
+    body {
+        font-size: 14px;
+    }
+
+    .app-container {
+        display: block;
+        width: 100%;
+    }
+
+    .sidebar {
+        position: sticky;
+        top: 0;
+        width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        z-index: 20;
+    }
+
+    .sidebar-brand {
+        padding: 14px 16px;
+    }
+
+    .brand-text {
+        font-size: 17px;
+    }
+
+    .sidebar-menu {
+        flex-direction: row;
+        overflow-x: auto;
+        padding: 10px 12px;
+        gap: 8px;
+        scrollbar-width: thin;
+    }
+
+    .menu-item {
+        flex: 0 0 auto;
+        padding: 9px 12px;
+        gap: 8px;
+        white-space: nowrap;
+    }
+
+    .menu-item i {
+        font-size: 15px;
+        width: 16px;
+    }
+
+    .sidebar-footer {
+        display: none;
+    }
+
+    .main-content {
+        margin-left: 0;
+        min-height: auto;
+    }
+
+    .top-bar {
+        height: auto;
+        min-height: 58px;
+        padding: 12px 16px;
+        align-items: flex-start;
+        gap: 10px;
+        flex-direction: column;
+    }
+
+    .top-bar-title h1 {
+        font-size: 22px;
+    }
+
+    .content-body {
+        padding: 16px;
+    }
+
+    .card {
+        border-radius: 8px;
+    }
+
+    .card-header,
+    .card-body {
+        padding: 16px;
+    }
+
     .backtest-grid,
     .check-grid,
     .flow-lanes,
     .optimization-settings-grid,
     .flow-steps {
         grid-template-columns: 1fr;
+    }
+
+    .filter-bar,
+    .optimization-actions,
+    .btn-group,
+    .form-actions {
+        align-items: stretch !important;
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .filter-bar > div,
+    .optimization-actions .btn,
+    .btn-group .btn,
+    .form-actions .btn {
+        width: 100%;
+    }
+
+    .table-responsive {
+        max-height: none;
+        overflow-x: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+    }
+
+    .table {
+        min-width: 780px;
+    }
+
+    .table th,
+    .table td {
+        padding: 10px 12px;
+        font-size: 12px;
+        vertical-align: top;
+    }
+
+    .table th {
+        letter-spacing: 0;
+    }
+
+    .optimization-run-summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .optimization-run-panel textarea,
+    textarea {
+        min-height: 88px;
+    }
+
+    .modal-content {
+        width: calc(100vw - 24px);
+        max-width: calc(100vw - 24px);
+    }
+
+    .toast-container {
+        left: 12px;
+        right: 12px;
+        top: 12px;
+    }
+
+    .toast {
+        min-width: 0;
+        max-width: none;
+        width: 100%;
     }
 }
 
