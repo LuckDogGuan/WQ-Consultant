@@ -5,6 +5,8 @@ __pycache__/
 
 # Databases & local data (keeps cache separate and secure)
 data/
+!data/webdatascope/
+!data/webdatascope/*
 logs/
 
 # Environments

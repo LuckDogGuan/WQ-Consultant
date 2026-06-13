@@ -33,7 +33,7 @@ DEFAULT_SIMULATION_PROGRESS_LOG = PROJECT_ROOT / "runs" / "alpha_machine" / "sim
 DEFAULT_SUBMISSION_LOG = PROJECT_ROOT / "runs" / "submissions" / "submission_log.jsonl"
 DEFAULT_SUBMISSION_TIMEZONE = "Asia/Shanghai"
 DEFAULT_SUBMISSION_POLL_SECONDS = 20 * 60
-DEFAULT_WEBDATASCOPE_DIR = PROJECT_ROOT / "scripts" / "WebDataScope"
+DEFAULT_WEBDATASCOPE_DIR = PROJECT_ROOT / "data" / "webdatascope"
 DEFAULT_NEUTRALIZATION_FALLBACK_CYCLE = ["MARKET", "SECTOR", "INDUSTRY", "SUBINDUSTRY"]
 
 
@@ -540,9 +540,9 @@ def load_webdatascope_info(
     node_executable="node",
 ):
     webdatascope_dir = Path(webdatascope_dir)
-    info_data_path = Path(info_data_path) if info_data_path else webdatascope_dir / "data" / "oth" / "info_data.bin"
-    pako_path = webdatascope_dir / "src" / "scripts" / "lib" / "pako.min.js"
-    msgpack_path = webdatascope_dir / "src" / "scripts" / "lib" / "msgpack.min.js"
+    info_data_path = Path(info_data_path) if info_data_path else webdatascope_dir / "info_data.bin"
+    pako_path = webdatascope_dir / "pako.min.js"
+    msgpack_path = webdatascope_dir / "msgpack.min.js"
     script = (
         "const fs=require('fs');"
         "const pako=require(process.argv[1]);"
