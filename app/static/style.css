@@ -257,6 +257,10 @@ body {
     margin-bottom: 32px;
 }
 
+.dashboard-overview-grid {
+    margin-top: -8px;
+}
+
 .stat-card {
     background: var(--bg-card);
     backdrop-filter: blur(12px);

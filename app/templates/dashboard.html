@@ -53,6 +53,53 @@
         </div>
     </div>
 </div>
+
+<div class="dashboard-grid dashboard-overview-grid">
+    <div class="stat-card">
+        <div class="stat-icon purple">
+            <i class="fa-solid fa-brain"></i>
+        </div>
+        <div class="stat-details">
+            <h3>Alpha 记录总数</h3>
+            <p class="stat-number">{{ counts.alpha_records }}</p>
+            <span class="stat-sub">本地 SQLite 已记录的数据</span>
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon green">
+            <i class="fa-solid fa-square-check"></i>
+        </div>
+        <div class="stat-details">
+            <h3>检测合格 Alpha</h3>
+            <p class="stat-number">{{ counts.ppa_count + counts.ra_count + counts.atom_count }}</p>
+            <span class="stat-sub">PPA: {{ counts.ppa_count }} | RA: {{ counts.ra_count }} | ATOM: {{ counts.atom_count }}</span>
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon blue">
+            <i class="fa-solid fa-clipboard-list"></i>
+        </div>
+        <div class="stat-details">
+            <h3>已提交检查总数</h3>
+            <p class="stat-number">{{ counts.check_results }}</p>
+            <span class="stat-sub">已运行 check_submission 的次数</span>
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon red">
+            <i class="fa-solid fa-bug"></i>
+        </div>
+        <div class="stat-details">
+            <h3>系统捕获错误</h3>
+            <p class="stat-number">{{ counts.errors }}</p>
+            <span class="stat-sub">任务及连接发生的异常总数</span>
+        </div>
+    </div>
+</div>
+
 <div class="dashboard-sections">
     <!-- Left Column: Tasks -->
     <div class="card main-card">
