@@ -127,8 +127,25 @@ def check_alpha_remotely(s: requests.Session, alpha_id: str) -> tuple[str, float
             results_upper = checks_df["result"].astype(str).str.upper()
             is_fail_mask = results_upper.isin({"FAIL", "FAILED", "ERROR"})
             if is_fail_mask.any():
-                failed_items = checks_df[is_fail_mask]["name"].tolist()
-                return "FAIL", prod_corr, f"Failed checks: {', '.join(failed_items)}", data
+                failed_details = []
+                for _, chk in checks_df[is_fail_mask].iterrows():
+                    chk_name = str(chk.get("name", ""))
+                    chk_val = chk.get("value")
+                    chk_lim = chk.get("limit")
+                    if pd.notna(chk_val) and pd.notna(chk_lim):
+                        try:
+                            val_f = float(chk_val)
+                            lim_f = float(chk_lim)
+                            failed_details.append(f"{chk_name}(value:{val_f:.4f},limit:{lim_f:.4f})")
+                        except Exception:
+                            failed_details.append(f"{chk_name}(value:{chk_val},limit:{chk_lim})")
+                    elif pd.notna(chk_val):
+                        failed_details.append(f"{chk_name}(value:{chk_val})")
+                    else:
+                        failed_details.append(chk_name)
+                
+                error_msg = f"Failed checks: {', '.join(failed_details)}"
+                return "FAIL", prod_corr, error_msg, data
             else:
                 return "PASS", prod_corr, "", data
                 
@@ -263,7 +280,7 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
         finished_ids = {
             r["alpha_id"] 
             for r in conn.execute(
-                "SELECT alpha_id FROM check_results WHERE created_at >= ?", 
+                "SELECT alpha_id FROM check_results WHERE created_at >= ? AND result != 'ERROR'", 
                 (job_created_at,)
             ).fetchall()
         }

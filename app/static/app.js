@@ -522,5 +522,42 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
     });
+
+    // 恢复保存的滚动位置 (用于翻页和过滤不弹回顶部)
+    const savedScrollPos = sessionStorage.getItem("scroll_pos_" + window.location.pathname);
+    if (savedScrollPos !== null) {
+        window.scrollTo(0, parseInt(savedScrollPos));
+        // 延迟一小段时间再次确认（防止 DOM 异步渲染高度变化导致滚动失败）
+        setTimeout(() => {
+            window.scrollTo(0, parseInt(savedScrollPos));
+            sessionStorage.removeItem("scroll_pos_" + window.location.pathname);
+        }, 80);
+    }
 });
+
+// 点击翻页、过滤或表单操作时记录当前滚动位置
+document.addEventListener("click", (e) => {
+    if (e.target.closest(".pagination") || 
+        e.target.closest(".filter-bar") || 
+        e.target.closest(".filter-group-buttons") || 
+        e.target.closest(".filter-group-date-buttons") || 
+        e.target.closest(".rename-inline-form")) {
+        sessionStorage.setItem("scroll_pos_" + window.location.pathname, window.scrollY);
+    }
+});
+
+// 下拉框选择过滤条件变更时记录滚动位置
+document.addEventListener("change", (e) => {
+    if (e.target.id === "level_filter_select") {
+        sessionStorage.setItem("scroll_pos_" + window.location.pathname, window.scrollY);
+    }
+});
+
+// 分页输入框回车提交时记录滚动位置
+document.addEventListener("keypress", (e) => {
+    if (e.key === "Enter" && e.target.id === "jump-page-input") {
+        sessionStorage.setItem("scroll_pos_" + window.location.pathname, window.scrollY);
+    }
+});
+
 
