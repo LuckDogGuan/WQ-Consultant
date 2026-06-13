@@ -20,6 +20,10 @@
             </div>
             
             <nav class="sidebar-menu">
+                <a href="/flow" class="menu-item {% if request.url.path == '/flow' %}active{% endif %}">
+                    <i class="fa-solid fa-route"></i>
+                    <span>数据流通</span>
+                </a>
                 <a href="/dashboard" class="menu-item {% if request.url.path == '/dashboard' or request.url.path == '/' %}active{% endif %}">
                     <i class="fa-solid fa-chart-line"></i>
                     <span>仪表盘</span>
@@ -43,6 +47,10 @@
                 <a href="/check" class="menu-item {% if request.url.path == '/check' %}active{% endif %}">
                     <i class="fa-solid fa-clipboard-check"></i>
                     <span>检查提交</span>
+                </a>
+                <a href="/optimization" class="menu-item {% if request.url.path == '/optimization' %}active{% endif %}">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span>优化规划</span>
                 </a>
                 <a href="/alphas" class="menu-item {% if request.url.path == '/alphas' %}active{% endif %}">
                     <i class="fa-solid fa-database"></i>

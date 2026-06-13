@@ -168,3 +168,44 @@ class SchedulerService:
                     params
                 )
                 JobRunner().start_job(job_id, "correlation", params)
+
+        # 3. 定时自动 Alpha 优化任务
+        opt_enabled = get_setting("optimization_schedule_enabled", "0") == "1"
+        if opt_enabled:
+            opt_hour = int(get_setting("optimization_schedule_hour", "1"))
+            opt_last_run_str = get_setting("optimization_schedule_last_run", "")
+
+            opt_trigger = False
+            current_date_str = now_sh.strftime("%Y-%m-%d")
+            if now_sh.hour == opt_hour:
+                last_run_date = ""
+                if opt_last_run_str:
+                    try:
+                        last_run_dt = datetime.fromisoformat(opt_last_run_str).astimezone(sh_tz)
+                        last_run_date = last_run_dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+                if last_run_date != current_date_str:
+                    opt_trigger = True
+
+            if opt_trigger:
+                logger.info("Scheduler triggering auto optimization job...")
+                now_iso = datetime.now(timezone.utc).isoformat()
+                with connect() as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('optimization_schedule_last_run', ?, datetime('now'))",
+                        (now_iso,),
+                    )
+
+                params = {
+                    "source_mode": get_setting("optimization_source_mode", "recent"),
+                    "recent_days": int(get_setting("optimization_recent_days", "14")),
+                    "candidate_limit": int(get_setting("optimization_candidate_limit", "20")),
+                    "children_per_request": int(get_setting("optimization_children_per_request", "1")),
+                }
+                job_id = create_job(
+                    "optimization_run",
+                    f"定时 Alpha 优化任务 (最近 {params['recent_days']} 天，最多 {params['candidate_limit']} 个)",
+                    params,
+                )
+                JobRunner().start_job(job_id, "optimization_run", params)

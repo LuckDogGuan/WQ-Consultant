@@ -183,6 +183,15 @@ DEFAULT_SETTINGS = {
     "reconnect_long_sleep_seconds": "3600",
     # 修改属性二次确认选项
     "need_confirm_on_modify": "0",
+    # API 延时判断。超过该毫秒阈值会写入慢请求日志；设为 0 可关闭慢请求记录。
+    "api_slow_threshold_ms": "1500",
+    "optimization_source_mode": "recent",
+    "optimization_recent_days": "14",
+    "optimization_candidate_limit": "20",
+    "optimization_children_per_request": "1",
+    "optimization_schedule_enabled": "0",
+    "optimization_schedule_hour": "1",
+    "optimization_schedule_last_run": "",
 }
 
 

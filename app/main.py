@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 import logging
 import math
+import time as perf_time
 from pathlib import Path
 from fastapi import FastAPI, Request, Depends, Form, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -51,6 +52,47 @@ from .services.catalog_service import (
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="WorldQuant Consultant GUI", version="v0.1")
+
+
+def api_slow_threshold_ms() -> float:
+    try:
+        return max(0.0, float(get_setting("api_slow_threshold_ms", "1500")))
+    except Exception:
+        return 1500.0
+
+
+@app.middleware("http")
+async def api_latency_middleware(request: Request, call_next):
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    started = perf_time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (perf_time.perf_counter() - started) * 1000
+    response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.2f}"
+
+    threshold_ms = api_slow_threshold_ms()
+    if threshold_ms and elapsed_ms >= threshold_ms:
+        payload = {
+            "path": request.url.path,
+            "method": request.method,
+            "elapsed_ms": round(elapsed_ms, 2),
+            "threshold_ms": threshold_ms,
+        }
+        logger.warning(
+            "Slow API request: %s %s took %.2fms",
+            request.method,
+            request.url.path,
+            elapsed_ms,
+        )
+        try:
+            from .storage import add_error
+
+            add_error("api_slow", f"{request.method} {request.url.path} took {elapsed_ms:.2f}ms", payload)
+        except Exception:
+            logger.debug("Failed to persist slow API record.", exc_info=True)
+
+    return response
 
 import json
 # 挂载静态资源和模板
@@ -147,6 +189,131 @@ def debug_exception_handler(request: Request, exc: Exception):
         </html>
         """
         return HTMLResponse(status_code=500, content=err_msg)
+
+
+@app.get("/api/optimization/plans")
+def get_optimization_plans(limit: int = 200, admin: str = Depends(get_current_admin)):
+    from .services.optimization_planner import list_optimization_plans
+
+    plans = list_optimization_plans(limit=limit)
+    items = [plan.to_dict() for plan in plans]
+    return {
+        "items": items,
+        "total": len(items),
+        "optimizable": sum(1 for item in items if item["should_optimize"]),
+        "skipped": sum(1 for item in items if not item["should_optimize"]),
+    }
+
+
+@app.post("/api/expressions/validate")
+async def post_validate_expression(request: Request, admin: str = Depends(get_current_admin)):
+    from .services.expression_validator import validate_expression
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    expression = str(payload.get("expression") or "")
+    return validate_expression(expression).to_dict()
+
+
+@app.get("/api/optimization/variants/{alpha_id}")
+def get_optimization_variants(alpha_id: str, max_variants: int = 30, admin: str = Depends(get_current_admin)):
+    from .services.alpha_enhancement import generate_variants_for_alpha_id
+
+    plan, variants = generate_variants_for_alpha_id(alpha_id, max_variants=max_variants)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Alpha not found.")
+    return {
+        "plan": plan.to_dict(),
+        "items": [variant.to_dict() for variant in variants],
+        "total": len(variants),
+    }
+
+
+@app.get("/optimization", response_class=HTMLResponse)
+def get_optimization_page(
+    request: Request,
+    page: int = 1,
+    status_filter: str = "",
+    level_filter: str = "",
+    strategy_filter: str = "",
+    limit: int = 500,
+    admin: str = Depends(get_current_admin),
+):
+    from .services.optimization_planner import list_optimization_plans
+
+    page_size = 12
+    success_map = {
+        "optimization_job_started": "优化任务已启动，可以在下方查看进度。",
+        "optimization_schedule_saved": "优化定时设置已保存。",
+    }
+    success_msg = success_map.get(request.query_params.get("success") or "")
+    settings = get_settings()
+    with connect() as conn:
+        jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'optimization_run' ORDER BY id DESC LIMIT 5").fetchall()
+    plans = [plan.to_dict() for plan in list_optimization_plans(limit=limit)]
+    if status_filter == "optimizable":
+        plans = [plan for plan in plans if plan["should_optimize"]]
+    elif status_filter == "skipped":
+        plans = [plan for plan in plans if not plan["should_optimize"]]
+
+    if level_filter:
+        plans = [plan for plan in plans if plan["level"] == level_filter]
+    if strategy_filter:
+        plans = [plan for plan in plans if plan["strategy"] == strategy_filter]
+
+    total = len(plans)
+    total_pages = math.ceil(total / page_size) if total > 0 else 1
+    page = max(1, min(page, total_pages))
+    offset = (page - 1) * page_size
+    page_items = plans[offset:offset + page_size]
+    strategies = sorted({plan["strategy"] for plan in plans if plan["strategy"]})
+
+    return templates.TemplateResponse(
+        request,
+        "optimization.html",
+        {
+            "plans": page_items,
+            "total": total,
+            "total_pages": total_pages,
+            "page": page,
+            "status_filter": status_filter,
+            "level_filter": level_filter,
+            "strategy_filter": strategy_filter,
+            "strategies": strategies,
+            "optimizable": sum(1 for plan in plans if plan["should_optimize"]),
+            "skipped": sum(1 for plan in plans if not plan["should_optimize"]),
+            "limit": limit,
+            "settings": settings,
+            "jobs": jobs,
+            "success": success_msg,
+        },
+    )
+
+
+@app.get("/optimization/{alpha_id}/variants", response_class=HTMLResponse)
+def get_optimization_variants_page(
+    request: Request,
+    alpha_id: str,
+    max_variants: int = 30,
+    admin: str = Depends(get_current_admin),
+):
+    from .services.alpha_enhancement import generate_variants_for_alpha_id
+
+    plan, variants = generate_variants_for_alpha_id(alpha_id, max_variants=max_variants)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Alpha not found.")
+    return templates.TemplateResponse(
+        request,
+        "optimization_variants.html",
+        {
+            "plan": plan.to_dict(),
+            "variants": [variant.to_dict() for variant in variants],
+            "total": len(variants),
+            "max_variants": max_variants,
+        },
+    )
 
 
 @app.on_event("startup")
@@ -269,6 +436,11 @@ def get_dashboard(request: Request, admin: str = Depends(get_current_admin)):
             "delay": delay
         }
     )
+
+
+@app.get("/flow", response_class=HTMLResponse)
+def get_flow_page(request: Request, admin: str = Depends(get_current_admin)):
+    return templates.TemplateResponse(request, "flow.html", {})
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -1127,6 +1299,56 @@ def post_check_run(manual_ids: str = Form(""), admin: str = Depends(get_current_
     job_id = create_job("check_submission", f"三线程 check_submission 检查 (手动追加 {len(ids_list)} 个)", params)
     JobRunner().start_job(job_id, "check_submission", params)
     return RedirectResponse(url="/check", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/api/jobs/optimization")
+def post_optimization_run(
+    action: str = Form("run"),
+    source_mode: str = Form("recent"),
+    recent_days: int = Form(14),
+    candidate_limit: int = Form(20),
+    start_date: str = Form(""),
+    end_date: str = Form(""),
+    alpha_ids: str = Form(""),
+    children_per_request: int = Form(1),
+    schedule_enabled: str = Form("0"),
+    schedule_hour: int = Form(1),
+    admin: str = Depends(get_current_admin),
+):
+    from .services.optimization_run_service import parse_alpha_ids
+
+    schedule_enabled_value = "1" if schedule_enabled == "1" else "0"
+    update_settings(
+        {
+            "optimization_source_mode": source_mode,
+            "optimization_recent_days": recent_days,
+            "optimization_candidate_limit": candidate_limit,
+            "optimization_children_per_request": children_per_request,
+            "optimization_schedule_enabled": schedule_enabled_value,
+            "optimization_schedule_hour": schedule_hour,
+        }
+    )
+
+    params = {
+        "source_mode": source_mode,
+        "recent_days": recent_days,
+        "candidate_limit": candidate_limit,
+        "start_date": start_date,
+        "end_date": end_date,
+        "alpha_ids": "\n".join(parse_alpha_ids(alpha_ids)),
+        "children_per_request": children_per_request,
+    }
+    if action == "save_schedule":
+        return RedirectResponse(url="/optimization?success=optimization_schedule_saved", status_code=status.HTTP_303_SEE_OTHER)
+
+    source_label = {
+        "manual": f"手动 {len(parse_alpha_ids(alpha_ids))} 个",
+        "range": f"{start_date or '起始'} 至 {end_date or '现在'}",
+        "recent": f"最近 {recent_days} 天",
+    }.get(source_mode, source_mode)
+    job_id = create_job("optimization_run", f"Alpha 优化运行 ({source_label}，最多 {candidate_limit} 个)", params)
+    JobRunner().start_job(job_id, "optimization_run", params)
+    return RedirectResponse(url="/optimization?success=optimization_job_started", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/api/jobs/{job_id}/pause")

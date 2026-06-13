@@ -221,13 +221,16 @@
                                 <div class="progress-bar-container">
                                     <div class="progress-bar-fill" style="width: {{ pct }}%"></div>
                                     <span class="progress-bar-text">
-                                        {% if tot > 0 and tot != 100 %}
-                                            {{ cur }} / {{ tot }} ({{ pct }}%)
+                                        {% if tot > 0 %}
+                                            Pool {{ cur }} / {{ tot }} ({{ pct }}%)
                                         {% else %}
-                                            {{ cur }}%
+                                            准备中
                                         {% endif %}
                                     </span>
                                 </div>
+                                {% if j.message %}
+                                <div class="job-progress-detail">{{ j.message }}</div>
+                                {% endif %}
                             </td>
                             <td class="job-action-cell">
                                 <div class="btn-group">

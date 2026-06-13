@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}优化变体预览{% endblock %}
+{% block header_title %}优化变体预览{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header" style="flex-wrap: wrap; gap: 16px;">
+        <h2><i class="fa-solid fa-code-branch"></i> {{ plan.alpha_id }} 的增强候选</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+            <span class="stat-tag">候选: {{ total }}</span>
+            <span class="stat-tag">策略: {{ plan.strategy or '-' }}</span>
+            <a href="/optimization?status_filter=optimizable" class="btn btn-sm btn-secondary">返回优化规划</a>
+        </div>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: minmax(160px, 240px) 1fr; gap: 12px 20px; margin-bottom: 20px;">
+            <div class="text-muted">因子名称</div>
+            <div>{{ plan.name or '-' }}</div>
+            <div class="text-muted">原始表达式</div>
+            <div class="text-xs" style="word-break: break-all;">{{ plan.expression }}</div>
+            <div class="text-muted">优化原因</div>
+            <div>{{ plan.reason or plan.skip_reason }}</div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>模式</th>
+                        <th>原因</th>
+                        <th>表达式检查</th>
+                        <th>增强表达式</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for variant in variants %}
+                    <tr>
+                        <td><span class="stat-tag">{{ variant.mode }}</span></td>
+                        <td><span class="text-xs text-muted">{{ variant.reason }}</span></td>
+                        <td>
+                            {% if variant.validation.is_valid %}
+                            <span class="badge status-PASS">通过</span>
+                            {% else %}
+                            <span class="badge status-FAIL">错误</span>
+                            {% endif %}
+                            {% if variant.validation.warnings %}
+                            <div class="text-xs text-muted">警告 {{ variant.validation.warnings|length }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="text-xs" style="word-break: break-all;">{{ variant.expression }}</div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">没有可用增强候选。请检查该 Alpha 是否可优化、表达式是否有效。</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -165,6 +165,7 @@ def run_simulation_pool_with_control(
     region: str,
     universe: str,
     log_path: Path,
+    progress_context: dict[str, Any] | None = None,
 ) -> None:
     """定制的多线程 Simulation 执行器，支持限额限时拦截、优雅暂停、自动重连以及入库"""
     from consultant_core.machine_lib import (
@@ -203,6 +204,7 @@ def run_simulation_pool_with_control(
     reconnect_count = 0
     
     total_pools = len(alpha_pools)
+    emitted_progress_milestones: set[int] = set()
     
     try:
         # Build a flat queue of tasks
@@ -227,6 +229,27 @@ def run_simulation_pool_with_control(
         print(f"Total tasks: {len(all_tasks)}", flush=True)
         print(f"==================================================\n", flush=True)
 
+        if progress_context:
+            started_msg = format_backtest_stage_detail_message(
+                dataset_id=str(progress_context["dataset_id"]),
+                stage_name=str(progress_context["stage_name"]),
+                stage_index=int(progress_context["stage_index"]),
+                stages_per_dataset=int(progress_context["stages_per_dataset"]),
+                completed_pools=start_index,
+                total_pools=total_pools,
+                group_label=progress_context.get("group_label"),
+            )
+        else:
+            started_msg = f"Stage pool progress: {start_index}/{total_pools}."
+        progress_current, progress_total = stage_detail_progress_values(start_index, total_pools)
+        update_job(
+            job_id,
+            progress_current=progress_current,
+            progress_total=progress_total,
+            message=started_msg,
+        )
+        add_job_event(job_id, "info", started_msg)
+
         def run_single_task(x, y, task):
             nonlocal reconnect_count
             runner.check_paused(job_id)
@@ -250,6 +273,8 @@ def run_simulation_pool_with_control(
                 check_limits_and_wait(job_id, cur_sess)
                 
             sim_data = generate_sim_data(task, region, universe, neut)
+            post_payload = normalize_simulation_post_payload(sim_data)
+            payload_shape = "single" if isinstance(sim_data, list) and len(sim_data) == 1 else "multi"
             write_simulation_log(
                 str(log_path),
                 {
@@ -257,6 +282,7 @@ def run_simulation_pool_with_control(
                     "pool_index": x,
                     "task_index": y,
                     "alpha_count": len(task),
+                    "payload_shape": payload_shape,
                 },
             )
             
@@ -270,19 +296,45 @@ def run_simulation_pool_with_control(
                     
                 try:
                     print(f"[Pool {x+1}] [Slot {y+1}] Sending POST request to WorldQuant Brain (Attempt {attempts+1}/{max_post_retries})...", flush=True)
-                    simulation_response = thread_session.post('https://api.worldquantbrain.com/simulations', json=sim_data, timeout=60)
+                    simulation_response = thread_session.post('https://api.worldquantbrain.com/simulations', json=post_payload, timeout=60)
                     
                     if simulation_response.status_code == 429:
-                        retry_after = int(simulation_response.headers.get("Retry-After", 5))
-                        logger.info(f"Rate limited (429). Sleeping for {retry_after}s...")
-                        print(f"[Pool {x+1}] [Slot {y+1}] Rate limited (429). Sleeping for {retry_after}s before retry...", flush=True)
-                        time.sleep(retry_after)
+                        attempts += 1
+                        retry_after = rate_limit_retry_seconds(simulation_response)
+                        msg = (
+                            f"Rate limited by WQ (429). Waiting {retry_after}s "
+                            f"before retry {attempts}/{max_post_retries}."
+                        )
+                        logger.info(msg)
+                        update_job(job_id, status="waiting_limit", message=msg)
+                        print(f"[Pool {x+1}] [Slot {y+1}] {msg}", flush=True)
+                        if attempts >= max_post_retries:
+                            with status_lock:
+                                pool_failed[x] = True
+                            write_simulation_log(
+                                str(log_path),
+                                {
+                                    "event": "task_post_error",
+                                    "pool_index": x,
+                                    "task_index": y,
+                                    "status_code": 429,
+                                    "message": msg,
+                                },
+                            )
+                            break
+                        slept = 0
+                        while slept < retry_after:
+                            runner.check_paused(job_id)
+                            time.sleep(min(5, retry_after - slept))
+                            slept += min(5, retry_after - slept)
                         continue
                         
                     if simulation_response.status_code == 401:
                         raise ConnectionResetError("Unauthorized token.")
                         
-                    progress_url = simulation_response.headers['Location']
+                    progress_url = simulation_response.headers.get("Location")
+                    if not progress_url:
+                        raise RuntimeError(describe_missing_location_response(simulation_response))
                     print(f"[Pool {x+1}] [Slot {y+1}] POST successful. Progress URL: {progress_url}", flush=True)
                     write_simulation_log(
                         str(log_path),
@@ -422,9 +474,39 @@ def run_simulation_pool_with_control(
                         if not pool_failed.get(x, False):
                             write_simulation_log(str(log_path), {"event": "pool_complete", "pool_index": x})
                         print(f"\n[Pool {x+1} / {total_pools}] Concurrency stage done.", flush=True)
-                        # Update progress info dynamically
-                        pct = int(((x + 1) / total_pools) * 100) if total_pools > 0 else 0
-                        update_job(job_id, progress_current=x+1, progress_total=total_pools, message=f"Completed pool {x+1}/{total_pools}...")
+                        completed_pools = sum(
+                            1
+                            for pool_index, tasks in completed_tasks_by_pool.items()
+                            if len(tasks) == len(alpha_pools[pool_index])
+                        )
+                        if progress_context:
+                            msg = format_backtest_stage_detail_message(
+                                dataset_id=str(progress_context["dataset_id"]),
+                                stage_name=str(progress_context["stage_name"]),
+                                stage_index=int(progress_context["stage_index"]),
+                                stages_per_dataset=int(progress_context["stages_per_dataset"]),
+                                completed_pools=completed_pools,
+                                total_pools=total_pools,
+                                group_label=progress_context.get("group_label"),
+                            )
+                        else:
+                            msg = f"Stage pool progress: {completed_pools}/{total_pools}."
+                        progress_current, progress_total = stage_detail_progress_values(
+                            completed_pools,
+                            total_pools,
+                        )
+                        update_job(
+                            job_id,
+                            progress_current=progress_current,
+                            progress_total=progress_total,
+                            message=msg,
+                        )
+                        if should_emit_stage_progress_event(
+                            completed_pools,
+                            total_pools,
+                            emitted_progress_milestones,
+                        ):
+                            add_job_event(job_id, "info", msg)
 
         # Get log file handle
         log_file = getattr(redirected_stdout.local, "file", None)
@@ -487,6 +569,152 @@ def is_simulation_stage_complete(log_path: Path) -> bool:
     return False
 
 
+def build_backtest_stage_plan(
+    dataset_ids: list[str],
+    run_fo: bool,
+    run_so: bool,
+    run_th: bool,
+) -> list[tuple[str, str, int, int, int, int, int, int]]:
+    """Build coarse backtest progress units: one enabled stage per dataset."""
+    enabled_stages: list[str] = []
+    if run_fo:
+        enabled_stages.append("FO")
+    if run_so:
+        enabled_stages.append("SO")
+    if run_th:
+        enabled_stages.append("TH")
+
+    total_datasets = len(dataset_ids)
+    stages_per_dataset = len(enabled_stages)
+    total_stages = total_datasets * stages_per_dataset
+    plan: list[tuple[str, str, int, int, int, int, int, int]] = []
+    stage_current = 0
+    for dataset_index, dataset_id in enumerate(dataset_ids, start=1):
+        for stage_index, stage_name in enumerate(enabled_stages, start=1):
+            stage_current += 1
+            plan.append(
+                (
+                    dataset_id,
+                    stage_name,
+                    dataset_index,
+                    total_datasets,
+                    stage_index,
+                    stages_per_dataset,
+                    stage_current,
+                    total_stages,
+                )
+            )
+    return plan
+
+
+def format_backtest_progress_message(
+    dataset_id: str,
+    stage_name: str,
+    dataset_index: int,
+    total_datasets: int,
+    stage_index: int,
+    stages_per_dataset: int,
+    stage_current: int,
+    stage_total: int,
+    action: str,
+) -> str:
+    action_label = {
+        "started": "已开始",
+        "completed": "已完成",
+        "skipped": "已跳过",
+    }.get(action, action)
+    return (
+        f"[{dataset_id}] {stage_name} {action_label}。"
+        f"数据集 {dataset_index}/{total_datasets}，"
+        f"当前阶段 {stage_index}/{stages_per_dataset}，"
+        f"总进度 {stage_current}/{stage_total}。"
+    )
+
+
+def format_backtest_stage_detail_message(
+    dataset_id: str,
+    stage_name: str,
+    stage_index: int,
+    stages_per_dataset: int,
+    completed_pools: int,
+    total_pools: int,
+    group_label: str | None = None,
+) -> str:
+    group_text = f"{group_label}，" if group_label else ""
+    return (
+        f"[{dataset_id}] {stage_name} 小阶段进度："
+        f"{group_text}Pool {completed_pools}/{total_pools}，"
+        f"当前阶段 {stage_index}/{stages_per_dataset}。"
+    )
+
+
+def describe_missing_location_response(response: Any) -> str:
+    status_code = getattr(response, "status_code", None)
+    headers = getattr(response, "headers", {}) or {}
+    retry_after = headers.get("Retry-After") if hasattr(headers, "get") else None
+    body = _short_response_text(response)
+    parts = [f"WQ simulation response missing Location header (status={status_code})"]
+    if retry_after:
+        parts.append(f"Retry-After={retry_after}")
+    if body:
+        parts.append(f"body={body}")
+    return "; ".join(parts)
+
+
+def normalize_simulation_post_payload(sim_data: Any) -> Any:
+    """WorldQuant expects one simulation as an object and multi-simulation as an array."""
+    if isinstance(sim_data, list) and len(sim_data) == 1:
+        return sim_data[0]
+    return sim_data
+
+
+def rate_limit_retry_seconds(response: Any, min_seconds: int = 30, max_seconds: int = 300) -> int:
+    headers = getattr(response, "headers", {}) or {}
+    raw_retry_after = headers.get("Retry-After") if hasattr(headers, "get") else None
+    try:
+        retry_after = int(float(raw_retry_after))
+    except Exception:
+        retry_after = min_seconds
+    return max(min_seconds, min(retry_after, max_seconds))
+
+
+def _short_response_text(response: Any, limit: int = 500) -> str:
+    text = getattr(response, "text", "")
+    if not text:
+        try:
+            text = response.content.decode("utf-8", errors="replace")
+        except Exception:
+            text = ""
+    text = str(text).replace("\r", " ").replace("\n", " ").strip()
+    return text[:limit]
+
+
+def stage_detail_progress_values(completed_pools: int, total_pools: int) -> tuple[int, int]:
+    if total_pools <= 0:
+        return 0, 0
+    completed = max(0, min(completed_pools, total_pools))
+    return completed, total_pools
+
+
+def should_emit_stage_progress_event(
+    completed_pools: int,
+    total_pools: int,
+    emitted_milestones: set[int],
+) -> bool:
+    if total_pools <= 0:
+        return False
+    if completed_pools >= total_pools and 100 not in emitted_milestones:
+        emitted_milestones.add(100)
+        return True
+
+    percent = int(completed_pools * 100 / total_pools)
+    for milestone in (25, 50, 75):
+        if percent >= milestone and milestone not in emitted_milestones:
+            emitted_milestones.add(milestone)
+            return True
+    return False
+
+
 def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     """后台任务主入口：三阶段回测业务控制层"""
     from consultant_core import machine_lib
@@ -540,11 +768,103 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
         raise ValueError("No dataset_ids provided.")
         
     total_datasets = len(dataset_ids)
+    stage_plan = build_backtest_stage_plan(dataset_ids, run_fo, run_so, run_th)
+    total_stages = len(stage_plan)
+    stage_lookup = {
+        (dataset_index, stage_name): (
+            dataset_id,
+            stage_name,
+            dataset_index,
+            total_dataset_count,
+            stage_index,
+            stages_per_dataset,
+            stage_current,
+            stage_total,
+        )
+        for (
+            dataset_id,
+            stage_name,
+            dataset_index,
+            total_dataset_count,
+            stage_index,
+            stages_per_dataset,
+            stage_current,
+            stage_total,
+        ) in stage_plan
+    }
+
+    update_job(
+        job_id,
+        progress_current=0,
+        progress_total=0,
+        message=f"Backtest queue ready. Total stages: 0/{total_stages}.",
+    )
+    add_job_event(job_id, "info", f"Backtest queue ready. Total stages: 0/{total_stages}.")
+
+    def mark_stage(stage_name: str, dataset_index: int, action: str) -> None:
+        plan_item = stage_lookup.get((dataset_index, stage_name))
+        if not plan_item:
+            return
+        (
+            dataset_id,
+            stage_name,
+            dataset_index,
+            total_dataset_count,
+            stage_index,
+            stages_per_dataset,
+            stage_current,
+            stage_total,
+        ) = plan_item
+        progress_current = stage_current if action in {"completed", "skipped"} else stage_current - 1
+        msg = format_backtest_progress_message(
+            dataset_id=dataset_id,
+            stage_name=stage_name,
+            dataset_index=dataset_index,
+            total_datasets=total_dataset_count,
+            stage_index=stage_index,
+            stages_per_dataset=stages_per_dataset,
+            stage_current=progress_current,
+            stage_total=stage_total,
+            action=action,
+        )
+        logger.info(msg)
+        if action in {"started", "skipped"}:
+            update_job(job_id, progress_current=0, progress_total=0, message=msg)
+        else:
+            update_job(job_id, message=msg)
+        add_job_event(job_id, "info", msg)
+
+    def stage_progress_context(
+        stage_name: str,
+        dataset_index: int,
+        group_label: str | None = None,
+    ) -> dict[str, Any] | None:
+        plan_item = stage_lookup.get((dataset_index, stage_name))
+        if not plan_item:
+            return None
+        (
+            dataset_id,
+            stage_name,
+            _dataset_index,
+            _total_dataset_count,
+            stage_index,
+            stages_per_dataset,
+            _stage_current,
+            _stage_total,
+        ) = plan_item
+        return {
+            "dataset_id": dataset_id,
+            "stage_name": stage_name,
+            "stage_index": stage_index,
+            "stages_per_dataset": stages_per_dataset,
+            "group_label": group_label,
+        }
     
     for idx, dataset_id in enumerate(dataset_ids):
         msg = f"Starting backtest for dataset {dataset_id} ({idx+1}/{total_datasets})..."
         logger.info(msg)
         update_job(job_id, message=msg)
+        add_job_event(job_id, "info", msg)
         
         # 1. 获取本地字段缓存
         fields = load_fields_from_cache(region, universe, delay, dataset_id, instrument_type)
@@ -564,6 +884,9 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
             err = f"Dataset {dataset_id} fields cache is missing. Skipping this dataset."
             logger.error(err)
             add_job_event(job_id, "error", err)
+            for stage_name in ("FO", "SO", "TH"):
+                if (idx + 1, stage_name) in stage_lookup:
+                    mark_stage(stage_name, idx + 1, "skipped")
             continue
             
         df_fields = pd.DataFrame(fields)
@@ -573,7 +896,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
         # ==========================================
         if run_fo:
             logger.info(f"[{dataset_id}] Starting FO Stage...")
-            update_job(job_id, message=f"[{dataset_id}] Running FO Stage...")
+            mark_stage("FO", idx + 1, "started")
             
             # 使用 machine_lib 清洗字段
             processed_fields = process_datafields(df_fields)
@@ -594,9 +917,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
             )
                 
             groups = split_processed_datafields_by_neutralization(df_fields, recs)
+            group_items = list(groups.items())
             
             # 逐个 neutralization 分组执行
-            for neut_name, neut_fields in groups.items():
+            for group_index, (neut_name, neut_fields) in enumerate(group_items, start=1):
                 # 设定日志断点文件
                 fo_log_path = LOG_DIR / f"fo_progress_{job_id}_{dataset_id}_{neut_name}.jsonl"
                 if is_simulation_stage_complete(fo_log_path):
@@ -619,8 +943,14 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                     neut=neut_name,
                     region=region,
                     universe=universe,
-                    log_path=fo_log_path
+                    log_path=fo_log_path,
+                    progress_context=stage_progress_context(
+                        "FO",
+                        idx + 1,
+                        group_label=f"分组 {group_index}/{len(group_items)}: {neut_name}",
+                    ),
                 )
+            mark_stage("FO", idx + 1, "completed")
                 
         # ==========================================
         # 阶段二：二阶 SO
@@ -629,9 +959,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
             so_log_path = LOG_DIR / f"so_progress_{job_id}_{dataset_id}.jsonl"
             if is_simulation_stage_complete(so_log_path):
                 logger.info(f"[{dataset_id}] SO Stage already completed. Skipping.")
+                mark_stage("SO", idx + 1, "completed")
             else:
                 logger.info(f"[{dataset_id}] Starting SO Stage...")
-                update_job(job_id, message=f"[{dataset_id}] Running SO Stage...")
+                mark_stage("SO", idx + 1, "started")
                 
                 # 获取 SO 参数
                 fo_track_lookback = int(get_setting("fo_track_lookback_days", "90"))
@@ -661,6 +992,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 if not fo_tracker:
                     logger.info(f"[{dataset_id}] No eligible FO tracker candidates. Skipping SO Stage.")
                     add_job_event(job_id, "warning", f"[{dataset_id}] No FO tracker candidates. Skipping SO.")
+                    mark_stage("SO", idx + 1, "skipped")
                 else:
                     # 剪枝与 Fallback 策略
                     prefix = derive_prune_prefix(fields)
@@ -708,8 +1040,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                         neut="INDUSTRY", # SO 默认 neut 级别
                         region=region,
                         universe=universe,
-                        log_path=so_log_path
+                        log_path=so_log_path,
+                        progress_context=stage_progress_context("SO", idx + 1),
                     )
+                    mark_stage("SO", idx + 1, "completed")
                 
         # ==========================================
         # 阶段三：三阶 TH
@@ -718,9 +1052,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
             th_log_path = LOG_DIR / f"th_progress_{job_id}_{dataset_id}.jsonl"
             if is_simulation_stage_complete(th_log_path):
                 logger.info(f"[{dataset_id}] TH Stage already completed. Skipping.")
+                mark_stage("TH", idx + 1, "completed")
             else:
                 logger.info(f"[{dataset_id}] Starting TH Stage...")
-                update_job(job_id, message=f"[{dataset_id}] Running TH Stage...")
+                mark_stage("TH", idx + 1, "started")
                 
                 # 获取 TH 参数
                 so_track_lookback = int(get_setting("so_track_lookback_days", "90"))
@@ -750,6 +1085,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 if not so_tracker:
                     logger.info(f"[{dataset_id}] No eligible SO tracker candidates. Skipping TH Stage.")
                     add_job_event(job_id, "warning", f"[{dataset_id}] No SO tracker candidates. Skipping TH.")
+                    mark_stage("TH", idx + 1, "skipped")
                 else:
                     prefix = derive_prune_prefix(fields)
                     keep_num = int(get_setting("prune_keep_num", "5"))
@@ -790,8 +1126,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                         neut="INDUSTRY",
                         region=region,
                         universe=universe,
-                        log_path=th_log_path
+                        log_path=th_log_path,
+                        progress_context=stage_progress_context("TH", idx + 1),
                     )
+                    mark_stage("TH", idx + 1, "completed")
                 
         # 单个数据集成功结束
         add_job_event(job_id, "info", f"Dataset {dataset_id} completed through all requested stages.")

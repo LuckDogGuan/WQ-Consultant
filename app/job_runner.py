@@ -208,6 +208,9 @@ class JobRunner:
                 elif kind == "check_submission":
                     from .services.check_service import run_check_job
                     run_check_job(job_id, params)
+                elif kind == "optimization_run":
+                    from .services.optimization_run_service import run_optimization_job
+                    run_optimization_job(job_id, params)
                 else:
                     raise ValueError(f"Unknown job kind: {kind}")
             

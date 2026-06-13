@@ -9,6 +9,15 @@ let guiLogInterval = null;
 let currentSelectedJobId = null;
 let currentDetailsTab = 'log'; // 'log' or 'events'
 
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 // 启动页面初始挂载
 document.addEventListener("DOMContentLoaded", function() {
     // 开启网络状态监测轮询
@@ -86,6 +95,8 @@ function updateJobsState() {
                                     }
                                 } else if (job.kind === 'check_submission') {
                                     paramsText = p.manual_ids && p.manual_ids.length > 0 ? `手动追加: ${p.manual_ids.slice(0, 3).join(', ')}${p.manual_ids.length > 3 ? '...' : ''}` : '自动合并检查';
+                                } else if (job.kind === 'optimization_run') {
+                                    paramsText = `来源: ${p.source_mode || 'recent'} | 候选: ${p.candidate_limit || 20} | 每次提交: ${p.children_per_request || 1}`;
                                 }
                             } catch(e) {}
                         }
@@ -102,11 +113,9 @@ function updateJobsState() {
                         const tot = job.progress_total || 0;
                         const pct = tot > 0 ? Math.round((cur / tot) * 100) : 0;
                         
-                        let progressText = `${pct}%`;
-                        if (tot > 0 && tot !== 100) {
-                            progressText = `${cur} / ${tot} (${pct}%)`;
-                        } else if (tot === 100) {
-                            progressText = `${cur}%`;
+                        let progressText = "准备中";
+                        if (tot > 0) {
+                            progressText = `Pool ${cur} / ${tot} (${pct}%)`;
                         }
                         
                         progressTd.innerHTML = `
@@ -114,6 +123,7 @@ function updateJobsState() {
                                 <div class="progress-bar-fill" style="width: ${pct}%"></div>
                                 <span class="progress-bar-text">${progressText}</span>
                             </div>
+                            ${job.message ? `<div class="job-progress-detail">${escapeHtml(job.message)}</div>` : ''}
                         `;
                     }
 
@@ -559,5 +569,3 @@ document.addEventListener("keypress", (e) => {
         sessionStorage.setItem("scroll_pos_" + window.location.pathname, window.scrollY);
     }
 });
-
-

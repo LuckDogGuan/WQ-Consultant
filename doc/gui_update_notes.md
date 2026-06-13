@@ -105,3 +105,37 @@ INFO:     Uvicorn running on http://127.0.0.1:8765 (Press CTRL+C to quit)
 ### 4.3 关于回测个数（十小时仅提检 1000 个）的原理性解释
 - **旧系统瓶颈**: 在旧的并发实现中，回测任务是**按 pool 逐个串行阻塞运行**的。如果一个 pool 包含了例如 6 个 slot（6 个并发子任务），虽然启用了多线程，但系统必须等待这 6 个任务**全部彻底完成**，才能转入下一个 pool。这就导致：一旦其中某一个 slot 出现网络卡顿、WQ 排队延迟（可能需要几分钟），其余 5 个早已跑完的 slot 线程只能被迫闲置等待，造成极大的线程饥饿和时间浪费。
 - **新系统改进**: 本次升级已将整个任务拉平（Flatten），把所有 pools 里的子任务展开平铺为一个非阻塞的大任务队列，并使用最大为 `limit_of_multi_simulations` 并发的 `ThreadPoolExecutor`。这使得一旦某个 slot 任务完成，下一个回测因子会立刻抢占并执行，各个线程彻底消除闲置，因此能实现 3-5 倍的性能提升，完美解决回测缓慢问题。
+
+## 5. 2026-06-13 Alpha 优化规划器第一阶段
+
+- **阶段边界**: 新增优化规划器只读取本地数据并生成优化计划，不直接启动 WorldQuant Brain 远程回测，避免在规则未稳定前消耗 API。
+- **候选范围**: `marginal`、`standard`、`premium` 因子进入候选池；提交检查后的因子也可根据 `check_results` 的返回错误生成策略。
+- **跳过规则**: 缺少表达式跳过；失败或 ERROR 检查项数量大于等于 2 时跳过，避免对问题过多的因子做自动优化。
+- **错误映射**: `SELF_CORRELATION` 映射到去相关策略，后续对应 `optimizeAlpha.py` 的 `runGroup`、`runTrade`、`runStable` 类能力；`LOW_SHARPE`、`LOW_FITNESS`、`LOW_MARGIN`、换手率类错误分别映射到性能、边际收益、换手率调整策略。
+- **代码位置**: 新增 `app/services/optimization_planner.py`，新增测试 `tests/test_optimization_planner.py`。
+- **阶段文档**: 详细规则记录在 `doc/alpha_optimization_planner_2026-06-13.md`。
+- **页面入口**: 新增 `/optimization` 只读页面和侧边栏“优化规划”入口，可筛选可优化/跳过、等级和策略，便于人工确认候选池。
+- **本地表达式验证**: 新增 `app/services/expression_validator.py` 和 `POST /api/expressions/validate`。优化计划生成前会先做本地检查，明显非法表达式跳过；未知 operator 只作为 warning，不消耗 API。
+- **增强变体预览**: 新增 `app/services/alpha_enhancement.py` 和 `GET /api/optimization/variants/{alpha_id}`，按优化计划生成本地表达式候选，覆盖 stable/group/trade/template/power/runtime/basic 等小批量模式，仍不自动远程回测。
+- **API 延时判断**: 新增 `/api/*` 通用耗时中间件，响应头返回 `X-Process-Time-Ms`。默认慢请求阈值 `api_slow_threshold_ms=1500`，超过阈值会记录 `api_slow` 错误事件，便于区分本地查询慢、表达式验证慢和远程 WQ API 慢。
+- **优化规划可用性**: `/optimization` 列表新增“因子名称”和“生成变体”操作。点击后进入 `/optimization/{alpha_id}/variants`，可查看本地生成的增强表达式候选，仍不自动提交远程回测。
+- **回测准备中显示修复**: 回测阶段生成 pool 后立即把 `progress_current/progress_total` 更新为 `0/总 pool`，前台不再长时间显示“准备中”。WQ 创建 simulation 未返回 `Location` 时，日志会显示状态码、Retry-After 和响应体摘要，不再只显示 `'location'`。
+## 6. 2026-06-13 优化运行与 Job #29 修复
+
+- **Job #29 根因**: 日志显示 WQ 返回 `Multi-simulations require multiple simulations in request array. Single simulations are required to be submitted without the wrapping array.`。根因是单个 simulation 也被数组包裹提交，平台拒绝并且没有返回 `Location`。
+- **提交格式修复**: 新增 `normalize_simulation_post_payload()`。当 `generate_sim_data()` 只生成 1 条 simulation 时，POST 使用单个对象；多条 simulation 时仍使用数组。`task_post_start` 日志新增 `payload_shape`，方便后续判断当前任务是 single 还是 multi。
+- **优化规划一键运行**: 新增 `optimization_run` 后台任务，复用现有 `jobs/job_events`、暂停/恢复、日志尾部和进度条。流程为：选择候选 Alpha -> 生成本地增强变体 -> 提交 WQ 回测。默认 `children_per_request=1`，减少误触 multi-simulation 格式和 API 消耗风险。
+- **优化页基础设置**: `/optimization` 顶部新增基础设置区，支持最近 N 天、指定日期范围、手动 Alpha ID、候选数量、每因子变体数、每次提交数量、neutralization、每日自动运行小时。
+- **优化定时任务**: 新增 `optimization_schedule_enabled`、`optimization_schedule_hour`、`optimization_schedule_last_run` 等配置，并接入现有 `SchedulerService`，按小时检查并每天最多触发一次优化任务。
+- **数据流通页面**: 新增 `/flow` 和侧边栏顶部“数据流通”入口，说明数据目录、回测、相关性检测、检查提交、优化规划、Alpha 记录之间的数据流向，以及本地表 `alpha_records`、`check_results`、`jobs/job_events` 的职责。
+- **验证**: 覆盖 `tests.test_optimization_pages`、`tests.test_optimization_run_service`、`tests.test_backtest_progress`、`tests.test_api_latency`、`tests.test_optimization_planner`、`tests.test_expression_validator`、`tests.test_alpha_enhancement`，并通过相关 Python 编译检查与模板解析检查。
+
+## 7. 2026-06-13 优化运行页二次调整与 429 修复
+
+- **运行卡住根因**: Job #30 已生成 147 个优化变体，但第一个提交请求持续收到 WQ `429 Rate limited`。旧逻辑没有把 429 计入重试次数，并且直接按 `Retry-After=5` 每 5 秒重试，导致页面进度一直停在 `0/147`。
+- **429 处理修复**: 新增 `rate_limit_retry_seconds()`，对 Retry-After 设置 30 秒下限和 300 秒上限；429 现在会更新 Job 为 `waiting_limit`，计入最大重试次数，达到上限后写入 `task_post_error`，避免无限刷请求。
+- **源中性化**: 优化任务不再使用页面手填的全局 neutralization。系统从源 Alpha payload 的 `settings.neutralization` 读取提交时的中性化，并按中性化分组提交变体。
+- **变体数量**: 页面移除“每因子变体数”。后台调用 `generate_variants_for_plan(..., max_variants=None)`，按当前代码规则能生成多少合法变体就提交多少。
+- **表达式提取修复**: `extract_alpha_expression()` 支持 WQ payload 中 `regular` 为字符串的常见结构，避免把有效 Alpha 误判为 `missing_expression`。
+- **页面体验**: 优化页基础设置面板改为可折叠 `details`，面板可纵向拉伸；日期控件和输入背景统一为深色；自动运行设置保留为“每天几点”。
+- **当前任务状态**: 重启服务后，Job #29 已完成，Job #30 和 Job #31 已暂停。#30 是旧任务，恢复后会走新代码，但建议新建优化任务以获得更干净的日志。
