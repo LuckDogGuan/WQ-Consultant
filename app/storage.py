@@ -68,6 +68,9 @@ def init_db() -> None:
                 fitness REAL,
                 prod_corr REAL,
                 ppa_corr REAL,
+                margin REAL,
+                returns REAL,
+                drawdown REAL,
                 status TEXT NOT NULL DEFAULT '',
                 source TEXT NOT NULL DEFAULT '',
                 platform_url TEXT NOT NULL DEFAULT '',
@@ -96,6 +99,19 @@ def init_db() -> None:
             );
             """
         )
+        
+        # Schema migration: check and add margin, returns, drawdown if they do not exist
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(alpha_records)")
+        existing_cols = {col[1] for col in cursor.fetchall()}
+        for col_name, col_type in [("margin", "REAL"), ("returns", "REAL"), ("drawdown", "REAL")]:
+            if col_name not in existing_cols:
+                try:
+                    conn.execute(f"ALTER TABLE alpha_records ADD COLUMN {col_name} {col_type}")
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(f"Failed to add column {col_name} to alpha_records: {e}")
+                    
         seed_defaults(conn)
 
 
@@ -249,23 +265,40 @@ def upsert_alpha(record: dict[str, Any]) -> None:
     alpha_id = record["alpha_id"]
     now = utc_now()
     payload = json.dumps(record.get("payload", {}), ensure_ascii=False)
+    
+    def clean_str(v, default=""):
+        if v is None or v != v:
+            return default
+        return str(v)
+        
+    def clean_float(v):
+        if v is None or v != v:
+            return None
+        try:
+            return float(v)
+        except Exception:
+            return None
+
     with connect() as conn:
         conn.execute(
             """
             INSERT INTO alpha_records(
                 alpha_id, alpha_type, name, region, universe, sharpe, fitness,
-                prod_corr, ppa_corr, status, source, platform_url, payload, created_at, updated_at
+                prod_corr, ppa_corr, margin, returns, drawdown, status, source, platform_url, payload, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(alpha_id) DO UPDATE SET
-                alpha_type = excluded.alpha_type,
-                name = excluded.name,
+                alpha_type = CASE WHEN excluded.alpha_type = '' THEN alpha_records.alpha_type ELSE excluded.alpha_type END,
+                name = CASE WHEN excluded.name = '' THEN alpha_records.name ELSE excluded.name END,
                 region = excluded.region,
                 universe = excluded.universe,
                 sharpe = excluded.sharpe,
                 fitness = excluded.fitness,
                 prod_corr = excluded.prod_corr,
                 ppa_corr = excluded.ppa_corr,
+                margin = excluded.margin,
+                returns = excluded.returns,
+                drawdown = excluded.drawdown,
                 status = excluded.status,
                 source = excluded.source,
                 platform_url = excluded.platform_url,
@@ -274,17 +307,20 @@ def upsert_alpha(record: dict[str, Any]) -> None:
             """,
             (
                 alpha_id,
-                record.get("alpha_type") or "",
-                record.get("name") or "",
-                record.get("region") or "",
-                record.get("universe") or "",
-                record.get("sharpe"),
-                record.get("fitness"),
-                record.get("prod_corr"),
-                record.get("ppa_corr"),
-                record.get("status") or "",
-                record.get("source") or "",
-                record.get("platform_url") or f"https://platform.worldquantbrain.com/alpha/{alpha_id}",
+                clean_str(record.get("alpha_type")),
+                clean_str(record.get("name")),
+                clean_str(record.get("region")),
+                clean_str(record.get("universe")),
+                clean_float(record.get("sharpe")),
+                clean_float(record.get("fitness")),
+                clean_float(record.get("prod_corr")),
+                clean_float(record.get("ppa_corr")),
+                clean_float(record.get("margin")),
+                clean_float(record.get("returns")),
+                clean_float(record.get("drawdown")),
+                clean_str(record.get("status")),
+                clean_str(record.get("source")),
+                clean_str(record.get("platform_url") or f"https://platform.worldquantbrain.com/alpha/{alpha_id}"),
                 payload,
                 now,
                 now,

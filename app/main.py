@@ -1,4 +1,6 @@
 from __future__ import annotations
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import logging
 import math
@@ -22,7 +24,8 @@ from .storage import (
     update_job,
     delete_job,
     utc_now,
-    connect
+    connect,
+    upsert_alpha
 )
 from .auth import (
     get_current_admin,
@@ -467,20 +470,46 @@ def get_backtest(request: Request, admin: str = Depends(get_current_admin)):
 
 
 @app.get("/correlation", response_class=HTMLResponse)
-def get_correlation(request: Request, admin: str = Depends(get_current_admin)):
+def get_correlation(request: Request, date_filter: str = "", admin: str = Depends(get_current_admin)):
     with connect() as conn:
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'correlation' ORDER BY id DESC LIMIT 5").fetchall()
         # 加载待改名候选 (PPA/RA/ATOM)
+        where_clause = "alpha_type IN ('PPA', 'RA', 'ATOM')"
+        params = []
+        if date_filter:
+            local_tz = datetime.now().astimezone().tzinfo
+            now_local = datetime.now(local_tz)
+            today_start_local = datetime.combine(now_local.date(), time.min).replace(tzinfo=local_tz)
+            
+            if date_filter == "today":
+                start_utc = today_start_local.astimezone(timezone.utc)
+                where_clause += " AND created_at >= ?"
+                params.append(start_utc.isoformat())
+            elif date_filter == "yesterday":
+                start_utc = (today_start_local - timedelta(days=1)).astimezone(timezone.utc)
+                end_utc = today_start_local.astimezone(timezone.utc) - timedelta(seconds=1)
+                where_clause += " AND created_at >= ? AND created_at <= ?"
+                params.extend([start_utc.isoformat(), end_utc.isoformat()])
+            elif date_filter == "3days":
+                start_utc = (today_start_local - timedelta(days=2)).astimezone(timezone.utc)
+                where_clause += " AND created_at >= ?"
+                params.append(start_utc.isoformat())
+            elif date_filter == "7days":
+                start_utc = (today_start_local - timedelta(days=6)).astimezone(timezone.utc)
+                where_clause += " AND created_at >= ?"
+                params.append(start_utc.isoformat())
+                
         alphas = conn.execute(
-            """
+            f"""
             SELECT * FROM alpha_records 
-            WHERE alpha_type IN ('PPA', 'RA', 'ATOM') 
+            WHERE {where_clause} 
             ORDER BY created_at DESC
-            """
+            """,
+            params
         ).fetchall()
     settings = get_settings()
     success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
-    return templates.TemplateResponse(request, "correlation.html", {"jobs": jobs, "alphas": alphas, "settings": settings, "success": success_msg})
+    return templates.TemplateResponse(request, "correlation.html", {"jobs": jobs, "alphas": alphas, "settings": settings, "success": success_msg, "date_filter": date_filter})
 
 
 @app.get("/check", response_class=HTMLResponse)
@@ -489,6 +518,7 @@ def get_check(
     page: int = 1,
     type_filter: str = "",
     level_filter: str = "",
+    date_filter: str = "",
     admin: str = Depends(get_current_admin)
 ):
     page_size = 50
@@ -516,6 +546,29 @@ def get_check(
             elif level_filter == "substandard":
                 where_clause += " AND (a.fitness < 1.0 OR CAST(json_extract(a.payload, '$.is.margin') AS REAL) < 0.0005 OR a.fitness IS NULL OR json_extract(a.payload, '$.is.margin') IS NULL)"
             
+        if date_filter:
+            local_tz = datetime.now().astimezone().tzinfo
+            now_local = datetime.now(local_tz)
+            today_start_local = datetime.combine(now_local.date(), time.min).replace(tzinfo=local_tz)
+            
+            if date_filter == "today":
+                start_utc = today_start_local.astimezone(timezone.utc)
+                where_clause += " AND c.created_at >= ?"
+                params.append(start_utc.isoformat())
+            elif date_filter == "yesterday":
+                start_utc = (today_start_local - timedelta(days=1)).astimezone(timezone.utc)
+                end_utc = today_start_local.astimezone(timezone.utc) - timedelta(seconds=1)
+                where_clause += " AND c.created_at >= ? AND c.created_at <= ?"
+                params.extend([start_utc.isoformat(), end_utc.isoformat()])
+            elif date_filter == "3days":
+                start_utc = (today_start_local - timedelta(days=2)).astimezone(timezone.utc)
+                where_clause += " AND c.created_at >= ?"
+                params.append(start_utc.isoformat())
+            elif date_filter == "7days":
+                start_utc = (today_start_local - timedelta(days=6)).astimezone(timezone.utc)
+                where_clause += " AND c.created_at >= ?"
+                params.append(start_utc.isoformat())
+
         total = conn.execute(
             f"""
             SELECT COUNT(*) 
@@ -586,6 +639,7 @@ def get_check(
             "total_pages": total_pages,
             "type_filter": type_filter,
             "level_filter": level_filter,
+            "date_filter": date_filter,
             "total": total
         }
     )
@@ -597,6 +651,7 @@ def get_alphas(
     page: int = 1,
     type_filter: str = "",
     level_filter: str = "",
+    date_filter: str = "",
     admin: str = Depends(get_current_admin)
 ):
     page_size = 50
@@ -616,6 +671,29 @@ def get_alphas(
         elif level_filter == "substandard":
             where += " AND (fitness < 1.0 OR CAST(json_extract(payload, '$.is.margin') AS REAL) < 0.0005 OR fitness IS NULL OR json_extract(payload, '$.is.margin') IS NULL)"
         
+    if date_filter:
+        local_tz = datetime.now().astimezone().tzinfo
+        now_local = datetime.now(local_tz)
+        today_start_local = datetime.combine(now_local.date(), time.min).replace(tzinfo=local_tz)
+        
+        if date_filter == "today":
+            start_utc = today_start_local.astimezone(timezone.utc)
+            where += " AND created_at >= ?"
+            params.append(start_utc.isoformat())
+        elif date_filter == "yesterday":
+            start_utc = (today_start_local - timedelta(days=1)).astimezone(timezone.utc)
+            end_utc = today_start_local.astimezone(timezone.utc) - timedelta(seconds=1)
+            where += " AND created_at >= ? AND created_at <= ?"
+            params.extend([start_utc.isoformat(), end_utc.isoformat()])
+        elif date_filter == "3days":
+            start_utc = (today_start_local - timedelta(days=2)).astimezone(timezone.utc)
+            where += " AND created_at >= ?"
+            params.append(start_utc.isoformat())
+        elif date_filter == "7days":
+            start_utc = (today_start_local - timedelta(days=6)).astimezone(timezone.utc)
+            where += " AND created_at >= ?"
+            params.append(start_utc.isoformat())
+
     rows, total = list_rows("alpha_records", page=page, page_size=page_size, where=where, params=params, order_by="created_at DESC")
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     
@@ -659,7 +737,171 @@ def get_alphas(
             "total_pages": total_pages,
             "type_filter": type_filter,
             "level_filter": level_filter,
+            "date_filter": date_filter,
             "total": total
+        }
+    )
+
+
+@app.get("/alphas/{alpha_id}", response_class=HTMLResponse)
+def get_alpha_detail_page(request: Request, alpha_id: str, admin: str = Depends(get_current_admin)):
+    import pandas as pd
+    import time
+    
+    with connect() as conn:
+        alpha = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
+        check_history = conn.execute("SELECT * FROM check_results WHERE alpha_id = ? ORDER BY created_at DESC", (alpha_id,)).fetchall()
+        
+    payload_data = {}
+    if alpha and alpha["payload"]:
+        try:
+            payload_data = json.loads(alpha["payload"]) if isinstance(alpha["payload"], str) else alpha["payload"]
+        except Exception:
+            pass
+            
+    # Check if we lack crucial info, or we haven't cached recordsets_data
+    should_fetch_online = False
+    if not alpha:
+        should_fetch_online = True
+    else:
+        if not alpha["region"] or not alpha["universe"] or "recordsets_data" not in payload_data:
+            should_fetch_online = True
+            
+    if should_fetch_online:
+        settings = get_settings()
+        username = settings.get("wq_username")
+        password = settings.get("wq_password")
+        if username and password:
+            try:
+                from .services.wq_client import login_with_credentials
+                from consultant_core.machine_lib import get_alpha_detail, get_alpha_recordsets, get_alpha_recordset
+                logger.info(f"Fetching alpha {alpha_id} details online...")
+                s = login_with_credentials(username.strip(), password.strip())
+                detail = get_alpha_detail(alpha_id, session=s)
+                if detail:
+                    recordsets_data = {}
+                    recordsets_results = []
+                    try:
+                        recordsets_list = get_alpha_recordsets(alpha_id, session=s)
+                        recordsets_results = recordsets_list.get("results", [])
+                        available_recordsets = {item.get("name") for item in recordsets_results if item.get("name")}
+                        
+                        DESIRED_RECORDSETS = ["pnl", "daily-pnl", "sharpe", "turnover", "yearly-stats"]
+                        for name in DESIRED_RECORDSETS:
+                            if name in available_recordsets:
+                                try:
+                                    df = get_alpha_recordset(alpha_id, name, session=s)
+                                    if not df.empty:
+                                        records = []
+                                        for _, row in df.iterrows():
+                                            row_dict = dict(row)
+                                            for k, v in row_dict.items():
+                                                if hasattr(v, "isoformat"):
+                                                    row_dict[k] = v.isoformat()
+                                                elif pd.isna(v):
+                                                    row_dict[k] = None
+                                            records.append(row_dict)
+                                        recordsets_data[name] = records
+                                except Exception as e:
+                                    logger.error(f"Failed to fetch recordset {name} for alpha {alpha_id}: {e}")
+                                time.sleep(0.5)
+                    except Exception as e:
+                        logger.error(f"Failed to fetch recordsets listing for alpha {alpha_id}: {e}")
+                        
+                    detail["recordsets_data"] = recordsets_data
+                    detail["recordsets_list"] = recordsets_results
+                    
+                    is_metrics = detail.get("is", {})
+                    settings_dict = detail.get("settings", {})
+                    
+                    upsert_alpha({
+                        "alpha_id": alpha_id,
+                        "alpha_type": "",
+                        "name": detail.get("name") or "",
+                        "region": settings_dict.get("region") or "",
+                        "universe": settings_dict.get("universe") or "",
+                        "sharpe": is_metrics.get("sharpe"),
+                        "fitness": is_metrics.get("fitness"),
+                        "margin": is_metrics.get("margin"),
+                        "returns": is_metrics.get("returns"),
+                        "drawdown": is_metrics.get("drawdown"),
+                        "status": detail.get("status") or "",
+                        "payload": detail
+                    })
+                    
+                    with connect() as conn:
+                        alpha = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
+                        payload_data = detail
+                s.close()
+            except Exception as e:
+                logger.error(f"Failed to fetch alpha {alpha_id} detail online: {e}")
+                
+    if not alpha:
+        raise HTTPException(status_code=404, detail=f"Alpha {alpha_id} not found in database and could not be fetched from WorldQuant Brain.")
+        
+    alpha_dict = dict(alpha)
+    payload = payload_data
+    
+    # Try parsing expression and decay
+    raw_payload = payload
+    if "raw_payload" in payload:
+        raw_payload = payload["raw_payload"] or {}
+        
+    expression = raw_payload.get("expression") or raw_payload.get("regular", {}).get("code") if isinstance(raw_payload.get("regular"), dict) else raw_payload.get("regular")
+    decay = raw_payload.get("decay") or raw_payload.get("settings", {}).get("decay")
+    neutralization = raw_payload.get("neutralization") or raw_payload.get("settings", {}).get("neutralization")
+    
+    # Format level badge
+    fit = alpha_dict["fitness"] if alpha_dict["fitness"] is not None else 0.0
+    margin = alpha_dict["margin"] if alpha_dict["margin"] is not None else 0.0
+    if fit >= 2.5 and margin >= 0.0030:
+        alpha_dict["alpha_level"] = "优质因子 (Premium)"
+        alpha_dict["level_class"] = "premium"
+    elif fit >= 1.5 and margin >= 0.0010:
+        alpha_dict["alpha_level"] = "一般因子 (Standard)"
+        alpha_dict["level_class"] = "standard"
+    elif fit >= 1.0 and margin >= 0.0005:
+        alpha_dict["alpha_level"] = "边际因子 (Marginal)"
+        alpha_dict["level_class"] = "marginal"
+    else:
+        alpha_dict["alpha_level"] = "不合格因子 (Substandard)"
+        alpha_dict["level_class"] = "substandard"
+        
+    # Generate the rich report using consultant_core.alpha_report.render_alpha_report
+    rich_report_html = ""
+    try:
+        from consultant_core.alpha_report import render_alpha_report
+        recordsets_list = payload.get("recordsets_list", [])
+        recordsets_df = pd.DataFrame(recordsets_list)
+        
+        recordsets_data = payload.get("recordsets_data", {})
+        series_frames = {}
+        for name, records in recordsets_data.items():
+            df = pd.DataFrame(records)
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            series_frames[name] = df
+            
+        rich_report_html = render_alpha_report(
+            alpha_id=alpha_id,
+            detail=payload,
+            recordsets_df=recordsets_df,
+            series_frames=series_frames
+        )
+    except Exception as e:
+        logger.error(f"Failed to render alpha report for {alpha_id}: {e}")
+        
+    return templates.TemplateResponse(
+        request,
+        "alpha_detail.html",
+        {
+            "alpha": alpha_dict,
+            "expression": expression or "N/A",
+            "decay": decay if decay is not None else "N/A",
+            "neutralization": neutralization or "N/A",
+            "check_history": [dict(h) for h in check_history],
+            "raw_payload_str": json.dumps(payload, indent=2, ensure_ascii=False),
+            "rich_report_html": rich_report_html
         }
     )
 

@@ -816,7 +816,7 @@ def generate_sim_data(alpha_list, region, uni, neut):
                 'testPeriod': 'P0Y',
                 'unitHandling': 'VERIFY',
                 'nanHandling': 'ON',
-                'language': 'FASTEXPR',
+                'language': 'FASTEXPR', #  FASTEXPR 快速表达式，PYTHON Python语言回测
                 'visualization': False,
             },
             'regular': alpha}
@@ -1323,6 +1323,8 @@ def _alpha_row(alpha, direction="positive"):
         "fitness": fitness,
         "turnover": turnover,
         "margin": margin,
+        "returns": metrics.get("returns"),
+        "drawdown": metrics.get("drawdown"),
         "longCount": long_count,
         "shortCount": short_count,
         "instrumentCount": (long_count or 0) + (short_count or 0),

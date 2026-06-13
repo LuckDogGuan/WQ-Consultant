@@ -164,22 +164,50 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
     
     timezone_name = get_setting("alpha_date_timezone", "Asia/Shanghai")
     fetch_limit_multiplier = int(get_setting("alpha_fetch_limit_multiplier", "3"))
-    recent_submit_ids = []
     try:
-        recent_alphas = get_recent_alphas(
-            lookback_days=lookback,
+        from consultant_core.machine_lib import get_alphas_full, recent_alpha_date_range
+        start_date, end_date = recent_alpha_date_range(
+            lookback,
+            timezone_name=timezone_name
+        )
+        fetch_limit = max(alpha_num, alpha_num * fetch_limit_multiplier)
+        
+        alpha_df = get_alphas_full(
+            start_date=start_date,
+            end_date=end_date,
             sharpe_th=sharpe,
             fitness_th=fitness,
             region=region,
-            universe=universe,
-            alpha_num=alpha_num,
+            limit=fetch_limit,
             usage="submit",
-            timezone_name=timezone_name,
-            fetch_limit_multiplier=fetch_limit_multiplier,
             session=session,
-            verbose=False
+            min_instrument_count=101,
         )
-        recent_submit_ids = [rec[0] for rec in recent_alphas]
+        
+        if not alpha_df.empty:
+            if "universe" in alpha_df.columns:
+                alpha_df = alpha_df[alpha_df["universe"] == universe]
+            alpha_df = alpha_df.head(alpha_num)
+            
+            for _, row in alpha_df.iterrows():
+                upsert_alpha({
+                    "alpha_id": row["alpha_id"],
+                    "alpha_type": "",
+                    "name": row.get("name") or "",
+                    "region": row.get("region") or region,
+                    "universe": row.get("universe") or universe,
+                    "sharpe": row.get("sharpe"),
+                    "fitness": row.get("fitness"),
+                    "margin": row.get("margin"),
+                    "returns": row.get("returns"),
+                    "drawdown": row.get("drawdown"),
+                    "status": row.get("status") or "UNSUBMITTED",
+                    "source": "recent_submit",
+                    "payload": dict(row)
+                })
+            recent_submit_ids = alpha_df["alpha_id"].tolist()
+        else:
+            recent_submit_ids = []
     except Exception as e:
         logger.error(f"Failed to fetch recent submit candidates: {e}")
     finally:
@@ -269,62 +297,108 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
         # 额度与时间段检查
         check_limits_and_wait_check(job_id, session_container, session_lock)
         
-        attempts = 0
-        while attempts < 3:
-            runner.check_paused(job_id)
-            with session_lock:
-                current_session = session_container["session"]
-            
-            try:
-                result, prod_corr, error_msg, payload = check_alpha_remotely(current_session, alpha_id)
-                sources_str = ",".join(id_sources[alpha_id])
+        sources_str = ",".join(id_sources.get(alpha_id, []))
+        
+        try:
+            attempts = 0
+            last_exc_msg = "Unknown error"
+            while attempts < 3:
+                runner.check_paused(job_id)
+                with session_lock:
+                    current_session = session_container["session"]
                 
-                # 写入 check_results
-                add_check_result(
-                    alpha_id=alpha_id,
-                    result=result,
-                    prod_corr=prod_corr,
-                    message=error_msg,
-                    source=sources_str,
-                    payload=payload
-                )
-                
-                # 同步更新 alpha_records
-                with connect() as conn:
-                    conn.execute(
-                        """
-                        UPDATE alpha_records 
-                        SET prod_corr = ?, status = ?, updated_at = datetime('now')
-                        WHERE alpha_id = ?
-                        """,
-                        (prod_corr, f"CHECKED_{result}", alpha_id)
+                try:
+                    result, prod_corr, error_msg, check_payload = check_alpha_remotely(current_session, alpha_id)
+                    
+                    # Fetch online details to save to alpha_records so we have all metrics
+                    detail_resp = current_session.get(f"https://api.worldquantbrain.com/alphas/{alpha_id}", timeout=30)
+                    detail_data = {}
+                    if detail_resp.status_code == 200:
+                        detail_data = detail_resp.json()
+                    
+                    is_metrics = detail_data.get("is", {})
+                    settings = detail_data.get("settings", {})
+                    
+                    # 写入 check_results
+                    add_check_result(
+                        alpha_id=alpha_id,
+                        result=result,
+                        prod_corr=prod_corr,
+                        message=error_msg,
+                        source=sources_str,
+                        payload=check_payload
                     )
                     
-                return {
-                    "alpha_id": alpha_id,
-                    "result": result,
-                    "prod_corr": prod_corr,
-                    "error_msg": error_msg
-                }
-                
-            except (requests.exceptions.RequestException, OSError, ConnectionResetError, ValueError) as exc:
-                attempts += 1
-                logger.warning(f"Connection error checking {alpha_id}: {exc}. Retry {attempts}/3")
-                
-                if attempts >= 3:
-                    # 触发断开重连逻辑
-                    with session_lock:
-                        if session_container["session"] == current_session:
-                            try:
-                                new_session = handle_reconnect(job_id, reconnect_count)
-                                session_container["session"] = new_session
-                                reconnect_count += 1
-                            except Exception:
-                                pass
-                    attempts = 0  # 重置尝试以在重连后继续
-                time.sleep(5)
-                
-        return {"alpha_id": alpha_id, "result": "ERROR", "prod_corr": None, "error_msg": "Max connection retries exceeded"}
+                    # 同步 upsert_alpha
+                    upsert_alpha({
+                        "alpha_id": alpha_id,
+                        "alpha_type": "",  # ON CONFLICT CASE will preserve existing
+                        "name": detail_data.get("name") or "",
+                        "region": settings.get("region") or region,
+                        "universe": settings.get("universe") or universe,
+                        "sharpe": is_metrics.get("sharpe"),
+                        "fitness": is_metrics.get("fitness"),
+                        "margin": is_metrics.get("margin"),
+                        "returns": is_metrics.get("returns"),
+                        "drawdown": is_metrics.get("drawdown"),
+                        "prod_corr": prod_corr,
+                        "status": f"CHECKED_{result}",
+                        "source": sources_str,
+                        "payload": detail_data
+                    })
+                    
+                    return {
+                        "alpha_id": alpha_id,
+                        "result": result,
+                        "prod_corr": prod_corr,
+                        "error_msg": error_msg
+                    }
+                    
+                except (requests.exceptions.RequestException, OSError, ConnectionResetError, ValueError) as exc:
+                    attempts += 1
+                    last_exc_msg = str(exc)
+                    logger.warning(f"Connection error checking {alpha_id}: {exc}. Retry {attempts}/3")
+                    
+                    if attempts >= 3:
+                        # 触发断开重连逻辑
+                        with session_lock:
+                            if session_container["session"] == current_session:
+                                try:
+                                    new_session = handle_reconnect(job_id, reconnect_count)
+                                    session_container["session"] = new_session
+                                    reconnect_count += 1
+                                except Exception:
+                                    pass
+                        attempts = 0  # 重置尝试以在重连后继续
+                    time.sleep(5)
+            
+            # If we hit max retries
+            err_msg = f"Max connection retries exceeded: {last_exc_msg}"
+            add_check_result(
+                alpha_id=alpha_id,
+                result="ERROR",
+                prod_corr=None,
+                message=err_msg,
+                source=sources_str,
+                payload={}
+            )
+            return {"alpha_id": alpha_id, "result": "ERROR", "prod_corr": None, "error_msg": err_msg}
+            
+        except Exception as e:
+            err_msg = f"Unexpected error: {e}"
+            logger.error(f"Unexpected error checking {alpha_id}: {e}", exc_info=True)
+            try:
+                add_check_result(
+                    alpha_id=alpha_id,
+                    result="ERROR",
+                    prod_corr=None,
+                    message=err_msg,
+                    source=sources_str,
+                    payload={}
+                )
+            except Exception:
+                pass
+            return {"alpha_id": alpha_id, "result": "ERROR", "prod_corr": None, "error_msg": err_msg}
 
     # 3. 线程池分发
     threads_num = int(get_setting("check_threads", "3"))

@@ -152,8 +152,18 @@
 
     <!-- Candidates Table -->
     <div class="card">
-        <div class="card-header">
+        <div class="card-header" style="flex-wrap: wrap; gap: 16px;">
             <h2><i class="fa-solid fa-award"></i> 评定出的 PPA / RA / ATOM 候选列表</h2>
+            <div class="filter-bar" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center;">
+                <div class="filter-group-date-buttons" style="display: flex; gap: 4px; align-items: center;">
+                    <span style="font-size: 13px; color: var(--text-muted); margin-right: 4px;">时间筛选:</span>
+                    <a href="/correlation?date_filter=" class="btn btn-sm {% if date_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
+                    <a href="/correlation?date_filter=today" class="btn btn-sm {% if date_filter == 'today' %}btn-primary{% else %}btn-secondary{% endif %}">今天</a>
+                    <a href="/correlation?date_filter=yesterday" class="btn btn-sm {% if date_filter == 'yesterday' %}btn-primary{% else %}btn-secondary{% endif %}">昨天</a>
+                    <a href="/correlation?date_filter=3days" class="btn btn-sm {% if date_filter == '3days' %}btn-primary{% else %}btn-secondary{% endif %}">最近三天</a>
+                    <a href="/correlation?date_filter=7days" class="btn btn-sm {% if date_filter == '7days' %}btn-primary{% else %}btn-secondary{% endif %}">最近一周</a>
+                </div>
+            </div>
             <div class="card-actions">
                 <span class="badge info">修改属性需用户二次点击确认</span>
             </div>
@@ -177,8 +187,8 @@
                         {% set payload = a.payload | json_loads if a.payload is string else a.payload %}
                         <tr>
                             <td>
-                                <a href="{{ a.platform_url }}" target="_blank" class="platform-link-code">
-                                    <i class="fa-solid fa-arrow-up-right-from-square"></i> {{ a.alpha_id }}
+                                <a href="/alphas/{{ a.alpha_id }}" class="platform-link-code">
+                                    <i class="fa-solid fa-circle-info"></i> {{ a.alpha_id }}
                                 </a>
                             </td>
                             <td>

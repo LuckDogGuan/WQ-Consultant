@@ -29,7 +29,20 @@ class ThreadLocalStream:
         f = getattr(self.local, "file", None)
         if f:
             try:
-                f.write(data)
+                need_timestamp = getattr(self.local, "need_timestamp", True)
+                from datetime import datetime
+                parts = []
+                lines = data.splitlines(keepends=True)
+                for line in lines:
+                    if need_timestamp and line.strip() != "":
+                        ts = datetime.now().strftime("[%Y-%m-%d %H:%M:%S] ")
+                        parts.append(ts + line)
+                    else:
+                        parts.append(line)
+                    need_timestamp = line.endswith("\n")
+                self.local.need_timestamp = need_timestamp
+                new_data = "".join(parts)
+                f.write(new_data)
                 f.flush()
                 return len(data)
             except Exception:
@@ -112,8 +125,37 @@ class JobRunner:
         """开始或恢复运行一个任务"""
         with self._lock:
             if job_id in self.active_jobs:
-                logger.warning(f"Job {job_id} is already running.")
-                return
+                if job_id in self.pause_flags:
+                    self.pause_flags.discard(job_id)
+                    update_job(job_id, status="running", message="Task resumed, running...")
+                    add_job_event(job_id, "info", "User resumed task before background thread exited.")
+                    logger.info(f"Resumed Job {job_id} before thread exited.")
+                    return
+                else:
+                    logger.warning(f"Job {job_id} is already running.")
+                    return
+            
+            with connect() as conn:
+                row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                if row and row["status"] == "completed":
+                    # Delete job log
+                    log_path = LOG_DIR / f"job_{job_id}.log"
+                    if log_path.exists():
+                        try:
+                            log_path.unlink()
+                        except Exception as e:
+                            logger.error(f"Failed to delete completed log: {e}")
+                    
+                    # Delete stage progress files
+                    for p in LOG_DIR.glob(f"*_progress_{job_id}_*.jsonl"):
+                        try:
+                            p.unlink()
+                        except Exception as e:
+                            logger.error(f"Failed to delete stage progress file {p}: {e}")
+                    
+                    # Reset progress in DB
+                    conn.execute("UPDATE jobs SET progress_current = 0, progress_total = 100 WHERE id = ?", (job_id,))
+                    logger.info(f"Cleared previous logs and progress files for completed Job {job_id} to run fresh.")
             
             self.pause_flags.discard(job_id)
             t = threading.Thread(

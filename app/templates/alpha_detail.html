@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block title %}Alpha 详情 - {{ alpha.alpha_id }} - WQ Consultant{% endblock %}
+{% block header_title %}Alpha 详细因子信息{% endblock %}
+
+{% block content %}
+<div class="alpha-detail-container" style="display: flex; flex-direction: column; gap: 24px; max-width: 1200px; margin: 0 auto;">
+    <!-- Back Button and Platform Link -->
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <a href="javascript:history.back()" class="btn btn-secondary"><i class="fa-solid fa-arrow-left"></i> 返回上一页</a>
+        <a href="{{ alpha.platform_url }}" target="_blank" class="btn btn-primary"><i class="fa-solid fa-arrow-up-right-from-square"></i> 在 WorldQuant 平台打开</a>
+    </div>
+
+    <!-- Header Card -->
+    <div class="card" style="padding: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+            <div>
+                <span class="badge status-{{ alpha.alpha_type or 'secondary' }}" style="font-size: 14px; padding: 6px 12px; margin-bottom: 12px; display: inline-block;">
+                    {{ alpha.alpha_type or 'UNKNOWN' }}
+                </span>
+                <h2 style="font-family: var(--font-heading); font-size: 28px; font-weight: 700; color: var(--text-main); margin-bottom: 8px;">
+                    Alpha ID: {{ alpha.alpha_id }}
+                </h2>
+                <p style="color: var(--text-muted); font-size: 14px;">
+                    <i class="fa-solid fa-calendar"></i> 创建时间: {{ alpha.created_at }} | <i class="fa-solid fa-clock"></i> 更新时间: {{ alpha.updated_at }}
+                </p>
+            </div>
+            <div style="text-align: right;">
+                <span class="badge status-{{ alpha.level_class }}" style="font-size: 16px; padding: 8px 16px; display: inline-block;">
+                    {{ alpha.alpha_level }}
+                </span>
+                <div style="margin-top: 12px; font-size: 14px; color: var(--text-muted);">
+                    系统状态: <strong style="color: var(--text-main);">{{ alpha.status }}</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Metrics Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px;">
+        <!-- Sharpe -->
+        <div class="card" style="padding: 20px; text-align: center; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.15);">
+            <div style="color: var(--text-muted); font-size: 13px; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">Sharpe Ratio</div>
+            <div style="font-family: var(--font-heading); font-size: 36px; font-weight: 700; color: #60a5fa;">
+                {{ "%.2f"|format(alpha.sharpe) if alpha.sharpe is not none else '—' }}
+            </div>
+        </div>
+        <!-- Fitness -->
+        <div class="card" style="padding: 20px; text-align: center; background: rgba(139, 92, 246, 0.05); border: 1px solid rgba(139, 92, 246, 0.15);">
+            <div style="color: var(--text-muted); font-size: 13px; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">Fitness Score</div>
+            <div style="font-family: var(--font-heading); font-size: 36px; font-weight: 700; color: #a78bfa;">
+                {{ "%.2f"|format(alpha.fitness) if alpha.fitness is not none else '—' }}
+            </div>
+        </div>
+        <!-- Margin -->
+        <div class="card" style="padding: 20px; text-align: center; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.15);">
+            <div style="color: var(--text-muted); font-size: 13px; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">Margin (利润率)</div>
+            <div style="font-family: var(--font-heading); font-size: 36px; font-weight: 700; color: #34d399;">
+                {% if alpha.margin is not none %}
+                {{ "%.2f"|format(alpha.margin * 10000) }}‱
+                <span style="font-size: 14px; font-weight: 500; color: var(--text-muted);">({{ "%.2f"|format(alpha.margin * 100) }}%)</span>
+                {% else %}
+                —
+                {% endif %}
+            </div>
+        </div>
+        <!-- Returns / DD -->
+        <div class="card" style="padding: 20px; text-align: center; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.15);">
+            <div style="color: var(--text-muted); font-size: 13px; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">年化收益 / 最大回撤</div>
+            <div style="font-family: var(--font-heading); font-size: 20px; font-weight: 700; color: #fbbf24; margin-top: 10px;">
+                {% if alpha.returns is not none and alpha.drawdown is not none %}
+                <span style="color: #34d399; margin-right: 8px;">Ret: {{ "%.1f"|format(alpha.returns * 100) }}%</span>
+                <span style="color: #f87171;">DD: {{ "%.1f"|format(alpha.drawdown * 100) }}%</span>
+                {% else %}
+                —
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Parameter Config & Formula Expression -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px;">
+        <!-- Formula Expression -->
+        <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+            <h3 style="font-family: var(--font-heading); font-size: 18px; font-weight: 600;"><i class="fa-solid fa-code" style="color: #60a5fa;"></i> 因子表达式 (Expression)</h3>
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; font-family: monospace; font-size: 14px; color: #38bdf8; word-break: break-all; min-height: 80px; line-height: 1.6;">
+                {{ expression }}
+            </div>
+        </div>
+
+        <!-- Parameter Details -->
+        <div class="card" style="padding: 24px;">
+            <h3 style="font-family: var(--font-heading); font-size: 18px; font-weight: 600; margin-bottom: 16px;"><i class="fa-solid fa-sliders" style="color: #a78bfa;"></i> 回测参数设置 (Settings)</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <tbody>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 8px 0; color: var(--text-muted);">地区 (Region)</td>
+                        <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{ alpha.region or 'N/A' }}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 8px 0; color: var(--text-muted);">股票池 (Universe)</td>
+                        <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{ alpha.universe or 'N/A' }}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 8px 0; color: var(--text-muted);">中性化方式 (Neutralization)</td>
+                        <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{ neutralization }}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 8px 0; color: var(--text-muted);">衰退系数 (Decay)</td>
+                        <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{ decay }}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 8px 0; color: var(--text-muted);">实际名称 (Name)</td>
+                        <td style="padding: 8px 0; text-align: right; font-weight: 500;"><code>{{ alpha.name or '未命名' }}</code></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 8px 0; color: var(--text-muted);">相关性系数 (PPA / Prod)</td>
+                        <td style="padding: 8px 0; text-align: right; font-weight: 500;">
+                            PPA: <strong style="color: #60a5fa; margin-right: 12px;">{{ "%.4f"|format(alpha.ppa_corr) if alpha.ppa_corr is not none else '—' }}</strong>
+                            Prod: <strong style="color: #34d399;">{{ "%.4f"|format(alpha.prod_corr) if alpha.prod_corr is not none else '—' }}</strong>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: var(--text-muted);">来源标识 (Source)</td>
+                        <td style="padding: 8px 0; text-align: right; font-weight: 500; color: var(--text-muted); font-size: 12px;">{{ alpha.source or 'N/A' }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Historical Check Submissions -->
+    <div class="card" style="padding: 24px;">
+        <h3 style="font-family: var(--font-heading); font-size: 18px; font-weight: 600; margin-bottom: 16px;"><i class="fa-solid fa-list-check" style="color: #34d399;"></i> 历史提检/判定记录</h3>
+        {% if check_history %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>提检时间</th>
+                        <th>判定状态</th>
+                        <th>测试相关性 (Prod Corr)</th>
+                        <th>来源</th>
+                        <th>错误/失败原因说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for h in check_history %}
+                    <tr>
+                        <td style="font-size: 13px; color: var(--text-muted);">{{ h.created_at }}</td>
+                        <td>
+                            <span class="check-result-badge badge-{{ h.result }}">{{ h.result }}</span>
+                        </td>
+                        <td>
+                            <strong>{{ "%.4f"|format(h.prod_corr) if h.prod_corr is not none else 'N/A' }}</strong>
+                        </td>
+                        <td style="font-size: 12px; color: var(--text-muted);">{{ h.source }}</td>
+                        <td style="font-size: 13px; color: #f87171;" title="{{ h.message }}">{{ h.message or '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: var(--text-muted);">暂无此因子的提检与判定历史。</p>
+        {% endif %}
+    </div>
+
+    <!-- Rich Report Panel -->
+    {% if rich_report_html %}
+    <div style="margin-top: 12px; margin-bottom: 12px;">
+        {{ rich_report_html | safe }}
+    </div>
+    {% endif %}
+
+    <!-- Raw JSON Payload collapsible -->
+    <div class="card page-settings-card collapsed" style="border: 1px solid var(--border-color);">
+        <div class="card-header collapsible" style="padding: 16px 24px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.1);">
+            <div class="card-header-title" style="display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-file-code" style="color: var(--text-muted);"></i>
+                <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--text-muted);">查看原始 JSON 数据结构 (WQ Payload)</h4>
+            </div>
+            <i class="fa-solid fa-chevron-down toggle-icon" style="color: var(--text-muted); transition: transform 0.2s;"></i>
+        </div>
+        <div class="card-body" style="padding: 24px; background: #040711; display: none;">
+            <pre style="font-family: monospace; font-size: 12px; color: #a3e635; overflow-x: auto; white-space: pre-wrap; margin: 0; line-height: 1.5; max-height: 400px;">{{ raw_payload_str }}</pre>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Collapsible Logic
+    document.addEventListener("DOMContentLoaded", function() {
+        const header = document.querySelector(".card-header.collapsible");
+        if (header) {
+            header.addEventListener("click", function() {
+                const card = this.closest(".card");
+                const body = card.querySelector(".card-body");
+                const icon = this.querySelector(".toggle-icon");
+                if (card.classList.contains("collapsed")) {
+                    card.classList.remove("collapsed");
+                    body.style.display = "block";
+                    icon.style.transform = "rotate(180deg)";
+                } else {
+                    card.classList.add("collapsed");
+                    body.style.display = "none";
+                    icon.style.transform = "rotate(0deg)";
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}
