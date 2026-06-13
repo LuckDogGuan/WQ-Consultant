@@ -153,15 +153,15 @@
     <!-- Candidates Table -->
     <div class="card">
         <div class="card-header" style="flex-wrap: wrap; gap: 16px;">
-            <h2><i class="fa-solid fa-award"></i> 评定出的 PPA / RA / ATOM 候选列表</h2>
+            <h2><i class="fa-solid fa-award"></i> 评定出的 PPA / RA / ATOM 候选列表 (共 {{ total }} 条)</h2>
             <div class="filter-bar" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center;">
                 <div class="filter-group-date-buttons" style="display: flex; gap: 4px; align-items: center;">
                     <span style="font-size: 13px; color: var(--text-muted); margin-right: 4px;">时间筛选:</span>
-                    <a href="/correlation?date_filter=" class="btn btn-sm {% if date_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
-                    <a href="/correlation?date_filter=today" class="btn btn-sm {% if date_filter == 'today' %}btn-primary{% else %}btn-secondary{% endif %}">今天</a>
-                    <a href="/correlation?date_filter=yesterday" class="btn btn-sm {% if date_filter == 'yesterday' %}btn-primary{% else %}btn-secondary{% endif %}">昨天</a>
-                    <a href="/correlation?date_filter=3days" class="btn btn-sm {% if date_filter == '3days' %}btn-primary{% else %}btn-secondary{% endif %}">最近三天</a>
-                    <a href="/correlation?date_filter=7days" class="btn btn-sm {% if date_filter == '7days' %}btn-primary{% else %}btn-secondary{% endif %}">最近一周</a>
+                    <a href="/correlation?page=1&date_filter=" class="btn btn-sm {% if date_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
+                    <a href="/correlation?page=1&date_filter=today" class="btn btn-sm {% if date_filter == 'today' %}btn-primary{% else %}btn-secondary{% endif %}">今天</a>
+                    <a href="/correlation?page=1&date_filter=yesterday" class="btn btn-sm {% if date_filter == 'yesterday' %}btn-primary{% else %}btn-secondary{% endif %}">昨天</a>
+                    <a href="/correlation?page=1&date_filter=3days" class="btn btn-sm {% if date_filter == '3days' %}btn-primary{% else %}btn-secondary{% endif %}">最近三天</a>
+                    <a href="/correlation?page=1&date_filter=7days" class="btn btn-sm {% if date_filter == '7days' %}btn-primary{% else %}btn-secondary{% endif %}">最近一周</a>
                 </div>
             </div>
             <div class="card-actions">
@@ -185,7 +185,7 @@
                     <tbody>
                         {% for a in alphas %}
                         {% set payload = a.payload | json_loads if a.payload is string else a.payload %}
-                        <tr>
+                        <tr onclick="if(!['A', 'BUTTON', 'INPUT', 'SELECT', 'FORM'].includes(event.target.tagName) && !event.target.closest('a, button, input, select, form')) window.location.href='/alphas/{{ a.alpha_id }}';" style="cursor: pointer;">
                             <td>
                                 <a href="/alphas/{{ a.alpha_id }}" class="platform-link-code">
                                     <i class="fa-solid fa-circle-info"></i> {{ a.alpha_id }}
@@ -232,6 +232,47 @@
                     </tbody>
                 </table>
             </div>
+            
+            <!-- Pagination -->
+            {% if total_pages > 1 %}
+            <div class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                {% if page > 1 %}
+                <a href="/correlation?page={{ page - 1 }}&date_filter={{ date_filter }}" class="btn btn-secondary btn-sm">上一页</a>
+                {% endif %}
+                
+                <span class="pagination-info" style="color: var(--text-muted); font-size: 14px;">第 {{ page }} / {{ total_pages }} 页</span>
+                
+                {% if page < total_pages %}
+                <a href="/correlation?page={{ page + 1 }}&date_filter={{ date_filter }}" class="btn btn-secondary btn-sm">下一页</a>
+                {% endif %}
+
+                <div class="pagination-jump" style="display: flex; align-items: center; gap: 6px; margin-left: 12px; border-left: 1px solid var(--border-color); padding-left: 16px;">
+                    <span style="color: var(--text-muted); font-size: 13px;">跳转至:</span>
+                    <input type="number" id="jump-page-input" min="1" max="{{ total_pages }}" value="{{ page }}" style="width: 55px; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border-color); background-color: rgba(0, 0, 0, 0.2); color: var(--text-main); text-align: center; font-size: 13px;">
+                    <span style="color: var(--text-muted); font-size: 13px;">页</span>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="jumpToPage()" style="padding: 4px 10px; font-size: 12px;">确定</button>
+                </div>
+            </div>
+
+            <script>
+                function jumpToPage() {
+                    const input = document.getElementById('jump-page-input');
+                    let pageNum = parseInt(input.value);
+                    if (isNaN(pageNum) || pageNum < 1) pageNum = 1;
+                    const maxPage = parseInt(input.getAttribute('max'));
+                    if (pageNum > maxPage) pageNum = maxPage;
+                    
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('page', pageNum);
+                    window.location.href = url.toString();
+                }
+                document.getElementById('jump-page-input').addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        jumpToPage();
+                    }
+                });
+            </script>
+            {% endif %}
         </div>
     </div>
 </div>

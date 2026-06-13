@@ -85,6 +85,42 @@ def format_datetime(value: str) -> str:
 templates.env.filters["format_datetime"] = format_datetime
 
 
+def count_failed_checks(payload: dict) -> int:
+    if not payload:
+        return 0
+    checks = payload.get("is", {}).get("checks", [])
+    if not isinstance(checks, list):
+        return 0
+    count = 0
+    for check in checks:
+        result = str(check.get("result") or check.get("status") or "").upper()
+        if result in {"FAIL", "FAILED", "ERROR"}:
+            count += 1
+    return count
+
+
+def classify_alpha_level(alpha_id: str, fitness: float | None, margin: float | None, payload: dict, short: bool = False) -> tuple[str, str]:
+    failed_count = count_failed_checks(payload)
+    limit = 0
+    if failed_count > limit:
+        return "不合格因子" if short else "不合格因子 (Substandard)", "substandard"
+        
+    fit = fitness if fitness is not None else 0.0
+    marg = margin if margin is not None else 0.0
+    
+    if fit >= 2.5 and marg >= 0.0030:
+        return "优质因子" if short else "优质因子 (Premium)", "premium"
+    elif fit >= 1.5 and marg >= 0.0010:
+        return "一般因子" if short else "一般因子 (Standard)", "standard"
+    elif fit >= 1.0 and marg >= 0.0005:
+        return "边际因子" if short else "边际因子 (Marginal)", "marginal"
+    else:
+        return "不合格因子" if short else "不合格因子 (Substandard)", "substandard"
+
+
+
+
+
 from fastapi import Request
 from fastapi.responses import JSONResponse, HTMLResponse
 import traceback
@@ -470,7 +506,15 @@ def get_backtest(request: Request, admin: str = Depends(get_current_admin)):
 
 
 @app.get("/correlation", response_class=HTMLResponse)
-def get_correlation(request: Request, date_filter: str = "", admin: str = Depends(get_current_admin)):
+def get_correlation(
+    request: Request,
+    page: int = 1,
+    date_filter: str = "",
+    admin: str = Depends(get_current_admin)
+):
+    page_size = 12
+    offset = (page - 1) * page_size
+    
     with connect() as conn:
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'correlation' ORDER BY id DESC LIMIT 5").fetchall()
         # 加载待改名候选 (PPA/RA/ATOM)
@@ -499,7 +543,7 @@ def get_correlation(request: Request, date_filter: str = "", admin: str = Depend
                 where_clause += " AND created_at >= ?"
                 params.append(start_utc.isoformat())
                 
-        alphas = conn.execute(
+        alphas_all = conn.execute(
             f"""
             SELECT * FROM alpha_records 
             WHERE {where_clause} 
@@ -507,9 +551,27 @@ def get_correlation(request: Request, date_filter: str = "", admin: str = Depend
             """,
             params
         ).fetchall()
+        
+        total = len(alphas_all)
+        total_pages = math.ceil(total / page_size) if total > 0 else 1
+        alphas = alphas_all[offset:offset+page_size]
+        
     settings = get_settings()
     success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
-    return templates.TemplateResponse(request, "correlation.html", {"jobs": jobs, "alphas": alphas, "settings": settings, "success": success_msg, "date_filter": date_filter})
+    return templates.TemplateResponse(
+        request,
+        "correlation.html",
+        {
+            "jobs": jobs,
+            "alphas": alphas,
+            "settings": settings,
+            "success": success_msg,
+            "page": page,
+            "total_pages": total_pages,
+            "date_filter": date_filter,
+            "total": total
+        }
+    )
 
 
 @app.get("/check", response_class=HTMLResponse)
@@ -521,7 +583,7 @@ def get_check(
     date_filter: str = "",
     admin: str = Depends(get_current_admin)
 ):
-    page_size = 50
+    page_size = 12
     offset = (page - 1) * page_size
     
     with connect() as conn:
@@ -536,16 +598,6 @@ def get_check(
                 where_clause += " AND a.alpha_type = ?"
                 params.append(type_filter)
                 
-        if level_filter:
-            if level_filter == "premium":
-                where_clause += " AND a.fitness >= 2.5 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0030"
-            elif level_filter == "standard":
-                where_clause += " AND a.fitness >= 1.5 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0010 AND NOT (a.fitness >= 2.5 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0030)"
-            elif level_filter == "marginal":
-                where_clause += " AND a.fitness >= 1.0 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0005 AND NOT (a.fitness >= 1.5 AND CAST(json_extract(a.payload, '$.is.margin') AS REAL) >= 0.0010)"
-            elif level_filter == "substandard":
-                where_clause += " AND (a.fitness < 1.0 OR CAST(json_extract(a.payload, '$.is.margin') AS REAL) < 0.0005 OR a.fitness IS NULL OR json_extract(a.payload, '$.is.margin') IS NULL)"
-            
         if date_filter:
             local_tz = datetime.now().astimezone().tzinfo
             now_local = datetime.now(local_tz)
@@ -569,18 +621,6 @@ def get_check(
                 where_clause += " AND c.created_at >= ?"
                 params.append(start_utc.isoformat())
 
-        total = conn.execute(
-            f"""
-            SELECT COUNT(*) 
-            FROM check_results c
-            LEFT JOIN alpha_records a ON c.alpha_id = a.alpha_id
-            WHERE {where_clause}
-            """,
-            params
-        ).fetchone()[0]
-        
-        total_pages = math.ceil(total / page_size) if total > 0 else 1
-        
         db_results = conn.execute(
             f"""
             SELECT c.*, a.sharpe, a.fitness, a.alpha_type, a.payload 
@@ -588,12 +628,11 @@ def get_check(
             LEFT JOIN alpha_records a ON c.alpha_id = a.alpha_id 
             WHERE {where_clause}
             ORDER BY c.created_at DESC 
-            LIMIT ? OFFSET ?
             """,
-            params + [page_size, offset]
+            params
         ).fetchall()
         
-        results = []
+        all_results = []
         for r in db_results:
             row_dict = dict(r)
             payload = {}
@@ -602,27 +641,22 @@ def get_check(
                     payload = json.loads(row_dict["payload"]) if isinstance(row_dict["payload"], str) else row_dict["payload"]
                 except Exception:
                     pass
-            is_metrics = payload.get("is", {})
+            is_metrics = payload.get("is", {}) if isinstance(payload, dict) else {}
             row_dict["margin"] = is_metrics.get("margin")
             row_dict["returns"] = is_metrics.get("returns")
             row_dict["drawdown"] = is_metrics.get("drawdown")
             
-            fit = row_dict["fitness"] if row_dict["fitness"] is not None else 0.0
-            margin = row_dict["margin"] if row_dict["margin"] is not None else 0.0
+            lvl_name, lvl_class = classify_alpha_level(row_dict["alpha_id"], row_dict["fitness"], row_dict["margin"], payload, short=True)
+            row_dict["alpha_level"] = lvl_name
+            row_dict["level_class"] = lvl_class
             
-            if fit >= 2.5 and margin >= 0.0030:
-                row_dict["alpha_level"] = "优质因子"
-                row_dict["level_class"] = "premium"
-            elif fit >= 1.5 and margin >= 0.0010:
-                row_dict["alpha_level"] = "一般因子"
-                row_dict["level_class"] = "standard"
-            elif fit >= 1.0 and margin >= 0.0005:
-                row_dict["alpha_level"] = "边际因子"
-                row_dict["level_class"] = "marginal"
-            else:
-                row_dict["alpha_level"] = "不合格因子"
-                row_dict["level_class"] = "substandard"
-            results.append(row_dict)
+            if level_filter and lvl_class != level_filter:
+                continue
+            all_results.append(row_dict)
+            
+        total = len(all_results)
+        total_pages = math.ceil(total / page_size) if total > 0 else 1
+        results = all_results[offset:offset+page_size]
         
     settings = get_settings()
     success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
@@ -654,22 +688,12 @@ def get_alphas(
     date_filter: str = "",
     admin: str = Depends(get_current_admin)
 ):
-    page_size = 50
+    page_size = 12
     where = "1=1"
     params = []
     if type_filter:
         where += " AND alpha_type = ?"
         params.append(type_filter)
-        
-    if level_filter:
-        if level_filter == "premium":
-            where += " AND fitness >= 2.5 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0030"
-        elif level_filter == "standard":
-            where += " AND fitness >= 1.5 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0010 AND NOT (fitness >= 2.5 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0030)"
-        elif level_filter == "marginal":
-            where += " AND fitness >= 1.0 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0005 AND NOT (fitness >= 1.5 AND CAST(json_extract(payload, '$.is.margin') AS REAL) >= 0.0010)"
-        elif level_filter == "substandard":
-            where += " AND (fitness < 1.0 OR CAST(json_extract(payload, '$.is.margin') AS REAL) < 0.0005 OR fitness IS NULL OR json_extract(payload, '$.is.margin') IS NULL)"
         
     if date_filter:
         local_tz = datetime.now().astimezone().tzinfo
@@ -694,10 +718,11 @@ def get_alphas(
             where += " AND created_at >= ?"
             params.append(start_utc.isoformat())
 
-    rows, total = list_rows("alpha_records", page=page, page_size=page_size, where=where, params=params, order_by="created_at DESC")
-    total_pages = math.ceil(total / page_size) if total > 0 else 1
-    
-    alphas = []
+    where_sql = f" WHERE {where}" if where else ""
+    with connect() as conn:
+        rows = conn.execute(f"SELECT * FROM alpha_records{where_sql} ORDER BY created_at DESC", tuple(params)).fetchall()
+        
+    alphas_all = []
     for r in rows:
         row_dict = dict(r)
         payload = {}
@@ -706,27 +731,23 @@ def get_alphas(
                 payload = json.loads(row_dict["payload"]) if isinstance(row_dict["payload"], str) else row_dict["payload"]
             except Exception:
                 pass
-        is_metrics = payload.get("is", {})
+        is_metrics = payload.get("is", {}) if isinstance(payload, dict) else {}
         row_dict["margin"] = is_metrics.get("margin")
         row_dict["returns"] = is_metrics.get("returns")
         row_dict["drawdown"] = is_metrics.get("drawdown")
         
-        fit = row_dict["fitness"] if row_dict["fitness"] is not None else 0.0
-        margin = row_dict["margin"] if row_dict["margin"] is not None else 0.0
+        lvl_name, lvl_class = classify_alpha_level(row_dict["alpha_id"], row_dict["fitness"], row_dict["margin"], payload, short=True)
+        row_dict["alpha_level"] = lvl_name
+        row_dict["level_class"] = lvl_class
         
-        if fit >= 2.5 and margin >= 0.0030:
-            row_dict["alpha_level"] = "优质因子"
-            row_dict["level_class"] = "premium"
-        elif fit >= 1.5 and margin >= 0.0010:
-            row_dict["alpha_level"] = "一般因子"
-            row_dict["level_class"] = "standard"
-        elif fit >= 1.0 and margin >= 0.0005:
-            row_dict["alpha_level"] = "边际因子"
-            row_dict["level_class"] = "marginal"
-        else:
-            row_dict["alpha_level"] = "不合格因子"
-            row_dict["level_class"] = "substandard"
-        alphas.append(row_dict)
+        if level_filter and lvl_class != level_filter:
+            continue
+        alphas_all.append(row_dict)
+        
+    total = len(alphas_all)
+    total_pages = math.ceil(total / page_size) if total > 0 else 1
+    offset = (page - 1) * page_size
+    alphas = alphas_all[offset:offset+page_size]
         
     return templates.TemplateResponse(
         request,
@@ -746,7 +767,6 @@ def get_alphas(
 @app.get("/alphas/{alpha_id}", response_class=HTMLResponse)
 def get_alpha_detail_page(request: Request, alpha_id: str, admin: str = Depends(get_current_admin)):
     import pandas as pd
-    import time
     
     with connect() as conn:
         alpha = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
@@ -759,12 +779,12 @@ def get_alpha_detail_page(request: Request, alpha_id: str, admin: str = Depends(
         except Exception:
             pass
             
-    # Check if we lack crucial info, or we haven't cached recordsets_data
+    # Check if we lack crucial info
     should_fetch_online = False
     if not alpha:
         should_fetch_online = True
     else:
-        if not alpha["region"] or not alpha["universe"] or "recordsets_data" not in payload_data:
+        if not alpha["region"] or not alpha["universe"]:
             should_fetch_online = True
             
     if should_fetch_online:
@@ -774,41 +794,18 @@ def get_alpha_detail_page(request: Request, alpha_id: str, admin: str = Depends(
         if username and password:
             try:
                 from .services.wq_client import login_with_credentials
-                from consultant_core.machine_lib import get_alpha_detail, get_alpha_recordsets, get_alpha_recordset
+                from consultant_core.machine_lib import get_alpha_detail, get_alpha_recordsets
                 logger.info(f"Fetching alpha {alpha_id} details online...")
                 s = login_with_credentials(username.strip(), password.strip())
                 detail = get_alpha_detail(alpha_id, session=s)
                 if detail:
-                    recordsets_data = {}
                     recordsets_results = []
                     try:
                         recordsets_list = get_alpha_recordsets(alpha_id, session=s)
                         recordsets_results = recordsets_list.get("results", [])
-                        available_recordsets = {item.get("name") for item in recordsets_results if item.get("name")}
-                        
-                        DESIRED_RECORDSETS = ["pnl", "daily-pnl", "sharpe", "turnover", "yearly-stats"]
-                        for name in DESIRED_RECORDSETS:
-                            if name in available_recordsets:
-                                try:
-                                    df = get_alpha_recordset(alpha_id, name, session=s)
-                                    if not df.empty:
-                                        records = []
-                                        for _, row in df.iterrows():
-                                            row_dict = dict(row)
-                                            for k, v in row_dict.items():
-                                                if hasattr(v, "isoformat"):
-                                                    row_dict[k] = v.isoformat()
-                                                elif pd.isna(v):
-                                                    row_dict[k] = None
-                                            records.append(row_dict)
-                                        recordsets_data[name] = records
-                                except Exception as e:
-                                    logger.error(f"Failed to fetch recordset {name} for alpha {alpha_id}: {e}")
-                                time.sleep(0.5)
                     except Exception as e:
                         logger.error(f"Failed to fetch recordsets listing for alpha {alpha_id}: {e}")
                         
-                    detail["recordsets_data"] = recordsets_data
                     detail["recordsets_list"] = recordsets_results
                     
                     is_metrics = detail.get("is", {})
@@ -852,44 +849,89 @@ def get_alpha_detail_page(request: Request, alpha_id: str, admin: str = Depends(
     neutralization = raw_payload.get("neutralization") or raw_payload.get("settings", {}).get("neutralization")
     
     # Format level badge
-    fit = alpha_dict["fitness"] if alpha_dict["fitness"] is not None else 0.0
-    margin = alpha_dict["margin"] if alpha_dict["margin"] is not None else 0.0
-    if fit >= 2.5 and margin >= 0.0030:
-        alpha_dict["alpha_level"] = "优质因子 (Premium)"
-        alpha_dict["level_class"] = "premium"
-    elif fit >= 1.5 and margin >= 0.0010:
-        alpha_dict["alpha_level"] = "一般因子 (Standard)"
-        alpha_dict["level_class"] = "standard"
-    elif fit >= 1.0 and margin >= 0.0005:
-        alpha_dict["alpha_level"] = "边际因子 (Marginal)"
-        alpha_dict["level_class"] = "marginal"
-    else:
-        alpha_dict["alpha_level"] = "不合格因子 (Substandard)"
-        alpha_dict["level_class"] = "substandard"
+    lvl_name, lvl_class = classify_alpha_level(alpha_id, alpha_dict["fitness"], alpha_dict["margin"], payload)
+    alpha_dict["alpha_level"] = lvl_name
+    alpha_dict["level_class"] = lvl_class
+    
+    # Categorize failed, warning, and passed checks
+    checks = payload.get("is", {}).get("checks", []) if isinstance(payload, dict) else []
+    failed_checks = []
+    warning_checks = []
+    passed_checks = []
+    
+    def get_check_message(ch: dict) -> str:
+        for key in ["message", "description", "display", "name"]:
+            val = ch.get(key)
+            if val:
+                return str(val)
+        parts = []
+        for key in ["value", "limit", "cutoff", "result"]:
+            if key in ch:
+                parts.append(f"{key}={ch.get(key)}")
+        return ", ".join(parts)
         
-    # Generate the rich report using consultant_core.alpha_report.render_alpha_report
-    rich_report_html = ""
-    try:
-        from consultant_core.alpha_report import render_alpha_report
-        recordsets_list = payload.get("recordsets_list", [])
-        recordsets_df = pd.DataFrame(recordsets_list)
-        
-        recordsets_data = payload.get("recordsets_data", {})
-        series_frames = {}
-        for name, records in recordsets_data.items():
-            df = pd.DataFrame(records)
-            if "date" in df.columns:
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            series_frames[name] = df
+    if isinstance(checks, list):
+        for check in checks:
+            result = str(check.get("result") or check.get("status") or "").upper()
+            name = str(check.get("name") or check.get("check") or "Unknown Check")
+            ch_dict = {
+                "name": name,
+                "result": result or "ATTENTION",
+                "message": get_check_message(check)
+            }
+            if result in {"FAIL", "FAILED", "ERROR"}:
+                failed_checks.append(ch_dict)
+            elif result in {"WARNING", "WARN"}:
+                warning_checks.append(ch_dict)
+            else:
+                passed_checks.append(ch_dict)
+                
+    # Extracted stats and charts
+    recordsets_data = payload.get("recordsets_data", {}) if isinstance(payload, dict) else {}
+    recordsets_list = payload.get("recordsets_list", []) if isinstance(payload, dict) else []
+    
+    charts_svg = {}
+    yearly_stats_cols = []
+    yearly_stats_rows = []
+    
+    if recordsets_data:
+        try:
+            from consultant_core.alpha_report import render_line_chart
+            series_frames = {}
+            for name, records in recordsets_data.items():
+                if records:
+                    df = pd.DataFrame(records)
+                    if "date" in df.columns:
+                        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                    series_frames[name] = df
             
-        rich_report_html = render_alpha_report(
-            alpha_id=alpha_id,
-            detail=payload,
-            recordsets_df=recordsets_df,
-            series_frames=series_frames
-        )
-    except Exception as e:
-        logger.error(f"Failed to render alpha report for {alpha_id}: {e}")
+            chart_specs = [
+                ("pnl", ["pnl", "risk-neutralized-pnl", "investability-constrained-pnl"]),
+                ("daily-pnl", ["pnl"]),
+                ("sharpe", ["sharpe"]),
+                ("turnover", ["turnover"]),
+            ]
+            for name, preferred_cols in chart_specs:
+                df = series_frames.get(name)
+                if df is not None and not df.empty:
+                    y_cols = [col for col in preferred_cols if col in df.columns]
+                    charts_svg[name] = render_line_chart(df, title=name, y_cols=y_cols)
+                    
+            if "yearly-stats" in recordsets_data:
+                ys_records = recordsets_data["yearly-stats"]
+                if ys_records:
+                    df_ys = pd.DataFrame(ys_records)
+                    columns = [col for col in ["year", "sharpe", "turnover", "fitness", "returns", "drawdown", "margin", "longCount", "shortCount"] if col in df_ys.columns]
+                    yearly_stats_cols = columns
+                    yearly_stats_rows = df_ys[columns].to_dict(orient="records")
+        except Exception as e:
+            logger.error(f"Failed to generate custom elements for alpha page {alpha_id}: {e}")
+            
+    from consultant_core.alpha_report import METRIC_FORMATS, format_value
+    
+    def render_metric(val: Any, key: str) -> str:
+        style = METRIC_FORMATS.get(key, "auto")
+        return format_value(val, style)
         
     return templates.TemplateResponse(
         request,
@@ -901,9 +943,116 @@ def get_alpha_detail_page(request: Request, alpha_id: str, admin: str = Depends(
             "neutralization": neutralization or "N/A",
             "check_history": [dict(h) for h in check_history],
             "raw_payload_str": json.dumps(payload, indent=2, ensure_ascii=False),
-            "rich_report_html": rich_report_html
+            "failed_checks": failed_checks,
+            "warning_checks": warning_checks,
+            "passed_checks": passed_checks,
+            "recordsets_list": recordsets_list,
+            "charts_svg": charts_svg,
+            "yearly_stats_cols": yearly_stats_cols,
+            "yearly_stats_rows": yearly_stats_rows,
+            "render_metric": render_metric,
+            "has_recordsets_loaded": bool(recordsets_data)
         }
     )
+
+
+@app.post("/api/alphas/{alpha_id}/fetch_recordsets")
+def fetch_alpha_recordsets_endpoint(alpha_id: str, admin: str = Depends(get_current_admin)):
+    import pandas as pd
+    import time
+    
+    with connect() as conn:
+        alpha = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
+    if not alpha:
+        raise HTTPException(status_code=404, detail="Alpha not found in database.")
+        
+    settings = get_settings()
+    username = settings.get("wq_username")
+    password = settings.get("wq_password")
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="WorldQuant username and password are not set in settings.")
+        
+    try:
+        from .services.wq_client import login_with_credentials
+        from consultant_core.machine_lib import get_alpha_detail, get_alpha_recordsets, get_alpha_recordset
+        
+        logger.info(f"Asynchronously fetching recordsets and updating metadata for alpha {alpha_id} online...")
+        s = login_with_credentials(username.strip(), password.strip())
+        
+        # 1. Fetch latest metadata detail from WorldQuant Brain
+        detail = get_alpha_detail(alpha_id, session=s)
+        if not detail:
+            detail = {}
+            if alpha["payload"]:
+                try:
+                    detail = json.loads(alpha["payload"]) if isinstance(alpha["payload"], str) else alpha["payload"]
+                except Exception:
+                    pass
+        else:
+            # Merge with existing payload to preserve any local renames or extra fields
+            existing_payload = {}
+            if alpha["payload"]:
+                try:
+                    existing_payload = json.loads(alpha["payload"]) if isinstance(alpha["payload"], str) else alpha["payload"]
+                except Exception:
+                    pass
+            for k, v in existing_payload.items():
+                if k not in detail:
+                    detail[k] = v
+                    
+        # 2. Fetch available recordsets list
+        recordsets_list = get_alpha_recordsets(alpha_id, session=s)
+        recordsets_results = recordsets_list.get("results", [])
+        available_recordsets = {item.get("name") for item in recordsets_results if item.get("name")}
+        
+        # 3. Fetch detailed recordsets data
+        recordsets_data = {}
+        DESIRED_RECORDSETS = ["pnl", "daily-pnl", "sharpe", "turnover", "yearly-stats"]
+        for name in DESIRED_RECORDSETS:
+            if name in available_recordsets:
+                try:
+                    df = get_alpha_recordset(alpha_id, name, session=s)
+                    if not df.empty:
+                        records = []
+                        for _, row in df.iterrows():
+                            row_dict = dict(row)
+                            for k, v in row_dict.items():
+                                if hasattr(v, "isoformat"):
+                                    row_dict[k] = v.isoformat()
+                                elif pd.isna(v):
+                                    row_dict[k] = None
+                            records.append(row_dict)
+                        recordsets_data[name] = records
+                except Exception as e:
+                    logger.error(f"Failed to fetch recordset {name} for alpha {alpha_id}: {e}")
+                time.sleep(0.5)
+                
+        detail["recordsets_data"] = recordsets_data
+        detail["recordsets_list"] = recordsets_results
+        
+        is_metrics = detail.get("is", {})
+        settings_dict = detail.get("settings", {})
+        
+        # 4. Save updated metadata and recordsets to DB
+        upsert_alpha({
+            "alpha_id": alpha_id,
+            "alpha_type": alpha["alpha_type"],
+            "name": detail.get("name") or alpha["name"] or "",
+            "region": settings_dict.get("region") or alpha["region"] or "",
+            "universe": settings_dict.get("universe") or alpha["universe"] or "",
+            "sharpe": is_metrics.get("sharpe") if is_metrics.get("sharpe") is not None else alpha["sharpe"],
+            "fitness": is_metrics.get("fitness") if is_metrics.get("fitness") is not None else alpha["fitness"],
+            "margin": is_metrics.get("margin") if is_metrics.get("margin") is not None else alpha["margin"],
+            "returns": is_metrics.get("returns") if is_metrics.get("returns") is not None else alpha["returns"],
+            "drawdown": is_metrics.get("drawdown") if is_metrics.get("drawdown") is not None else alpha["drawdown"],
+            "status": detail.get("status") or alpha["status"] or "",
+            "payload": detail
+        })
+        s.close()
+        return {"status": "ok", "message": "Recordsets and metadata updated successfully."}
+    except Exception as e:
+        logger.error(f"Failed to fetch recordsets for {alpha_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/logs", response_class=HTMLResponse)

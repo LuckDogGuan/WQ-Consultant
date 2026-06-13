@@ -403,7 +403,8 @@ body {
 /* Table Styling */
 .table-responsive {
     width: 100%;
-    overflow-x: auto;
+    overflow: auto;
+    max-height: 75vh;
     position: relative;
 }
 
@@ -426,7 +427,7 @@ body {
     letter-spacing: 0.5px;
     background-color: #111827;
     position: sticky;
-    top: 70px;
+    top: 0;
     z-index: 2;
     box-shadow: 0 1px 0 var(--border-color);
 }

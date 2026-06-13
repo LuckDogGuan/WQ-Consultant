@@ -122,11 +122,12 @@ def check_alpha_remotely(s: requests.Session, alpha_id: str) -> tuple[str, float
                 except Exception:
                     pass
                     
-        # 判定是否有 FAIL
+        # 判定是否有 FAIL / FAILED / ERROR
         if "result" in checks_df.columns:
-            has_fail = any(checks_df["result"] == "FAIL")
-            if has_fail:
-                failed_items = checks_df[checks_df.result == "FAIL"]["name"].tolist()
+            results_upper = checks_df["result"].astype(str).str.upper()
+            is_fail_mask = results_upper.isin({"FAIL", "FAILED", "ERROR"})
+            if is_fail_mask.any():
+                failed_items = checks_df[is_fail_mask]["name"].tolist()
                 return "FAIL", prod_corr, f"Failed checks: {', '.join(failed_items)}", data
             else:
                 return "PASS", prod_corr, "", data

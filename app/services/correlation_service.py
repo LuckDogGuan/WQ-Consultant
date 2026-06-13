@@ -367,7 +367,8 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
                         check_data = check_resp.json()
                         checks = check_data.get("is", {}).get("checks", [])
                         for chk in checks:
-                            if chk.get("result") in ["FAIL", "ERROR"]:
+                            chk_res = str(chk.get("result") or "").upper()
+                            if chk_res in {"FAIL", "FAILED", "ERROR"}:
                                 error_count += 1
                 except Exception as e:
                     logger.error(f"Failed to fetch checks for correlation analysis of {alpha_id}: {e}")

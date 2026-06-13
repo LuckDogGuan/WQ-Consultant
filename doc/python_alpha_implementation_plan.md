@@ -4,15 +4,24 @@
 
 ---
 
+## 参考链接
+
+https://platform.worldquantbrain.com/learn/documentation/consultant-information/getting-started-brain-python-alphas#option-d-platform-uiapi-simulation
+
 ## 目录
-1. [项目目标](#1-项目目标)
-2. [系统架构设计与解耦方案](#2-系统架构设计与解耦方案)
-3. [核心模块详述](#3-核心模块详述)
-   - [3.1 通用 API 客户端 (`WQApiClient`)](#31-通用-api-客户端-wqapiclient)
-   - [3.2 Python 遗传进化挖掘器 (`python_alpha/miner.py`)](#32-python-遗传进化挖掘器-python_alphaminerpy)
-   - [3.3 数据画像 6 步扫描流水线 (`python_alpha/profiler.py`)](#33-数据画像-6-步扫描流水线-python_alphaprofilerpy)
-4. [分步实施里程碑（Milestones）](#4-分步实施里程碑milestones)
-5. [验证与测试方案](#5-验证与测试方案)
+- [WorldQuant BRAIN: Python Alphas 自动化挖掘与数据画像系统实施计划书](#worldquant-brain-python-alphas-自动化挖掘与数据画像系统实施计划书)
+  - [参考链接](#参考链接)
+  - [目录](#目录)
+  - [1. 项目目标](#1-项目目标)
+  - [2. 系统架构设计与解耦方案](#2-系统架构设计与解耦方案)
+  - [3. 核心模块详述](#3-核心模块详述)
+    - [3.1 通用 API 客户端 (`WQApiClient`)](#31-通用-api-客户端-wqapiclient)
+    - [3.2 Python 遗传进化挖掘器 (`python_alpha/miner.py`)](#32-python-遗传进化挖掘器-python_alphaminerpy)
+    - [3.3 数据画像 6 步扫描流水线 (`python_alpha/profiler.py`)](#33-数据画像-6-步扫描流水线-python_alphaprofilerpy)
+  - [4. 分步实施里程碑（Milestones）](#4-分步实施里程碑milestones)
+  - [5. 验证与测试方案](#5-验证与测试方案)
+    - [5.1 自动化测试](#51-自动化测试)
+    - [5.2 手动验证](#52-手动验证)
 
 ---
 
@@ -130,13 +139,13 @@ graph TD
 
 ## 4. 分步实施里程碑（Milestones）
 
-| 里程碑 | 目标与交付物 | 详细任务 |
-| :--- | :--- | :--- |
-| **Milestone 1**<br>底层解耦与 API 提炼 | 通用 `wq_api_client.py` 交付 | 1. 复制并封装鉴权、发送回测、轮询、拉取参数功能。<br>2. 剥离与 SQLite 和 UI 任务状态的耦合。<br>3. 交付独立的、不含业务逻辑的底层 API 客户端。 |
-| **Milestone 2**<br>Python 回测跑通 | 成功提交首个 Python 因子 | 1. 在 `doc/` 或 `scratch/` 编写极简 Python Alpha 代码（如量价因子）。<br>2. 使用 `WQApiClient` 发起 `'language': 'PYTHON'` 回测。<br>3. 验证平台返回 `COMPLETE` 并成功读取夏普比率。 |
-| **Milestone 3**<br>遗传进化挖掘器开发 | `python_alpha/miner.py` 交付 | 1. 编写 Python Alpha 模板文件。<br>2. 实现 AST 级别或字符串替换级别的变异逻辑。<br>3. 实现种群演化、淘汰及记录流水线。 |
-| **Milestone 4**<br>数据画像流水线开发 | `python_alpha/profiler.py` 交付 | 1. 编写 6 步扫描测试 Payload 产生逻辑。<br>2. 数据画像结果自动入库并提供给挖掘器作为先验过滤条件。 |
-| **Milestone 5**<br>GUI 系统集成与调度 | Web 端可视化与控制面板上线 | 1. 在 `app/job_runner.py` 中注册 Python 智能挖掘任务。<br>2. 前端添加任务配置 Modal 与进化过程的可视化报表展示。 |
+| 里程碑                                 | 目标与交付物                    | 详细任务                                                                                                                                                                             |
+| :------------------------------------- | :------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Milestone 1**<br>底层解耦与 API 提炼 | 通用 `wq_api_client.py` 交付    | 1. 复制并封装鉴权、发送回测、轮询、拉取参数功能。<br>2. 剥离与 SQLite 和 UI 任务状态的耦合。<br>3. 交付独立的、不含业务逻辑的底层 API 客户端。                                       |
+| **Milestone 2**<br>Python 回测跑通     | 成功提交首个 Python 因子        | 1. 在 `doc/` 或 `scratch/` 编写极简 Python Alpha 代码（如量价因子）。<br>2. 使用 `WQApiClient` 发起 `'language': 'PYTHON'` 回测。<br>3. 验证平台返回 `COMPLETE` 并成功读取夏普比率。 |
+| **Milestone 3**<br>遗传进化挖掘器开发  | `python_alpha/miner.py` 交付    | 1. 编写 Python Alpha 模板文件。<br>2. 实现 AST 级别或字符串替换级别的变异逻辑。<br>3. 实现种群演化、淘汰及记录流水线。                                                               |
+| **Milestone 4**<br>数据画像流水线开发  | `python_alpha/profiler.py` 交付 | 1. 编写 6 步扫描测试 Payload 产生逻辑。<br>2. 数据画像结果自动入库并提供给挖掘器作为先验过滤条件。                                                                                   |
+| **Milestone 5**<br>GUI 系统集成与调度  | Web 端可视化与控制面板上线      | 1. 在 `app/job_runner.py` 中注册 Python 智能挖掘任务。<br>2. 前端添加任务配置 Modal 与进化过程的可视化报表展示。                                                                     |
 
 ---
 

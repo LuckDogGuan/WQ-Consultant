@@ -218,7 +218,7 @@
                 </thead>
                 <tbody>
                     {% for r in results %}
-                    <tr>
+                    <tr onclick="if(!['A', 'BUTTON', 'INPUT', 'SELECT', 'FORM'].includes(event.target.tagName) && !event.target.closest('a, button, input, select, form')) window.location.href='/alphas/{{ r.alpha_id }}';" style="cursor: pointer;">
                         <td>
                             <a href="/alphas/{{ r.alpha_id }}" class="platform-link-code">
                                 <i class="fa-solid fa-circle-info"></i> {{ r.alpha_id }}

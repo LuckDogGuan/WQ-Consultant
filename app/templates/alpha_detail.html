@@ -4,6 +4,108 @@
 {% block header_title %}Alpha 详细因子信息{% endblock %}
 
 {% block content %}
+<style>
+    /* Styling for the SVG line charts in dark mode */
+    .wqb-chart {
+        background: rgba(17, 24, 39, 0.45) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 8px !important;
+        margin-bottom: 16px;
+        padding: 16px;
+        box-shadow: var(--card-shadow);
+        width: 100% !important;
+        height: auto !important;
+        max-height: 320px;
+    }
+    .wqb-chart text {
+        fill: var(--text-muted) !important;
+        font-family: var(--font-body) !important;
+    }
+    .wqb-chart text[style*="font-size:16px"] {
+        fill: var(--text-main) !important;
+        font-family: var(--font-heading) !important;
+        font-weight: 600 !important;
+    }
+    .wqb-chart line {
+        stroke: rgba(255, 255, 255, 0.08) !important;
+    }
+    
+    /* Custom check list styling */
+    .detail-check-card {
+        border-left: 4px solid #ef4444;
+        background: rgba(239, 68, 68, 0.04);
+        border-radius: 6px;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+        border-top: 1px solid rgba(239, 68, 68, 0.12);
+        border-right: 1px solid rgba(239, 68, 68, 0.12);
+        border-bottom: 1px solid rgba(239, 68, 68, 0.12);
+    }
+    .detail-check-card.warning {
+        border-left-color: #f59e0b;
+        background: rgba(245, 158, 11, 0.04);
+        border-top-color: rgba(245, 158, 11, 0.12);
+        border-right-color: rgba(245, 158, 11, 0.12);
+        border-bottom-color: rgba(245, 158, 11, 0.12);
+    }
+    .detail-check-card.pass {
+        border-left-color: #10b981;
+        background: rgba(16, 185, 129, 0.04);
+        border-top-color: rgba(16, 185, 129, 0.12);
+        border-right-color: rgba(16, 185, 129, 0.12);
+        border-bottom-color: rgba(16, 185, 129, 0.12);
+        padding: 8px 12px;
+        margin-bottom: 8px;
+    }
+    
+    /* Yearly stats table dark mode style */
+    .yearly-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        color: var(--text-main);
+    }
+    .yearly-table th {
+        background: rgba(255, 255, 255, 0.03);
+        padding: 12px 16px;
+        font-weight: 600;
+        text-align: left;
+        border-bottom: 2px solid var(--border-color);
+        color: var(--text-muted);
+    }
+    .yearly-table td {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .yearly-table tr:hover td {
+        background: rgba(255, 255, 255, 0.02);
+    }
+    
+    /* Loading button styles */
+    .btn-loading {
+        position: relative;
+        color: transparent !important;
+        pointer-events: none;
+    }
+    .btn-loading::after {
+        content: "";
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        top: 50%;
+        left: 50%;
+        margin-top: -10px;
+        margin-left: -10px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: #fff;
+        animation: spin 1s ease-in-out infinite;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+
 <div class="alpha-detail-container" style="display: flex; flex-direction: column; gap: 24px; max-width: 1200px; margin: 0 auto;">
     <!-- Back Button and Platform Link -->
     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -78,6 +180,67 @@
         </div>
     </div>
 
+    <!-- IS Testing Checks Status -->
+    <div class="card" style="padding: 24px;">
+        <h3 style="font-family: var(--font-heading); font-size: 18px; font-weight: 600; margin-bottom: 20px;"><i class="fa-solid fa-shield-halved" style="color: #ec4899;"></i> IS Testing 检查状态</h3>
+        
+        {% if failed_checks %}
+            <div style="margin-bottom: 16px;">
+                <h4 style="font-size: 14px; font-weight: 600; color: #f87171; margin-bottom: 12px;">未通过检查 ({{ failed_checks|length }} 个失败)</h4>
+                {% for c in failed_checks %}
+                <div class="detail-check-card danger">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <span style="font-weight: 700; color: #f87171; font-size: 14px;">{{ c.name }}</span>
+                        <span class="badge" style="font-size: 11px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); color: #f87171;">{{ c.result }}</span>
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-muted);">{{ c.message }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 16px 20px; color: #34d399; font-weight: 500; display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                <i class="fa-solid fa-circle-check" style="font-size: 18px;"></i> 因子全部通过了 IS Testing 检查 (没有失败检查项)。
+            </div>
+        {% endif %}
+
+        {% if warning_checks %}
+            <div style="margin-bottom: 16px;">
+                <h4 style="font-size: 14px; font-weight: 600; color: #fbbf24; margin-bottom: 12px;">警告检查项 ({{ warning_checks|length }} 个警告)</h4>
+                {% for c in warning_checks %}
+                <div class="detail-check-card warning">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <span style="font-weight: 700; color: #fbbf24; font-size: 14px;">{{ c.name }}</span>
+                        <span class="badge" style="font-size: 11px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); color: #fbbf24;">{{ c.result }}</span>
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-muted);">{{ c.message }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if passed_checks %}
+            <div class="card page-settings-card collapsed" style="border: 1px solid var(--border-color); margin-top: 16px; box-shadow: none;">
+                <div class="card-header collapsible-passed" style="padding: 12px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border-radius: 6px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-check-double" style="color: #10b981;"></i>
+                        <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: var(--text-muted);">查看已通过的 IS Testing 检查 ({{ passed_checks|length }} 个)</h4>
+                    </div>
+                    <i class="fa-solid fa-chevron-down toggle-passed-icon" style="color: var(--text-muted); transition: transform 0.2s;"></i>
+                </div>
+                <div class="card-body-passed" style="padding: 16px 20px; display: none; max-height: 300px; overflow-y: auto;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px;">
+                        {% for c in passed_checks %}
+                        <div class="detail-check-card pass">
+                            <div style="font-weight: 600; color: #34d399; font-size: 12px; margin-bottom: 2px;">{{ c.name }}</div>
+                            <div style="font-size: 11px; color: var(--text-muted);">{{ c.message }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
     <!-- Parameter Config & Formula Expression -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px;">
         <!-- Formula Expression -->
@@ -93,39 +256,139 @@
             <h3 style="font-family: var(--font-heading); font-size: 18px; font-weight: 600; margin-bottom: 16px;"><i class="fa-solid fa-sliders" style="color: #a78bfa;"></i> 回测参数设置 (Settings)</h3>
             <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
                 <tbody>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
+                    <tr style="border-bottom: 1px solid var(--border-color); height: 38px;">
                         <td style="padding: 8px 0; color: var(--text-muted);">地区 (Region)</td>
                         <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{ alpha.region or 'N/A' }}</td>
                     </tr>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
+                    <tr style="border-bottom: 1px solid var(--border-color); height: 38px;">
                         <td style="padding: 8px 0; color: var(--text-muted);">股票池 (Universe)</td>
                         <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{ alpha.universe or 'N/A' }}</td>
                     </tr>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
+                    <tr style="border-bottom: 1px solid var(--border-color); height: 38px;">
                         <td style="padding: 8px 0; color: var(--text-muted);">中性化方式 (Neutralization)</td>
                         <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{ neutralization }}</td>
                     </tr>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
+                    <tr style="border-bottom: 1px solid var(--border-color); height: 38px;">
                         <td style="padding: 8px 0; color: var(--text-muted);">衰退系数 (Decay)</td>
                         <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{ decay }}</td>
                     </tr>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
+                    <tr style="border-bottom: 1px solid var(--border-color); height: 38px;">
                         <td style="padding: 8px 0; color: var(--text-muted);">实际名称 (Name)</td>
                         <td style="padding: 8px 0; text-align: right; font-weight: 500;"><code>{{ alpha.name or '未命名' }}</code></td>
                     </tr>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
+                    <tr style="border-bottom: 1px solid var(--border-color); height: 38px;">
                         <td style="padding: 8px 0; color: var(--text-muted);">相关性系数 (PPA / Prod)</td>
                         <td style="padding: 8px 0; text-align: right; font-weight: 500;">
                             PPA: <strong style="color: #60a5fa; margin-right: 12px;">{{ "%.4f"|format(alpha.ppa_corr) if alpha.ppa_corr is not none else '—' }}</strong>
                             Prod: <strong style="color: #34d399;">{{ "%.4f"|format(alpha.prod_corr) if alpha.prod_corr is not none else '—' }}</strong>
                         </td>
                     </tr>
-                    <tr>
+                    <tr style="height: 38px;">
                         <td style="padding: 8px 0; color: var(--text-muted);">来源标识 (Source)</td>
                         <td style="padding: 8px 0; text-align: right; font-weight: 500; color: var(--text-muted); font-size: 12px;">{{ alpha.source or 'N/A' }}</td>
                     </tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <!-- Charts Panel -->
+    <div class="card" style="padding: 24px; min-height: 280px; display: flex; flex-direction: column;">
+        <h3 style="font-family: var(--font-heading); font-size: 18px; font-weight: 600; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <span><i class="fa-solid fa-chart-area" style="color: #3b82f6;"></i> 详细时序折线图 (Charts)</span>
+            {% if has_recordsets_loaded %}
+            <span style="font-size: 12px; font-weight: 400; color: var(--text-muted); background: rgba(59, 130, 246, 0.1); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(59, 130, 246, 0.2);"><i class="fa-solid fa-circle-check"></i> 数据已本地缓存</span>
+            {% endif %}
+        </h3>
+        
+        {% if has_recordsets_loaded %}
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 24px;">
+                {% if charts_svg.pnl %}
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    {{ charts_svg.pnl|safe }}
+                </div>
+                {% endif %}
+                {% if charts_svg["daily-pnl"] %}
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    {{ charts_svg["daily-pnl"]|safe }}
+                </div>
+                {% endif %}
+                {% if charts_svg.sharpe %}
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    {{ charts_svg.sharpe|safe }}
+                </div>
+                {% endif %}
+                {% if charts_svg.turnover %}
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    {{ charts_svg.turnover|safe }}
+                </div>
+                {% endif %}
+            </div>
+        {% else %}
+            <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 16px; padding: 40px 20px; background: rgba(255,255,255,0.01); border: 1px dashed var(--border-color); border-radius: 8px;">
+                <i class="fa-solid fa-chart-line" style="font-size: 48px; color: var(--text-muted); opacity: 0.4;"></i>
+                <div>
+                    <h4 style="font-size: 16px; font-weight: 600; color: var(--text-main); margin-bottom: 6px;">详细折线图数据尚未加载</h4>
+                    <p style="font-size: 14px; color: var(--text-muted); max-width: 550px; margin: 0 auto; line-height: 1.6;">
+                        初次访问为秒速开页。如需查看 PnL、Daily PnL、Sharpe 及 Turnover 的详细时序折线图与年度统计，可选择加载。数据拉取后会永久缓存。
+                    </p>
+                </div>
+                <button id="btn-load-charts" onclick="loadChartsData()" class="btn btn-primary" style="padding: 10px 24px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin: 8px 0;">
+                    <i class="fa-solid fa-download"></i> 加载时序与图表数据
+                </button>
+                <div id="loading-status" style="font-size: 13px; color: #60a5fa; display: none;">
+                    <i class="fa-solid fa-circle-notch fa-spin"></i> 正在向 WorldQuant 接口拉取数据，由于平台限速限制，大约需要 3~5 秒，请稍候...
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Yearly Stats Table -->
+    {% if has_recordsets_loaded and yearly_stats_rows %}
+    <div class="card" style="padding: 24px;">
+        <h3 style="font-family: var(--font-heading); font-size: 18px; font-weight: 600; margin-bottom: 20px;"><i class="fa-solid fa-table" style="color: #fbbf24;"></i> 年度统计数据 (Yearly Aggregate Data)</h3>
+        <div class="table-responsive">
+            <table class="yearly-table">
+                <thead>
+                    <tr>
+                        {% for col in yearly_stats_cols %}
+                        <th>{{ col|replace('_', ' ')|title }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in yearly_stats_rows %}
+                    <tr>
+                        {% for col in yearly_stats_cols %}
+                        <td>
+                            {% if col == 'year' %}
+                            <strong>{{ row[col] }}</strong>
+                            {% else %}
+                            {{ render_metric(row[col], col) }}
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Available Recordsets badges -->
+    <div class="card" style="padding: 24px;">
+        <h3 style="font-family: var(--font-heading); font-size: 18px; font-weight: 600; margin-bottom: 16px;"><i class="fa-solid fa-list" style="color: #c084fc;"></i> 可用数据集 (Available Recordsets)</h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            {% if recordsets_list %}
+                {% for item in recordsets_list %}
+                <span class="badge" style="background: rgba(192, 132, 252, 0.1); color: #c084fc; border: 1px solid rgba(192, 132, 252, 0.25); border-radius: 20px; padding: 6px 12px; font-size: 13px;">
+                    <i class="fa-solid fa-database" style="font-size: 11px; margin-right: 4px;"></i> {{ item.name }}
+                </span>
+                {% endfor %}
+            {% else %}
+                <span style="color: var(--text-muted); font-size: 14px;">暂无可用的数据集记录。</span>
+            {% endif %}
         </div>
     </div>
 
@@ -166,16 +429,9 @@
         {% endif %}
     </div>
 
-    <!-- Rich Report Panel -->
-    {% if rich_report_html %}
-    <div style="margin-top: 12px; margin-bottom: 12px;">
-        {{ rich_report_html | safe }}
-    </div>
-    {% endif %}
-
     <!-- Raw JSON Payload collapsible -->
     <div class="card page-settings-card collapsed" style="border: 1px solid var(--border-color);">
-        <div class="card-header collapsible" style="padding: 16px 24px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.1);">
+        <div class="card-header collapsible" style="padding: 16px 24px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15);">
             <div class="card-header-title" style="display: flex; align-items: center; gap: 8px;">
                 <i class="fa-solid fa-file-code" style="color: var(--text-muted);"></i>
                 <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--text-muted);">查看原始 JSON 数据结构 (WQ Payload)</h4>
@@ -191,6 +447,7 @@
 <script>
     // Collapsible Logic
     document.addEventListener("DOMContentLoaded", function() {
+        // Raw Payload Collapsible
         const header = document.querySelector(".card-header.collapsible");
         if (header) {
             header.addEventListener("click", function() {
@@ -208,6 +465,63 @@
                 }
             });
         }
+        
+        // Passed Checks Collapsible
+        const passedHeader = document.querySelector(".card-header.collapsible-passed");
+        if (passedHeader) {
+            passedHeader.addEventListener("click", function() {
+                const card = this.closest(".card");
+                const body = card.querySelector(".card-body-passed");
+                const icon = this.querySelector(".toggle-passed-icon");
+                if (card.classList.contains("collapsed")) {
+                    card.classList.remove("collapsed");
+                    body.style.display = "block";
+                    icon.style.transform = "rotate(180deg)";
+                } else {
+                    card.classList.add("collapsed");
+                    body.style.display = "none";
+                    icon.style.transform = "rotate(0deg)";
+                }
+            });
+        }
     });
+
+    // Lazy load recordsets function
+    function loadChartsData() {
+        const btn = document.getElementById("btn-load-charts");
+        const statusText = document.getElementById("loading-status");
+        if (!btn) return;
+        
+        // Disable button and show spinner
+        btn.classList.add("btn-loading");
+        if (statusText) {
+            statusText.style.display = "block";
+        }
+        
+        fetch("/api/alphas/{{ alpha.alpha_id }}/fetch_recordsets", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => { throw new Error(err.detail || "请求失败"); });
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Success, reload page
+            window.location.reload();
+        })
+        .catch(error => {
+            alert("拉取图表数据失败: " + error.message);
+            // Reset state
+            btn.classList.remove("btn-loading");
+            if (statusText) {
+                statusText.style.display = "none";
+            }
+        });
+    }
 </script>
 {% endblock %}

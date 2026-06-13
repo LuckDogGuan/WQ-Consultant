@@ -128,7 +128,7 @@ def extract_failed_checks(detail: dict[str, Any]) -> list[dict[str, str]]:
     failed = []
     for check in checks:
         result = str(check.get("result") or check.get("status") or "").upper()
-        if result in {"PASS", "PASSED", "SUCCESS", "OK", "PENDING"}:
+        if result in {"PASS", "PASSED", "SUCCESS", "OK", "PENDING", "WARNING", "WARN"}:
             continue
         failed.append(
             {
