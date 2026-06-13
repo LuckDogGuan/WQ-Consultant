@@ -5,54 +5,54 @@
 
 {% block content %}
 <div class="dashboard-grid">
-    <!-- Stat Cards -->
     <div class="stat-card">
-        <div class="stat-icon purple">
-            <i class="fa-solid fa-brain"></i>
+        <div class="stat-icon blue">
+            <i class="fa-solid fa-flask-vial"></i>
         </div>
         <div class="stat-details">
-            <h3>Alpha 记录总数</h3>
-            <p class="stat-number">{{ counts.alpha_records }}</p>
-            <span class="stat-sub">本地 SQLite 已记录的数据</span>
+            <h3>今日回测个数</h3>
+            <p class="stat-number">{{ counts.backtest_daily_done }}<span class="stat-limit"> / {{ counts.backtest_daily_limit }}</span></p>
+            <div class="quota-meter"><div class="quota-meter-fill blue" style="width: {{ counts.backtest_daily_pct }}%"></div></div>
+            <span class="stat-sub">每天 {{ counts.backtest_daily_reset }} 刷新，关联每日回测上限</span>
         </div>
     </div>
-    
+
     <div class="stat-card">
         <div class="stat-icon green">
             <i class="fa-solid fa-square-check"></i>
         </div>
         <div class="stat-details">
-            <h3>检测合格 Alpha</h3>
-            <p class="stat-number">
-                {{ counts.ppa_count + counts.ra_count + counts.atom_count }}
-            </p>
-            <span class="stat-sub">PPA: {{ counts.ppa_count }} | RA: {{ counts.ra_count }} | ATOM: {{ counts.atom_count }}</span>
+            <h3>今日检查提交</h3>
+            <p class="stat-number">{{ counts.check_daily_done }}<span class="stat-limit"> / {{ counts.check_daily_limit }}</span></p>
+            <div class="quota-meter"><div class="quota-meter-fill green" style="width: {{ counts.check_daily_pct }}%"></div></div>
+            <span class="stat-sub">关联检查提交每日上限</span>
         </div>
     </div>
-    
+
     <div class="stat-card">
-        <div class="stat-icon blue">
-            <i class="fa-solid fa-clipboard-list"></i>
+        <div class="stat-icon purple">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
         </div>
         <div class="stat-details">
-            <h3>已提交检查总数</h3>
-            <p class="stat-number">{{ counts.check_results }}</p>
-            <span class="stat-sub">已运行 check_submission 的次数</span>
+            <h3>优化规划</h3>
+            <p class="stat-number">{{ counts.optimization_min_submit }}<span class="stat-limit"> / {{ counts.optimization_total }}</span></p>
+            <div class="quota-meter"><div class="quota-meter-fill purple" style="width: {{ counts.optimization_pct }}%"></div></div>
+            <span class="stat-sub">可优化: {{ counts.optimization_optimizable }} | 可最低提交: {{ counts.optimization_min_submit }}</span>
         </div>
     </div>
-    
+
     <div class="stat-card">
-        <div class="stat-icon red">
-            <i class="fa-solid fa-bug"></i>
+        <div class="stat-icon orange">
+            <i class="fa-solid fa-paper-plane"></i>
         </div>
         <div class="stat-details">
-            <h3>系统捕获错误</h3>
-            <p class="stat-number">{{ counts.errors }}</p>
-            <span class="stat-sub">任务及连接发生的异常总数</span>
+            <h3>今日正式提交</h3>
+            <p class="stat-number">{{ counts.submit_daily_total }}<span class="stat-limit"> / {{ counts.submit_daily_limit }}</span></p>
+            <div class="quota-meter"><div class="quota-meter-fill orange" style="width: {{ counts.submit_daily_pct }}%"></div></div>
+            <span class="stat-sub">普通 {{ counts.submit_daily_regular }}/{{ counts.submit_daily_regular_limit }} | Super/PPA {{ counts.submit_daily_super }}/{{ counts.submit_daily_super_limit }}</span>
         </div>
     </div>
 </div>
-
 <div class="dashboard-sections">
     <!-- Left Column: Tasks -->
     <div class="card main-card">

@@ -147,3 +147,11 @@ INFO:     Uvicorn running on http://127.0.0.1:8765 (Press CTRL+C to quit)
 - **成功后重置计数**: 一旦当前请求成功创建 simulation 并拿到 `Location`，连续 429 计数清零。失败次数不跨请求永久累加。
 - **登录 429 同步处理**: WQ 登录接口返回 429 时，不再直接把任务标记为 failed。后台任务会进入 `waiting_limit`，按同样的 5 次一组等待策略继续登录，直到平台恢复或用户暂停。
 - **沿用现有重连参数**: 长等待使用设置页“网络异常第 3 次及以后等待重连 (秒)”对应的 `reconnect_long_sleep_seconds`，默认值调整为 600 秒。
+
+## 9. 2026-06-13 仪表盘每日额度统计
+
+- **今日回测个数**: 首页新增每日回测额度卡片，统计 `alpha_records` 中 `source LIKE 'job_%'` 且在今日回测窗口内新增的因子。回测窗口按北京时间每天 12:00 刷新，最大值读取设置项 `backtest_daily_limit`。
+- **今日检查提交**: 首页新增检查提交额度卡片，统计当天新增的 `check_results` 记录，最大值读取设置项 `check_daily_limit`。
+- **优化规划**: 首页新增优化规划卡片，复用 `list_optimization_plans()` 的判定结果，展示总计划数、可优化数，以及达到 marginal/standard/premium 最低可提交档位的候选数量。
+- **今日正式提交**: 首页新增正式提交额度卡片，按当天 `alpha_records.status='SUBMITTED'` 且 `updated_at` 在当天窗口内统计。`PPA` 作为 Super/PPA 档位，其余作为普通档位；默认额度为普通 4 个、Super/PPA 1 个，总计 5 个。
+- **代码位置**: 新增 `app/services/dashboard_metrics.py` 统一封装仪表盘指标，`app/main.py` 首页路由只负责读取指标并渲染，避免统计口径散落在模板中。

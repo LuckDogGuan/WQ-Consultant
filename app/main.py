@@ -48,6 +48,7 @@ from .services.catalog_service import (
     get_all_day1_scopes,
     REGION_DISPLAY_NAMES
 )
+from .services.dashboard_metrics import get_dashboard_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -413,14 +414,7 @@ def get_dashboard(request: Request, admin: str = Depends(get_current_admin)):
     expired, refresh_str = check_cache_expired(region, universe, delay)
     datasets = load_datasets_from_cache(region, universe, delay)
     
-    counts = {}
-    with connect() as conn:
-        counts["alpha_records"] = conn.execute("SELECT COUNT(*) FROM alpha_records").fetchone()[0]
-        counts["check_results"] = conn.execute("SELECT COUNT(*) FROM check_results").fetchone()[0]
-        counts["errors"] = conn.execute("SELECT COUNT(*) FROM errors").fetchone()[0]
-        counts["ppa_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'PPA'").fetchone()[0]
-        counts["ra_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'RA'").fetchone()[0]
-        counts["atom_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'ATOM'").fetchone()[0]
+    counts = get_dashboard_metrics()
 
     return templates.TemplateResponse(
         request,

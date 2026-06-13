@@ -152,6 +152,8 @@ DEFAULT_SETTINGS = {
     "submit_sharpe": "1.58",
     "submit_fitness": "1.0",
     "submit_alpha_num": "200",
+    "submit_daily_regular_limit": "4",
+    "submit_daily_super_limit": "1",
     # 提交检查配置过滤与定时任务调度
     "check_lookback_days": "60",
     "check_max_candidates": "4000",
