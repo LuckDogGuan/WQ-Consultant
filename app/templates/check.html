@@ -226,14 +226,15 @@
                         </td>
                         <td>
                             {% if r.alpha_level %}
-                            <span class="badge status-{{ r.level_class }}">{{ r.alpha_level }}</span>
+                            <span class="badge status-{{ r.submission_class }}">提交: {{ r.submission_label }}</span>
+                            <span class="badge status-{{ r.metric_class }}">指标: {{ r.metric_label }}</span>
                             {% else %}
                             <span class="text-muted">—</span>
                             {% endif %}
                         </td>
                         <td>
                             {% if r.alpha_type %}
-                            <span class="badge status-{{ r.alpha_type }}">{{ r.alpha_type }}</span>
+                            <span class="badge status-{{ r.correlation_class }}">{{ r.correlation_type }} / {{ r.correlation_label }}</span>
                             {% endif %}
                             <span class="check-result-badge badge-{{ r.result }}">{{ r.result }}</span>
                         </td>

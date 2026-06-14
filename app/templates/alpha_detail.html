@@ -118,11 +118,14 @@
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
             <div>
                 <div class="alpha-detail-badge-row">
-                    <span class="badge status-{{ alpha.level_class }}" style="font-size: 14px; padding: 6px 12px; display: inline-block;">
-                        提交判定: {{ alpha.alpha_level }}
+                    <span class="badge status-{{ alpha.submission_class }}" style="font-size: 14px; padding: 6px 12px; display: inline-block;">
+                        提交判定: {{ alpha.submission_label }}
                     </span>
-                    <span class="badge status-{{ alpha.alpha_type or 'secondary' }}" style="font-size: 14px; padding: 6px 12px; display: inline-block;">
-                        相关性分类: {{ alpha.alpha_type or 'UNKNOWN' }}
+                    <span class="badge status-{{ alpha.metric_class }}" style="font-size: 14px; padding: 6px 12px; display: inline-block;">
+                        指标等级: {{ alpha.metric_label }}
+                    </span>
+                    <span class="badge status-{{ alpha.correlation_class }}" style="font-size: 14px; padding: 6px 12px; display: inline-block;">
+                        相关性分类: {{ alpha.correlation_type }} / {{ alpha.correlation_label }}
                     </span>
                 </div>
                 <h2 style="font-family: var(--font-heading); font-size: 28px; font-weight: 700; color: var(--text-main); margin-bottom: 8px;">

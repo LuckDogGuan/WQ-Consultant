@@ -49,6 +49,7 @@ from .services.catalog_service import (
     REGION_DISPLAY_NAMES
 )
 from .services.dashboard_metrics import get_dashboard_metrics
+from .services.alpha_rating import build_alpha_rating, select_checks_payload
 
 logger = logging.getLogger(__name__)
 
@@ -126,42 +127,6 @@ def format_datetime(value: str) -> str:
         return value
 
 templates.env.filters["format_datetime"] = format_datetime
-
-
-def count_failed_checks(payload: dict) -> int:
-    if not payload:
-        return 0
-    checks = payload.get("is", {}).get("checks", [])
-    if not isinstance(checks, list):
-        return 0
-    count = 0
-    for check in checks:
-        result = str(check.get("result") or check.get("status") or "").upper()
-        if result in {"FAIL", "FAILED", "ERROR"}:
-            count += 1
-    return count
-
-
-def classify_alpha_level(alpha_id: str, fitness: float | None, margin: float | None, payload: dict, short: bool = False) -> tuple[str, str]:
-    failed_count = count_failed_checks(payload)
-    limit = 0
-    if failed_count > limit:
-        return "不合格因子" if short else "不合格因子 (Substandard)", "substandard"
-        
-    fit = fitness if fitness is not None else 0.0
-    marg = margin if margin is not None else 0.0
-    
-    if fit >= 2.5 and marg >= 0.0030:
-        return "优质因子" if short else "优质因子 (Premium)", "premium"
-    elif fit >= 1.5 and marg >= 0.0010:
-        return "一般因子" if short else "一般因子 (Standard)", "standard"
-    elif fit >= 1.0 and marg >= 0.0005:
-        return "边际因子" if short else "边际因子 (Marginal)", "marginal"
-    else:
-        return "不合格因子" if short else "不合格因子 (Substandard)", "substandard"
-
-
-
 
 
 from fastapi import Request
@@ -789,7 +754,11 @@ def get_check(
 
         db_results = conn.execute(
             f"""
-            SELECT c.*, a.sharpe, a.fitness, a.alpha_type, a.payload 
+            SELECT
+                c.id, c.alpha_id, c.result, c.prod_corr, c.source, c.message, c.created_at,
+                c.payload AS check_payload,
+                a.sharpe, a.fitness, a.alpha_type, a.margin, a.returns, a.drawdown,
+                a.payload AS alpha_payload
             FROM check_results c 
             LEFT JOIN alpha_records a ON c.alpha_id = a.alpha_id 
             WHERE {where_clause}
@@ -801,22 +770,11 @@ def get_check(
         all_results = []
         for r in db_results:
             row_dict = dict(r)
-            payload = {}
-            if row_dict.get("payload"):
-                try:
-                    payload = json.loads(row_dict["payload"]) if isinstance(row_dict["payload"], str) else row_dict["payload"]
-                except Exception:
-                    pass
-            is_metrics = payload.get("is", {}) if isinstance(payload, dict) else {}
-            row_dict["margin"] = is_metrics.get("margin")
-            row_dict["returns"] = is_metrics.get("returns")
-            row_dict["drawdown"] = is_metrics.get("drawdown")
-            
-            lvl_name, lvl_class = classify_alpha_level(row_dict["alpha_id"], row_dict["fitness"], row_dict["margin"], payload, short=True)
-            row_dict["alpha_level"] = lvl_name
-            row_dict["level_class"] = lvl_class
-            
-            if level_filter and lvl_class != level_filter:
+            row_dict["payload"] = row_dict.get("alpha_payload")
+            rating = build_alpha_rating(row_dict, {"result": row_dict.get("result"), "payload": row_dict.get("check_payload")})
+            row_dict.update(rating)
+
+            if level_filter and row_dict["submission_class"] != level_filter:
                 continue
             all_results.append(row_dict)
             
@@ -858,7 +816,7 @@ def get_alphas(
     where = "1=1"
     params = []
     if type_filter:
-        where += " AND alpha_type = ?"
+        where += " AND a.alpha_type = ?"
         params.append(type_filter)
         
     if date_filter:
@@ -868,45 +826,56 @@ def get_alphas(
         
         if date_filter == "today":
             start_utc = today_start_local.astimezone(timezone.utc)
-            where += " AND created_at >= ?"
+            where += " AND a.created_at >= ?"
             params.append(start_utc.isoformat())
         elif date_filter == "yesterday":
             start_utc = (today_start_local - timedelta(days=1)).astimezone(timezone.utc)
             end_utc = today_start_local.astimezone(timezone.utc) - timedelta(seconds=1)
-            where += " AND created_at >= ? AND created_at <= ?"
+            where += " AND a.created_at >= ? AND a.created_at <= ?"
             params.extend([start_utc.isoformat(), end_utc.isoformat()])
         elif date_filter == "3days":
             start_utc = (today_start_local - timedelta(days=2)).astimezone(timezone.utc)
-            where += " AND created_at >= ?"
+            where += " AND a.created_at >= ?"
             params.append(start_utc.isoformat())
         elif date_filter == "7days":
             start_utc = (today_start_local - timedelta(days=6)).astimezone(timezone.utc)
-            where += " AND created_at >= ?"
+            where += " AND a.created_at >= ?"
             params.append(start_utc.isoformat())
 
     where_sql = f" WHERE {where}" if where else ""
     with connect() as conn:
-        rows = conn.execute(f"SELECT * FROM alpha_records{where_sql} ORDER BY created_at DESC", tuple(params)).fetchall()
+        rows = conn.execute(
+            f"""
+            SELECT
+                a.*,
+                c.result AS latest_check_result,
+                c.payload AS latest_check_payload
+            FROM alpha_records a
+            LEFT JOIN (
+                SELECT cr.*
+                FROM check_results cr
+                INNER JOIN (
+                    SELECT alpha_id, MAX(id) AS max_id
+                    FROM check_results
+                    GROUP BY alpha_id
+                ) latest ON latest.max_id = cr.id
+            ) c ON c.alpha_id = a.alpha_id
+            {where_sql}
+            ORDER BY a.created_at DESC
+            """,
+            tuple(params)
+        ).fetchall()
         
     alphas_all = []
     for r in rows:
         row_dict = dict(r)
-        payload = {}
-        if row_dict.get("payload"):
-            try:
-                payload = json.loads(row_dict["payload"]) if isinstance(row_dict["payload"], str) else row_dict["payload"]
-            except Exception:
-                pass
-        is_metrics = payload.get("is", {}) if isinstance(payload, dict) else {}
-        row_dict["margin"] = is_metrics.get("margin")
-        row_dict["returns"] = is_metrics.get("returns")
-        row_dict["drawdown"] = is_metrics.get("drawdown")
-        
-        lvl_name, lvl_class = classify_alpha_level(row_dict["alpha_id"], row_dict["fitness"], row_dict["margin"], payload, short=True)
-        row_dict["alpha_level"] = lvl_name
-        row_dict["level_class"] = lvl_class
-        
-        if level_filter and lvl_class != level_filter:
+        rating = build_alpha_rating(
+            row_dict,
+            {"result": row_dict.get("latest_check_result"), "payload": row_dict.get("latest_check_payload")},
+        )
+        row_dict.update(rating)
+
+        if level_filter and row_dict["submission_class"] != level_filter:
             continue
         alphas_all.append(row_dict)
         
@@ -937,6 +906,7 @@ def get_alpha_detail_page(request: Request, alpha_id: str, admin: str = Depends(
     with connect() as conn:
         alpha = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
         check_history = conn.execute("SELECT * FROM check_results WHERE alpha_id = ? ORDER BY created_at DESC", (alpha_id,)).fetchall()
+        latest_check = check_history[0] if check_history else None
         
     payload_data = {}
     if alpha and alpha["payload"]:
@@ -1014,13 +984,14 @@ def get_alpha_detail_page(request: Request, alpha_id: str, admin: str = Depends(
     decay = raw_payload.get("decay") or raw_payload.get("settings", {}).get("decay")
     neutralization = raw_payload.get("neutralization") or raw_payload.get("settings", {}).get("neutralization")
     
-    # Format level badge
-    lvl_name, lvl_class = classify_alpha_level(alpha_id, alpha_dict["fitness"], alpha_dict["margin"], payload)
-    alpha_dict["alpha_level"] = lvl_name
-    alpha_dict["level_class"] = lvl_class
+    # Format fixed rating badges from one shared source.
+    rating = build_alpha_rating(alpha_dict, dict(latest_check) if latest_check else None)
+    alpha_dict.update(rating)
     
     # Categorize failed, warning, and passed checks
-    checks = payload.get("is", {}).get("checks", []) if isinstance(payload, dict) else []
+    latest_check_payload = latest_check["payload"] if latest_check and "payload" in latest_check.keys() else None
+    checks_payload = select_checks_payload(payload, latest_check_payload)
+    checks = checks_payload.get("is", {}).get("checks", []) if isinstance(checks_payload, dict) else []
     failed_checks = []
     warning_checks = []
     passed_checks = []

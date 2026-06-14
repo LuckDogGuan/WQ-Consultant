@@ -66,14 +66,15 @@
                             </td>
                             <td>
                                 {% if a.alpha_level %}
-                                <span class="badge status-{{ a.level_class }}">{{ a.alpha_level }}</span>
+                                <span class="badge status-{{ a.submission_class }}">提交: {{ a.submission_label }}</span>
+                                <span class="badge status-{{ a.metric_class }}">指标: {{ a.metric_label }}</span>
                                 {% else %}
                                 <span class="text-muted">—</span>
                                 {% endif %}
                             </td>
                             <td>
                                 {% if a.alpha_type %}
-                                <span class="badge status-{{ a.alpha_type }}">{{ a.alpha_type }}</span>
+                                <span class="badge status-{{ a.correlation_class }}">{{ a.correlation_type }} / {{ a.correlation_label }}</span>
                                 {% else %}
                                 <span class="text-muted">—</span>
                                 {% endif %}

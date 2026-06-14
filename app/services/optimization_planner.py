@@ -6,10 +6,11 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from ..storage import connect
+from .alpha_rating import classify_metric_level
 from .expression_validator import validate_expression
 
 
-ACTIONABLE_LEVELS = {"marginal", "standard", "premium"}
+ACTIONABLE_LEVELS = {"marginal", "standard", "premium", "elite"}
 FAILED_RESULTS = {"FAIL", "FAILED", "ERROR"}
 
 STRATEGY_BY_CHECK = {
@@ -46,16 +47,7 @@ class OptimizationPlan:
 
 
 def classify_alpha_level(fitness: float | None, margin: float | None) -> str:
-    fit = _to_float(fitness) or 0.0
-    marg = _to_float(margin) or 0.0
-
-    if fit >= 2.5 and marg >= 0.0030:
-        return "premium"
-    if fit >= 1.5 and marg >= 0.0010:
-        return "standard"
-    if fit >= 1.0 and marg >= 0.0005:
-        return "marginal"
-    return "substandard"
+    return classify_metric_level(fitness, margin)
 
 
 def extract_alpha_expression(payload: dict[str, Any] | str | None) -> str:
