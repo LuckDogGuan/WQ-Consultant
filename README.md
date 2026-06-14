@@ -58,20 +58,41 @@
 gui/
 ├── app/                  # Web 服务核心代码目录
 │   ├── auth.py          # 登录认证与 Session 校验逻辑
-│   ├── main.py          # FastAPI 路由、页面渲染与 API 定义
-│   ├── job_runner.py    # 任务调度与 Thread-local 日志重定向
-│   ├── storage.py       # 本地 SQLite 数据访问层
+│   ├── main.py          # FastAPI 路由、页面渲染、参数设置与 REST API 定义
+│   ├── job_runner.py    # 异步任务调度器，整合 Thread-local stdout/stderr 日志重定向
+│   ├── paths.py         # 跨平台路径管理与动态环境检测（自动规范化 Windows/Linux 路径）
+│   ├── storage.py       # 本地 SQLite 数据库访问与配置持久化接口
+│   ├── services/        # 后台核心服务类目录（封装业务逻辑）
+│   │   ├── alpha_enhancement.py       # 智能因子增强推荐与优化器
+│   │   ├── alpha_rating.py            # 因子评级与绩效评估引擎
+│   │   ├── catalog_service.py         # 本地数据目录 Catalog 的同步、更新与解析
+│   │   ├── check_service.py           # 因子提交前多并发自适应检查服务 (含 429 规避与详情缓存)
+│   │   ├── correlation_service.py     # 因子相关性计算与重命名诊断服务
+│   │   ├── daily_inspection_service.py# 每日因子自检流程集成器（体检、重命名与自动提交）
+│   │   ├── dashboard_metrics.py       # 主页控制台多维度统计数据分析服务
+│   │   ├── expression_validator.py    # 因子表达式语法校验与格式规范器
+│   │   ├── job_params.py              # 异步任务配置实体对象与结构转换
+│   │   ├── maintenance_service.py     # 系统自清洁、日志裁剪与过期数据处理
+│   │   ├── network_monitor.py         # 网络延迟监控及 WQ API 连通性测试
+│   │   ├── optimization_planner.py    # 多阶段组合回测路径规划器
+│   │   ├── optimization_run_service.py# 多阶段回测执行引擎
+│   │   ├── scheduler_service.py       # 定时自动化调度管理服务
+│   │   ├── simulation_service.py      # 回测任务管理服务 (Pool 串行、限流拦截与断点续跑)
+│   │   ├── submit_service.py          # 正式提交队列控制服务
+│   │   ├── wq_client.py               # WorldQuant API 会话生命周期与登录管理器
+│   │   └── wq_retry_policy.py         # WorldQuant API 自定义退避重试网络策略
 │   └── templates/       # HTML 界面模板 (Jinja2)
-├── consultant_core/      # 核心回测与相关性算法库
-├── data/                 # 本地持久化数据 (Git 已忽略)
-│   ├── gui.db           # SQLite 数据库 (保存设置、任务进度、Alpha 归档、check 结果等)
-│   ├── catalog/         # 本地克隆的数据目录快照
-│   └── correlation/     # 相关性计算本地缓存目录
+├── consultant_core/      # 核心回测算法与相关性底层计算库
+├── data/                 # 本地持久化数据目录 (Git 已忽略)
+│   ├── gui.db           # SQLite 数据库 (保存配置项、任务状态、已检因子及提交记录等)
+│   ├── catalog/         # 本地克隆的数据目录快照缓存
+│   ├── correlation/     # 相关性诊断计算所需的物理 Returns 缓存
+│   └── webdatascope/    # 本地 WebDataScope 原始 bin 与解压缓存
 ├── logs/                 # 日志记录目录 (Git 已忽略)
-│   ├── gui.log          # 系统运行主日志
-│   └── job_*.log        # 各后台异步任务的独立日志
+│   ├── gui.log          # 系统后台运行全局主日志
+│   └── job_*.log        # 每一个后台异步任务的独立运行日志文件
 ├── requirements.txt      # 依赖包列表
-├── check_env.py          # 部署环境检测脚本
+├── check_env.py          # 部署环境检测自检脚本
 └── run_gui.py            # GUI 启动入口脚本
 ```
 
