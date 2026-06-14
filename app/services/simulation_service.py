@@ -425,6 +425,12 @@ def run_simulation_pool_with_control(
                             
                 if progress_url:
                     progress_urls.append((y, progress_url))
+                    # 在发送成功后，如果不是当前 Pool 的最后一个任务，加入动态延迟以平滑请求，防止 WQ 触发 429 限流
+                    if y < len(pool) - 1:
+                        # 动态计算延迟：基础 1.0 秒，每多一个子回测(槽/slot)增加 0.15 秒
+                        post_delay = max(1.0, len(task) * 0.15)
+                        print(f"Pacing POST requests: sleeping {post_delay:.1f}s to prevent rate limits...", flush=True)
+                        sleep_with_pause_checks(job_id, int(round(post_delay)))
                 else:
                     print(f"[Pool {x+1}] [Slot {y+1}] Failed to submit task. Skipping polling.", flush=True)
             
