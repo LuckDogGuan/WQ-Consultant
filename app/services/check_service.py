@@ -4,7 +4,8 @@ import logging
 import threading
 import time
 import concurrent.futures
-from datetime import datetime
+import json
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
@@ -18,29 +19,58 @@ from .simulation_service import is_in_blocked_window, handle_reconnect
 logger = logging.getLogger(__name__)
 
 
+# Thread-safe global cache for today's check counts
+_today_checks_cache_lock = threading.Lock()
+_today_checks_cache: dict[str, int] = {}  # Key: "YYYY-MM-DD" Shanghai date, Value: count
+
+
 def count_today_checks() -> int:
     """统计中国时间今天已经运行的 check 数量"""
     try:
         sh_tz = ZoneInfo("Asia/Shanghai")
         today_str = datetime.now(sh_tz).strftime("%Y-%m-%d")
+        
+        # Check cache first
+        with _today_checks_cache_lock:
+            if today_str in _today_checks_cache:
+                return _today_checks_cache[today_str]
+                
+        # If cache miss, query using UTC range filter based on Shanghai today
+        start_sh = datetime.strptime(today_str, "%Y-%m-%d").replace(tzinfo=sh_tz)
+        start_utc = start_sh.astimezone(timezone.utc)
+        end_utc = start_utc + timedelta(days=1)
+        
+        start_utc_str = start_utc.isoformat()
+        end_utc_str = end_utc.isoformat()
+        
         with connect() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) AS n FROM check_results WHERE strftime('%Y-%m-%d', created_at) = strftime('%Y-%m-%d', ?)",
-                (datetime.now().isoformat(),) # SQLite date string comparison fallback
+                "SELECT COUNT(*) AS n FROM check_results WHERE created_at >= ? AND created_at < ?",
+                (start_utc_str, end_utc_str)
             ).fetchone()
+            count = row["n"] if row else 0
             
-            # 严格一点，使用 Python 进行 ISO 日期时间解析和过滤
-            rows = conn.execute("SELECT created_at FROM check_results").fetchall()
-            count = 0
-            for r in rows:
-                dt = datetime.fromisoformat(r["created_at"])
-                dt_sh = dt.astimezone(sh_tz)
-                if dt_sh.strftime("%Y-%m-%d") == today_str:
-                    count += 1
-            return count
+        with _today_checks_cache_lock:
+            # Clear older keys to avoid cache leak/accumulation
+            _today_checks_cache.clear()
+            _today_checks_cache[today_str] = count
+            
+        return count
     except Exception as e:
         logger.error(f"Error counting today's checks: {e}")
         return 0
+
+
+def increment_today_checks_cache() -> None:
+    """递增今日缓存的 check 计数"""
+    try:
+        sh_tz = ZoneInfo("Asia/Shanghai")
+        today_str = datetime.now(sh_tz).strftime("%Y-%m-%d")
+        with _today_checks_cache_lock:
+            if today_str in _today_checks_cache:
+                _today_checks_cache[today_str] += 1
+    except Exception as e:
+        logger.error(f"Error incrementing today's checks cache: {e}")
 
 
 def check_limits_and_wait_check(job_id: int, session_container: dict[str, Any], session_lock: threading.Lock) -> None:
@@ -317,6 +347,19 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
         
         sources_str = ",".join(id_sources.get(alpha_id, []))
         
+        # 尝试从本地数据库中获取已有的详情
+        existing_record = None
+        try:
+            with connect() as conn:
+                row = conn.execute(
+                    "SELECT * FROM alpha_records WHERE alpha_id = ?",
+                    (alpha_id,)
+                ).fetchone()
+                if row:
+                    existing_record = dict(row)
+        except Exception as e:
+            logger.error(f"Error querying local alpha record {alpha_id}: {e}")
+            
         try:
             attempts = 0
             last_exc_msg = "Unknown error"
@@ -329,13 +372,52 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
                     result, prod_corr, error_msg, check_payload = check_alpha_remotely(current_session, alpha_id)
                     
                     # Fetch online details to save to alpha_records so we have all metrics
-                    detail_resp = current_session.get(f"https://api.worldquantbrain.com/alphas/{alpha_id}", timeout=30)
                     detail_data = {}
-                    if detail_resp.status_code == 200:
-                        detail_data = detail_resp.json()
+                    is_cached = False
                     
+                    if existing_record and existing_record.get("sharpe") is not None:
+                        try:
+                            if existing_record.get("payload"):
+                                detail_data = json.loads(existing_record["payload"])
+                                if "is" not in detail_data:
+                                    detail_data["is"] = {}
+                                if "settings" not in detail_data:
+                                    detail_data["settings"] = {}
+                                is_cached = True
+                        except Exception:
+                            pass
+                            
+                    if not is_cached:
+                        detail_resp = current_session.get(f"https://api.worldquantbrain.com/alphas/{alpha_id}", timeout=30)
+                        if detail_resp.status_code == 200:
+                            detail_data = detail_resp.json()
+                        elif detail_resp.status_code == 401:
+                            raise ConnectionResetError("Session expired (401)")
+                        elif detail_resp.status_code == 429:
+                            retry_after = int(detail_resp.headers.get("Retry-After", 5))
+                            sleep_time = min(60, retry_after)
+                            logger.warning(f"Rate limited (429) getting details for {alpha_id}. Sleeping for {sleep_time}s...")
+                            time.sleep(sleep_time)
+                            attempts += 1
+                            continue
+                            
                     is_metrics = detail_data.get("is", {})
                     settings = detail_data.get("settings", {})
+                    
+                    # Fallback to existing columns if we fetched details but got empty dict (non-200 etc.)
+                    if not is_metrics and existing_record:
+                        is_metrics = {
+                            "sharpe": existing_record.get("sharpe"),
+                            "fitness": existing_record.get("fitness"),
+                            "margin": existing_record.get("margin"),
+                            "returns": existing_record.get("returns"),
+                            "drawdown": existing_record.get("drawdown")
+                        }
+                    if not settings and existing_record:
+                        settings = {
+                            "region": existing_record.get("region") or region,
+                            "universe": existing_record.get("universe") or universe
+                        }
                     
                     # 写入 check_results
                     add_check_result(
@@ -346,12 +428,13 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
                         source=sources_str,
                         payload=check_payload
                     )
+                    increment_today_checks_cache()
                     
                     # 同步 upsert_alpha
                     upsert_alpha({
                         "alpha_id": alpha_id,
                         "alpha_type": "",  # ON CONFLICT CASE will preserve existing
-                        "name": detail_data.get("name") or "",
+                        "name": detail_data.get("name") or (existing_record.get("name") if existing_record else "") or "",
                         "region": settings.get("region") or region,
                         "universe": settings.get("universe") or universe,
                         "sharpe": is_metrics.get("sharpe"),
@@ -364,6 +447,9 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
                         "source": sources_str,
                         "payload": detail_data
                     })
+                    
+                    # 适当延迟以平滑并发请求速率
+                    time.sleep(0.5)
                     
                     return {
                         "alpha_id": alpha_id,
@@ -400,6 +486,7 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
                 source=sources_str,
                 payload={}
             )
+            increment_today_checks_cache()
             return {"alpha_id": alpha_id, "result": "ERROR", "prod_corr": None, "error_msg": err_msg}
             
         except Exception as e:
@@ -414,6 +501,7 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
                     source=sources_str,
                     payload={}
                 )
+                increment_today_checks_cache()
             except Exception:
                 pass
             return {"alpha_id": alpha_id, "result": "ERROR", "prod_corr": None, "error_msg": err_msg}
