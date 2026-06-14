@@ -14,18 +14,37 @@
     </div>
     <div class="card-body">
         <form action="/api/settings/update" method="POST" class="settings-form">
-            <div class="form-grid">
+            <!-- 类别 1: 因子筛选与回溯 -->
+            <div class="form-section-title" style="font-size: 15px; font-weight: 600; color: var(--primary); margin: 0 0 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
+                <i class="fa-solid fa-filter" style="margin-right: 6px;"></i> 因子候选初筛参数
+            </div>
+            <div class="form-grid" style="margin-bottom: 24px;">
                 <div class="form-group">
                     <label for="corr_lookback_days">相关性检测候选回看天数 (最近 N 天的待检因子)</label>
                     <input type="number" id="corr_lookback_days" name="corr_lookback_days" value="{{ settings.corr_lookback_days or '14' }}">
                 </div>
                 <div class="form-group">
-                    <label for="corr_workers">检测计算并发线程数 (线程数)</label>
-                    <input type="number" id="corr_workers" name="corr_workers" value="{{ settings.corr_workers or '5' }}">
-                </div>
-                <div class="form-group">
                     <label for="corr_fetch_limit">相关性检测拉取限额 (留空不限制)</label>
                     <input type="text" id="corr_fetch_limit" name="corr_fetch_limit" value="{{ settings.corr_fetch_limit or '' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_threshold_sharpe">过滤 Sharpe 比率阈值 (Sharpe ≥ X)</label>
+                    <input type="number" step="0.01" id="corr_threshold_sharpe" name="corr_threshold_sharpe" value="{{ settings.corr_threshold_sharpe or '1.0' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_threshold_fitness">过滤 Fitness 拟合度阈值 (Fitness ≥ Y)</label>
+                    <input type="number" step="0.01" id="corr_threshold_fitness" name="corr_threshold_fitness" value="{{ settings.corr_threshold_fitness or '0.7' }}">
+                </div>
+            </div>
+
+            <!-- 类别 2: 计算与重命名 -->
+            <div class="form-section-title" style="font-size: 15px; font-weight: 600; color: var(--primary); margin: 20px 0 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
+                <i class="fa-solid fa-calculator" style="margin-right: 6px;"></i> 计算与改名配置
+            </div>
+            <div class="form-grid" style="margin-bottom: 24px;">
+                <div class="form-group">
+                    <label for="corr_workers">检测计算并发线程数 (线程数)</label>
+                    <input type="number" id="corr_workers" name="corr_workers" value="{{ settings.corr_workers or '5' }}">
                 </div>
                 <div class="form-group">
                     <label for="auto_rename">默认自动重命名相关性优秀因子</label>
@@ -34,6 +53,13 @@
                         <option value="0" {% if settings.auto_rename == '0' %}selected{% endif %}>关闭</option>
                     </select>
                 </div>
+            </div>
+
+            <!-- 类别 3: 定时自检配置 -->
+            <div class="form-section-title" style="font-size: 15px; font-weight: 600; color: var(--primary); margin: 20px 0 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
+                <i class="fa-solid fa-clock" style="margin-right: 6px;"></i> 定时自动体检任务配置
+            </div>
+            <div class="form-grid" style="margin-bottom: 24px;">
                 <div class="form-group">
                     <label for="corr_schedule_enabled">开启定时相关性检测任务</label>
                     <select id="corr_schedule_enabled" name="corr_schedule_enabled">

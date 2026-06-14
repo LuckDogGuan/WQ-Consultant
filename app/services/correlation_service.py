@@ -278,9 +278,12 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
         total_fetched = len(alphas_df)
         
         # 进行 Pandas 初筛：
-        # - Sharpe >= 1.0 且 Fitness >= 0.7
+        # - Sharpe >= corr_threshold_sharpe 且 Fitness >= corr_threshold_fitness
         # - IS_FAIL / ERROR 只有在 Sharpe > 2.0 时保留
-        valid_metrics = (alphas_df['sharpe'] >= 1.0) & (alphas_df['fitness'] >= 0.7)
+        corr_sharpe_th = float(get_setting("corr_threshold_sharpe", "1.0"))
+        corr_fitness_th = float(get_setting("corr_threshold_fitness", "0.7"))
+        
+        valid_metrics = (alphas_df['sharpe'] >= corr_sharpe_th) & (alphas_df['fitness'] >= corr_fitness_th)
         is_fail = alphas_df['status'].isin(['IS_FAIL', 'ERROR'])
         valid_status = ~(is_fail & (alphas_df['sharpe'] <= 2.0))
         
@@ -354,8 +357,8 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
             alpha_type = None
             target_name = None
             
-            # 先判断 sharpe < 1.0 或者是任何 correlation > 0.7 的，直接设为 anonymous
-            if sharpe < 1.0 or prod_corr > 0.7 or ppa_corr > 0.7:
+            # 先判断 sharpe < corr_sharpe_th 或者是任何 correlation > 0.7 的，直接设为 anonymous
+            if sharpe < corr_sharpe_th or prod_corr > 0.7 or ppa_corr > 0.7:
                 alpha_type = "SKIP"
                 target_name = "anonymous"
             else:
@@ -374,7 +377,8 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
                     logger.error(f"Failed to fetch checks for correlation analysis of {alpha_id}: {e}")
                     
                 # 判定后续类型
-                if sharpe > 1.0 and ppa_corr < 0.5:
+                submit_sharpe_th = float(get_setting("submit_sharpe", "1.58"))
+                if sharpe >= corr_sharpe_th and ppa_corr < 0.5:
                     if error_count > 0:
                         alpha_type = "SKIP"
                         target_name = "anonymous"
@@ -388,7 +392,7 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
                     else:
                         alpha_type = "SKIP"
                         target_name = "anonymous"
-                elif sharpe > 1.58 and prod_corr < 0.7 and is_ladder_pass:
+                elif sharpe > submit_sharpe_th and prod_corr < 0.7 and is_ladder_pass:
                     if error_count > 0:
                         alpha_type = "SKIP"
                         target_name = "anonymous"
