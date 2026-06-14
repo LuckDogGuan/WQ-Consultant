@@ -167,6 +167,46 @@ python run_gui.py --host 0.0.0.0
 - **手动输入**：在 WQ 凭证配置区输入您的 WorldQuant Brain 账号（Email）与密码，支持明密文切换。
 - **一键导入**：如果在父项目根目录下已配置过 `credentials.json`，可点击 **“一键从 credentials.json 导入”** 按钮实现秒级自动同步。
 
+### 4. 浏览器访问与页面功能说明
+
+> [!TIP]
+> **AI 浏览器协同提示**：在开发或交互过程中，可以使用 `[/browser]` 快捷命令启动自动浏览器调试工具，打开页面进行可视化操作与截图。
+
+项目提供了完整的 Web 可视化工作流界面，以下是主要页面的详细功能与布局指南：
+
+#### 4.1 仪表盘主页 (Dashboard)
+![Dashboard](img/Dashboard.png)
+*   **顶部指标卡片 (Metrics Cards)**：包含`已检因子总数`、`回测保存因子`、`合格通过率`、`今日新增因子`等本地 SQLite 数据库的多维度状态汇总，采用微渐变色底色。
+*   **中间活动任务 (Active Jobs)**：实时渲染当前正在运行或处于 Pending 状态的后台异步任务进度条，提供停止任务和查看独立终端日志的入口。
+*   **下方最新记录 (Recent Records)**：列表展示最新入库的 Alpha 归档，点击任意一行即可下钻查看因子详细曲线、绩效指标（Sharpe、Fitness、Returns、Margin、Drawdown 等）及净值图表。
+
+#### 4.2 回测任务控制台 (Backtest Panel)
+![Backtest](img/Backtest.png)
+*   **回测参数配置区 (Config Panel)**：支持设置 Region、Universe、Delay、并发回测任务数及线程数限制。支持多数据集 ID 批量输入。
+*   **三阶段链式回测控制 (Three-stage Chain)**：支持勾选执行 `一阶 FO`、`二阶 SO` 和 `三阶 TH` 的三阶段链式串行回测。系统会自动根据上一阶段结果智能规划下一阶段，筛选 Neutralization 最优组合，并支持断点续跑。
+*   **回测队列状态表 (Queue Table)**：展示当前回测队列的任务节点，对于超频限流（429）有明显的倒计时和冷静期文字提醒。
+*   **实时日志终端 (Terminal Console)**：异步轮询 job 的 stdout 输出，实现类似于 Linux `tail -f` 的网页版控制台。
+
+#### 4.3 相关性诊断与改名评定 (Correlation Diagnostic)
+![Correlation](img/Correlation.png)
+*   **相关性参数配置区 (Collapsible Settings)**：*(已支持折叠分区分类展示)* 提供初筛 Sharpe 阈值 (Sharpe ≥ 1.0)、Fitness 拟合度阈值 (Fitness ≥ 0.7)、候选回看天数、并发线程数、定时检测任务调度等控制项。
+*   **候选因子诊断表 (Candidate Diagnostics Table)**：展示经初筛和本地相关性比对计算出的 `PPA / RA / ATOM` 优质因子候选名单，展示它们与已提交因子库的相关性指标和评定。
+*   **智能改名推荐 (Smart Rename)**：根据拟合度给出规范化的重命名推荐。用户选中改名项二次点击确认后，系统直接调用 WorldQuant 远程 API 执行 `set_alpha_properties` 属性修改。
+
+#### 4.4 一键检查提交页 (Check Submission)
+![Check](img/Check.png)
+*   **待检队列构建 (Check Queue)**：自动合并本地优质候选及手动粘贴的 Alpha IDs 进行多源排重去重。
+*   **并发平滑检查 (Concurrent Checks)**：多线程并行查询平台检测指标，检测 Self-Correlation、Sharpe/Fitness 阈值、样本内测试等。使用内存级额度计数缓存和 SQLite 时间检索，规避 429 频控，节省 50% API 调用。
+*   **检查结果面板 (Results Board)**：展示检测结果状态（PASS, FAIL, WARNING, ERROR），并提供分类过滤按钮一键筛选。
+
+#### 4.5 系统全局设置 (Settings)
+![Settings](img/Settings.png)
+*   **管理员密码修改 (Admin Password)**：修改 GUI 登录后台的管理员访问凭证。
+*   **WorldQuant Brain 账号凭证配置 (Credentials)**：输入账号与密码，支持明密文切换，支持一键从 `credentials.json` 自动导入 WorldQuant 凭据，并进行“测试登录”状态诊断。
+*   **系统限额与时间窗管理 (Limits & Blockouts)**：设置回测每日参考上限（4500 限额限制）、超出限制后重新扫描 of 间隔（分钟）、中国时间禁用时段（如 `08:30` - `15:00`）。
+*   **相关性诊断与过滤设置 (Correlation & Filtering Settings)**：*(新增配置板块)* 可在此页全局直接管理相关性初筛基础参数（Sharpe 阈值 ≥ 1.0，Fitness 阈值 ≥ 0.7），以及并发计算线程数和相关性候选回看天数。
+*   **系统高级与重连交互 (Advanced & Reconnect)**：设置网络异常重连的退避等待间隔（第 1~2 次、第 3 次及以后），以及敏感属性变更时的二次点击确认开关。
+
 ---
 
 ## 🔒 独立 Git 仓库管理与提交流程

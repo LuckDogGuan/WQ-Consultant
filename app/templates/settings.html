@@ -74,7 +74,32 @@
             </div>
         </div>
 
-        <!-- SECTION 4: NETWORK RECONNECTS & INTERACTIONS -->
+        <!-- SECTION 4: CORRELATION & DIAGNOSTIC PARAMETERS -->
+        <div class="card settings-card">
+            <div class="card-header">
+                <h2><i class="fa-solid fa-diagram-project"></i> 相关性诊断与过滤设置</h2>
+            </div>
+            <div class="card-body form-grid">
+                <div class="form-group">
+                    <label for="corr_threshold_sharpe">相关性过滤 Sharpe 比率阈值 (Sharpe ≥ X)</label>
+                    <input type="number" step="0.01" id="corr_threshold_sharpe" name="corr_threshold_sharpe" value="{{ settings.corr_threshold_sharpe or '1.0' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_threshold_fitness">相关性过滤 Fitness 拟合度阈值 (Fitness ≥ Y)</label>
+                    <input type="number" step="0.01" id="corr_threshold_fitness" name="corr_threshold_fitness" value="{{ settings.corr_threshold_fitness or '0.7' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_lookback_days">相关性检测候选回看天数</label>
+                    <input type="number" id="corr_lookback_days" name="corr_lookback_days" value="{{ settings.corr_lookback_days or '14' }}">
+                </div>
+                <div class="form-group">
+                    <label for="corr_workers">检测计算并发线程数 (线程数)</label>
+                    <input type="number" id="corr_workers" name="corr_workers" value="{{ settings.corr_workers or '5' }}">
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 5: NETWORK RECONNECTS & INTERACTIONS -->
         <div class="card settings-card">
             <div class="card-header">
                 <h2><i class="fa-solid fa-gears"></i> 系统高级与重连交互</h2>

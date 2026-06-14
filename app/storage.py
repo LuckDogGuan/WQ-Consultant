@@ -145,6 +145,8 @@ DEFAULT_SETTINGS = {
     "auto_rename": "1",
     "weekly_catalog_refresh": "1",
     # 相关性检测与 check_submission 相关参数
+    "corr_threshold_sharpe": "1.0",
+    "corr_threshold_fitness": "0.7",
     "corr_lookback_days": "14",
     "corr_fetch_limit": "",
     "corr_workers": "5",
