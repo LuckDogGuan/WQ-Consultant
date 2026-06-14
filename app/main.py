@@ -402,6 +402,48 @@ def get_flow_page(request: Request, admin: str = Depends(get_current_admin)):
     return templates.TemplateResponse(request, "flow.html", {})
 
 
+@app.get("/daily-inspection", response_class=HTMLResponse)
+def get_daily_inspection_page(request: Request, admin: str = Depends(get_current_admin)):
+    settings = get_settings()
+    with connect() as conn:
+        jobs = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE kind IN ('daily_inspection', 'alpha_submit')
+            ORDER BY id DESC
+            LIMIT 8
+            """
+        ).fetchall()
+        submit_candidates = conn.execute(
+            """
+            SELECT
+                a.*,
+                CASE WHEN a.alpha_type IN ('PPA', 'RA', 'ATOM') THEN 'priority' ELSE 'checked_pass' END AS candidate_tier
+            FROM alpha_records a
+            INNER JOIN check_results c ON c.alpha_id = a.alpha_id
+            WHERE c.result = 'PASS'
+              AND UPPER(COALESCE(a.status, '')) NOT IN ('SUBMITTED', 'SUBMIT_SUCCESS')
+              AND UPPER(COALESCE(a.status, '')) NOT LIKE 'SUBMITTED_%'
+            GROUP BY a.alpha_id
+            ORDER BY
+                CASE WHEN a.alpha_type IN ('PPA', 'RA', 'ATOM') THEN 0 ELSE 1 END ASC,
+                MAX(c.created_at) DESC
+            LIMIT 12
+            """
+        ).fetchall()
+    success_msg = "配置已保存。" if request.query_params.get("success") == "1" else None
+    return templates.TemplateResponse(
+        request,
+        "daily_inspection.html",
+        {
+            "settings": settings,
+            "jobs": jobs,
+            "submit_candidates": submit_candidates,
+            "success": success_msg,
+        },
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def get_settings_page(request: Request, admin: str = Depends(get_current_admin)):
     settings = get_settings()
@@ -1264,6 +1306,72 @@ def post_check_run(manual_ids: str = Form(""), admin: str = Depends(get_current_
     job_id = create_job("check_submission", f"三线程 check_submission 检查 (手动追加 {len(ids_list)} 个)", params)
     JobRunner().start_job(job_id, "check_submission", params)
     return RedirectResponse(url="/check", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/api/jobs/daily_inspection")
+def post_daily_inspection_run(
+    action: str = Form("run"),
+    schedule_enabled: str = Form("1"),
+    schedule_hour: int = Form(9),
+    lookback_days: int = Form(7),
+    max_candidates: int = Form(4000),
+    auto_submit: str = Form("0"),
+    admin: str = Depends(get_current_admin),
+):
+    update_settings(
+        {
+            "daily_inspection_schedule_enabled": "1" if schedule_enabled == "1" else "0",
+            "daily_inspection_schedule_hour": schedule_hour,
+            "daily_inspection_lookback_days": lookback_days,
+            "daily_inspection_max_candidates": max_candidates,
+            "daily_inspection_auto_submit": "1" if auto_submit == "1" else "0",
+        }
+    )
+    if action == "save_schedule":
+        return RedirectResponse(url="/daily-inspection?success=1", status_code=status.HTTP_303_SEE_OTHER)
+
+    from .services.daily_inspection_service import build_daily_inspection_params
+
+    params = build_daily_inspection_params(
+        {
+            "lookback_days": lookback_days,
+            "max_candidates": max_candidates,
+            "auto_submit": auto_submit == "1",
+        }
+    )
+    if params["auto_submit"] and "alpha_submit" not in params["stages"]:
+        params["stages"].append("alpha_submit")
+    job_id = create_job(
+        "daily_inspection",
+        f"每日因子巡检 (最近 {lookback_days} 天，最多 {max_candidates} 个)",
+        params,
+    )
+    JobRunner().start_job(job_id, "daily_inspection", params)
+    return RedirectResponse(url="/daily-inspection", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/api/jobs/submit")
+def post_alpha_submit_run(
+    source_mode: str = Form("local_pass"),
+    manual_ids: str = Form(""),
+    limit: int = Form(200),
+    dry_run: str = Form("0"),
+    admin: str = Depends(get_current_admin),
+):
+    from .services.submit_service import parse_alpha_ids
+
+    ids_list = parse_alpha_ids(manual_ids)
+    params = {
+        "source_mode": source_mode,
+        "manual_ids": ids_list,
+        "limit": limit,
+        "dry_run": dry_run == "1",
+        "max_cycles": 1,
+    }
+    title = f"提交因子 ({source_mode}, 上限 {limit}, 手动 {len(ids_list)} 个)"
+    job_id = create_job("alpha_submit", title, params)
+    JobRunner().start_job(job_id, "alpha_submit", params)
+    return RedirectResponse(url="/daily-inspection", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/api/jobs/optimization")

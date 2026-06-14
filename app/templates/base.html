@@ -20,6 +20,10 @@
             </div>
             
             <nav class="sidebar-menu">
+                <a href="/daily-inspection" class="menu-item {% if request.url.path == '/daily-inspection' %}active{% endif %}">
+                    <i class="fa-solid fa-calendar-check"></i>
+                    <span>每日因子巡检</span>
+                </a>
                 <a href="/flow" class="menu-item {% if request.url.path == '/flow' %}active{% endif %}">
                     <i class="fa-solid fa-route"></i>
                     <span>数据流通</span>
