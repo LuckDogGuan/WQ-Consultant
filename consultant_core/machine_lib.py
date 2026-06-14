@@ -29,11 +29,13 @@ ts_ops = ["ts_rank", "ts_zscore", "ts_delta",  "ts_sum", "ts_delay",
 ops_set = basic_ops + ts_ops 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+GUI_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SIMULATION_PROGRESS_LOG = PROJECT_ROOT / "runs" / "alpha_machine" / "simulation_progress.jsonl"
 DEFAULT_SUBMISSION_LOG = PROJECT_ROOT / "runs" / "submissions" / "submission_log.jsonl"
 DEFAULT_SUBMISSION_TIMEZONE = "Asia/Shanghai"
 DEFAULT_SUBMISSION_POLL_SECONDS = 20 * 60
-DEFAULT_WEBDATASCOPE_DIR = PROJECT_ROOT / "data" / "webdatascope"
+DEFAULT_WEBDATASCOPE_DIR = GUI_ROOT / "data" / "webdatascope"
+LEGACY_WEBDATASCOPE_DIR = PROJECT_ROOT / "data" / "webdatascope"
 DEFAULT_NEUTRALIZATION_FALLBACK_CYCLE = ["MARKET", "SECTOR", "INDUSTRY", "SUBINDUSTRY"]
 
 
@@ -540,7 +542,14 @@ def load_webdatascope_info(
     node_executable="node",
 ):
     webdatascope_dir = Path(webdatascope_dir)
+    if webdatascope_dir == DEFAULT_WEBDATASCOPE_DIR and not webdatascope_dir.exists() and LEGACY_WEBDATASCOPE_DIR.exists():
+        webdatascope_dir = LEGACY_WEBDATASCOPE_DIR
     info_data_path = Path(info_data_path) if info_data_path else webdatascope_dir / "info_data.bin"
+    cache_path = webdatascope_dir / "webdatascope_info.json"
+    if cache_path.exists():
+        with cache_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
     pako_path = webdatascope_dir / "pako.min.js"
     msgpack_path = webdatascope_dir / "msgpack.min.js"
     script = (
@@ -558,7 +567,13 @@ def load_webdatascope_info(
         text=True,
         encoding="utf-8",
     )
-    return json.loads(result.stdout)
+    data = json.loads(result.stdout)
+    webdatascope_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = cache_path.with_suffix(".json.tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    tmp_path.replace(cache_path)
+    return data
 
 def ts_factory(op, field):
     output = []

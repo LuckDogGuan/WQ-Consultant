@@ -73,6 +73,10 @@ python -m pip install -r requirements.txt
 
 *(如果需要运行测试用例，可额外安装 `pytest`)*
 
+### 1.1 本地 webdatascope 数据读取说明
+
+GUI 主程序使用 Python 运行。`data/webdatascope/` 下的 `info_data.bin` 是压缩的 msgpack 数据，首次解析需要本机可用 `node`，用于执行同目录保留的 `pako.min.js` 与 `msgpack.min.js` 解码库。解析成功后会生成 `data/webdatascope/webdatascope_info.json` 缓存；后续 Python 会优先直接读取这个 JSON 缓存，原始 `.bin` 和 `.js` 文件不会删除。
+
 ### 2. 运行一键检测脚本 🛡️
 
 项目内置了环境自检程序 [check_env.py](file:///D:/code/WorldQuant%20Brain/consultant/gui/check_env.py)，在首次运行或部署至服务器前，强烈建议运行此脚本进行一键体检：

@@ -60,6 +60,10 @@
                     <input type="number" id="poll_minutes" name="poll_minutes" value="{{ settings.poll_minutes or '20' }}">
                 </div>
                 <div class="form-group">
+                    <label>限额统计时区与刷新点</label>
+                    <div class="readonly-setting">北京时间 (Asia/Shanghai)，回测计数每日 12:00 刷新</div>
+                </div>
+                <div class="form-group">
                     <label for="blocked_start_cn">中国时间禁用段开始 (如 08:30)</label>
                     <input type="time" id="blocked_start_cn" name="blocked_start_cn" value="{{ settings.blocked_start_cn or '00:00' }}">
                 </div>

@@ -525,6 +525,7 @@ body {
 .status-PPA { background-color: rgba(139, 92, 246, 0.2); color: #c084fc; }
 .status-RA { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; }
 .status-ATOM { background-color: rgba(236, 72, 153, 0.2); color: #f472b6; }
+.status-MARGINAL { background-color: rgba(249, 115, 22, 0.18); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.25); }
 .status-SKIP { background-color: rgba(255, 255, 255, 0.08); color: var(--text-muted); }
 .status-premium { background-color: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
 .status-standard { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
@@ -1025,6 +1026,13 @@ input:focus, select:focus, textarea:focus {
     font-size: 13px;
 }
 
+.alpha-detail-badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
 .optimization-jobs-card {
     margin-top: 24px;
 }
@@ -1143,6 +1151,7 @@ input:focus, select:focus, textarea:focus {
         padding: 10px 12px;
         gap: 8px;
         scrollbar-width: thin;
+        scroll-behavior: auto;
     }
 
     .menu-item {
@@ -1173,6 +1182,7 @@ input:focus, select:focus, textarea:focus {
         align-items: flex-start;
         gap: 10px;
         flex-direction: column;
+        position: static;
     }
 
     .top-bar-title h1 {
@@ -1181,6 +1191,8 @@ input:focus, select:focus, textarea:focus {
 
     .content-body {
         padding: 16px;
+        width: 100%;
+        overflow-x: hidden;
     }
 
     .card {
@@ -1194,10 +1206,52 @@ input:focus, select:focus, textarea:focus {
 
     .backtest-grid,
     .check-grid,
+    .dashboard-sections,
     .flow-lanes,
     .optimization-settings-grid,
     .flow-steps {
         grid-template-columns: 1fr;
+    }
+
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+        margin-bottom: 18px;
+    }
+
+    .dashboard-overview-grid {
+        margin-top: 0;
+    }
+
+    .stat-card {
+        align-items: flex-start;
+        gap: 12px;
+        padding: 16px;
+        min-width: 0;
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        flex: 0 0 42px;
+        font-size: 18px;
+    }
+
+    .stat-details {
+        min-width: 0;
+    }
+
+    .stat-details h3 {
+        font-size: 12px;
+    }
+
+    .stat-number {
+        font-size: 24px;
+    }
+
+    .stat-sub {
+        font-size: 11px;
+        line-height: 1.45;
     }
 
     .filter-bar,
@@ -1214,6 +1268,28 @@ input:focus, select:focus, textarea:focus {
     .btn-group .btn,
     .form-actions .btn {
         width: 100%;
+    }
+
+    .filter-group-buttons,
+    .filter-group-date-buttons {
+        flex-wrap: wrap;
+    }
+
+    .filter-group-buttons .btn,
+    .filter-group-date-buttons .btn {
+        flex: 1 1 calc(50% - 6px);
+        min-width: 0;
+    }
+
+    .filter-group-select {
+        align-items: stretch !important;
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .filter-select,
+    .pagination-jump input {
+        width: 100% !important;
     }
 
     .table-responsive {
@@ -1252,6 +1328,45 @@ input:focus, select:focus, textarea:focus {
     .modal-content {
         width: calc(100vw - 24px);
         max-width: calc(100vw - 24px);
+    }
+
+    .alpha-detail-container {
+        max-width: none !important;
+        gap: 16px !important;
+    }
+
+    .alpha-detail-container > div:first-child {
+        align-items: stretch !important;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .alpha-detail-container h2 {
+        font-size: 24px !important;
+        word-break: break-word;
+    }
+
+    .alpha-detail-container [style*="minmax(400px"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    .alpha-detail-badge-row {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .pagination {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .pagination .btn,
+    .pagination-jump {
+        margin-left: 0 !important;
+        padding-left: 0 !important;
+        border-left: 0 !important;
+        width: 100%;
     }
 
     .toast-container {

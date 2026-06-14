@@ -117,9 +117,14 @@
     <div class="card" style="padding: 24px;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
             <div>
-                <span class="badge status-{{ alpha.alpha_type or 'secondary' }}" style="font-size: 14px; padding: 6px 12px; margin-bottom: 12px; display: inline-block;">
-                    {{ alpha.alpha_type or 'UNKNOWN' }}
-                </span>
+                <div class="alpha-detail-badge-row">
+                    <span class="badge status-{{ alpha.level_class }}" style="font-size: 14px; padding: 6px 12px; display: inline-block;">
+                        提交判定: {{ alpha.alpha_level }}
+                    </span>
+                    <span class="badge status-{{ alpha.alpha_type or 'secondary' }}" style="font-size: 14px; padding: 6px 12px; display: inline-block;">
+                        相关性分类: {{ alpha.alpha_type or 'UNKNOWN' }}
+                    </span>
+                </div>
                 <h2 style="font-family: var(--font-heading); font-size: 28px; font-weight: 700; color: var(--text-main); margin-bottom: 8px;">
                     Alpha ID: {{ alpha.alpha_id }}
                 </h2>
@@ -128,9 +133,6 @@
                 </p>
             </div>
             <div style="text-align: right;">
-                <span class="badge status-{{ alpha.level_class }}" style="font-size: 16px; padding: 8px 16px; display: inline-block;">
-                    {{ alpha.alpha_level }}
-                </span>
                 <div style="margin-top: 12px; font-size: 14px; color: var(--text-muted);">
                     系统状态: <strong style="color: var(--text-main);">{{ alpha.status }}</strong>
                 </div>

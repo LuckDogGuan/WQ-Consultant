@@ -17,6 +17,7 @@
             <!-- Fallback hidden values -->
             <input type="hidden" name="backtest_children" value="{{ settings.backtest_children or '5' }}">
             <input type="hidden" name="backtest_threads" value="{{ settings.backtest_threads or '8' }}">
+            <input type="hidden" name="alpha_date_timezone" value="Asia/Shanghai">
 
             <!-- 1. 三阶段回测并发控制（槽数与线程） -->
             <div class="settings-section">
@@ -123,8 +124,8 @@
                 <h3 class="section-title"><i class="fa-solid fa-gears"></i> 5. 追踪高级辅助参数</h3>
                 <div class="form-grid">
                     <div class="form-group">
-                        <label for="alpha_date_timezone">追踪 Alpha 拉取与限额计算时区</label>
-                        <input type="text" id="alpha_date_timezone" name="alpha_date_timezone" value="{{ settings.alpha_date_timezone or 'Asia/Shanghai' }}">
+                        <label>追踪 Alpha 拉取与限额计算时区</label>
+                        <div class="readonly-setting">北京时间 (Asia/Shanghai)，每日 12:00 刷新回测计数</div>
                     </div>
                     <div class="form-group">
                         <label for="alpha_fetch_limit_multiplier">候选预拉取倍数 (Multiplier)</label>

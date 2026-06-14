@@ -20,6 +20,7 @@ function escapeHtml(value) {
 
 // 启动页面初始挂载
 document.addEventListener("DOMContentLoaded", function() {
+    restoreMobileMenuScroll();
     // 开启网络状态监测轮询
     checkNetworkStatus();
     setInterval(checkNetworkStatus, 4000);
@@ -29,6 +30,24 @@ document.addEventListener("DOMContentLoaded", function() {
         startJobsPolling();
     }
 });
+
+function restoreMobileMenuScroll() {
+    const menu = document.querySelector(".sidebar-menu");
+    if (!menu) return;
+
+    const savedLeft = sessionStorage.getItem("sidebar_menu_scroll_left");
+    if (savedLeft !== null) {
+        menu.scrollLeft = parseInt(savedLeft, 10) || 0;
+    }
+
+    menu.addEventListener("scroll", () => {
+        sessionStorage.setItem("sidebar_menu_scroll_left", String(menu.scrollLeft));
+    }, { passive: true });
+
+    menu.addEventListener("click", () => {
+        sessionStorage.setItem("sidebar_menu_scroll_left", String(menu.scrollLeft));
+    });
+}
 
 // ==========================================
 // 任务管理与操作 API
