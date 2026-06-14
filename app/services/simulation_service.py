@@ -124,7 +124,7 @@ def handle_reconnect(job_id: int, reconnect_count: int) -> requests.Session:
     runner = JobRunner()
     
     short_sleep = int(get_setting("reconnect_short_sleep_seconds", "300"))
-    long_sleep = int(get_setting("reconnect_long_sleep_seconds", "600"))
+    long_sleep = int(get_setting("reconnect_long_sleep_seconds", "300"))
     
     wait_time = short_sleep if reconnect_count < 2 else long_sleep
     msg = f"Connection issues. Reconnecting in {wait_time} seconds (attempt {reconnect_count + 1})..."
@@ -366,7 +366,7 @@ def run_simulation_pool_with_control(
                             exc,
                             failure_count=network_failures,
                             short_wait_seconds=int(get_setting("reconnect_short_sleep_seconds", "300") or "300"),
-                            long_wait_seconds=int(get_setting("reconnect_long_sleep_seconds", "600") or "600"),
+                            long_wait_seconds=int(get_setting("reconnect_long_sleep_seconds", "300") or "300"),
                         )
                         if should_retry_without_skipping(decision):
                             msg = (
@@ -701,7 +701,7 @@ def normalize_simulation_post_payload(sim_data: Any) -> Any:
 def rate_limit_retry_seconds(
     failure_count: int,
     short_seconds: int = 30,
-    long_seconds: int = 600,
+    long_seconds: int = 300,
     cycle_size: int = 5,
 ) -> int:
     return next_wait_seconds(
@@ -713,7 +713,7 @@ def rate_limit_retry_seconds(
 
 
 def configured_rate_limit_wait_seconds(failure_count: int) -> int:
-    long_wait = int(get_setting("reconnect_long_sleep_seconds", "600") or "600")
+    long_wait = int(get_setting("reconnect_long_sleep_seconds", "300") or "300")
     return rate_limit_retry_seconds(failure_count, short_seconds=30, long_seconds=long_wait)
 
 
