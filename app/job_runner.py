@@ -220,6 +220,9 @@ class JobRunner:
                 elif kind == "submitted_cleanup":
                     from .services.maintenance_service import run_submitted_cleanup_job
                     run_submitted_cleanup_job(job_id, params)
+                elif kind == "reference_fetch":
+                    from .services.reference_service import run_reference_fetch_job
+                    run_reference_fetch_job(job_id, params)
                 else:
                     raise ValueError(f"Unknown job kind: {kind}")
             

@@ -1242,9 +1242,113 @@ def get_logs(request: Request, admin: str = Depends(get_current_admin)):
     return templates.TemplateResponse(request, "logs.html", {"errors": errors})
 
 
+def get_csv_data(file_path: Path) -> list[dict[str, Any]]:
+    if not file_path.exists():
+        return []
+    try:
+        import pandas as pd
+        df = pd.read_csv(file_path)
+        df = df.fillna("")
+        return df.to_dict(orient="records")
+    except Exception as e:
+        logger.error(f"Failed to read CSV {file_path}: {e}")
+        return []
+
+
+@app.get("/reference", response_class=HTMLResponse)
+def get_reference(
+    request: Request,
+    scope: str = None,
+    admin: str = Depends(get_current_admin)
+):
+    import re
+    # 1. Read Grandmaster paper markdown content
+    paper_path = Path("reference/official_paper/Eligibility_Criteria_Grandmaster.md")
+    paper_content = ""
+    if paper_path.exists():
+        try:
+            with paper_path.open("r", encoding="utf-8") as f:
+                paper_content = f.read()
+        except Exception as e:
+            logger.error(f"Failed to read Eligibility_Criteria_Grandmaster.md: {e}")
+            paper_content = f"读取指南失败: {e}"
+    else:
+        paper_content = "未找到指南文件 `Eligibility_Criteria_Grandmaster.md`。"
+
+    # 2. Find available CSV files in reference/code/
+    ref_code_dir = Path("reference/code")
+    dataset_files = []
+    if ref_code_dir.exists():
+        dataset_files = sorted([f.name for f in ref_code_dir.glob("theme_datasets_*.csv")])
+
+    datasets = []
+    fields = []
+    selected_scope = scope or ""
+    
+    if dataset_files:
+        if not selected_scope:
+            default_file = dataset_files[0]
+            match = re.match(r"theme_datasets_(.+)\.csv", default_file)
+            if match:
+                selected_scope = match.group(1)
+                
+        dataset_path = ref_code_dir / f"theme_datasets_{selected_scope}.csv"
+        fields_path = ref_code_dir / f"theme_fields_all_{selected_scope}.csv"
+        
+        datasets = get_csv_data(dataset_path)
+        fields = get_csv_data(fields_path)
+
+    # 3. Limit fields to avoid rendering lag
+    fields = fields[:3000]
+
+    # 4. Find active job
+    with connect() as conn:
+        active_job = conn.execute(
+            "SELECT * FROM jobs WHERE kind = 'reference_fetch' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    day1_scopes = get_all_day1_scopes()
+    settings = get_settings()
+
+    return templates.TemplateResponse(
+        request,
+        "reference.html",
+        {
+            "paper_content": paper_content,
+            "dataset_files": dataset_files,
+            "datasets": datasets,
+            "fields": fields,
+            "selected_scope": selected_scope,
+            "active_job": active_job,
+            "day1_scopes": day1_scopes,
+            "region_names": REGION_DISPLAY_NAMES,
+            "settings": settings
+        }
+    )
+
+
 # ==========================================
 # 后台任务 API 控制路由
 # ==========================================
+
+@app.post("/api/jobs/reference_fetch")
+def post_reference_fetch(
+    region: str = Form("USA"),
+    universe: str = Form("TOP3000"),
+    delay: int = Form(1),
+    admin: str = Depends(get_current_admin)
+):
+    params = {
+        "region": region,
+        "universe": universe,
+        "delay": delay
+    }
+    
+    title = f"同步 PPA 主题数据 ({region}/{universe}/delay={delay})"
+    job_id = create_job("reference_fetch", title, params)
+    JobRunner().start_job(job_id, "reference_fetch", params)
+    return {"status": "ok", "job_id": job_id}
+
 
 @app.post("/api/jobs/catalog_refresh")
 def post_catalog_refresh(
