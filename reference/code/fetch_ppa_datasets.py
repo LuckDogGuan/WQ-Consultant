@@ -97,10 +97,17 @@ def safe_filename(name):
     return re.sub(r'[\\/:*?"<>|]+', '_', name)
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Fetch PPA theme datasets and fields from WorldQuant Brain")
+    parser.add_argument("--region", type=str, default="USA", help="Region (default: USA)")
+    parser.add_argument("--delay", type=int, default=1, help="Delay (default: 1)")
+    parser.add_argument("--universe", type=str, default="TOP3000", help="Universe (default: TOP3000)")
+    args = parser.parse_args()
+
     s = login()
-    region = 'USA'
-    delay = 1
-    universe = 'TOP3000'
+    region = args.region
+    delay = args.delay
+    universe = args.universe
     results = fetch_all(s, region, delay, universe)
     rows = []
     for item in results:
