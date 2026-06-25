@@ -53,7 +53,12 @@
 * **[reference/](./reference)**：**受保护的只读参考库**（严禁修改，修改/实验请复制至 `scratch/` 进行）：
   * **[code/](./reference/code)**：已清洗验证的模块化 Python 参考脚本（包含去重剪枝 `pruning/`、参数寻优 `optimization/`、自相关分析与快速 PnL 下载 `analysis/`）。
   * **[notebook/](./reference/notebook)**：用于回测的核心 Jupyter Notebook 笔记本（包含主生产线 `alpha_generation_pipeline.ipynb` 及 `archive/` 历史备份）。
-  * **[unverified/](./reference/unverified)**：收集自论坛的原始经验帖子原文（未做任何修改）。
+  * **[unverified/](./reference/unverified)**：收集自论坛的原始经验帖子原文（已按主题分为以下 5 个大类归档）：
+    * **[correlation_reduction/](./reference/unverified/correlation_reduction)**：自相关检测与相关性降低策略。
+    * **[sharpe_and_pnl_optimization/](./reference/unverified/sharpe_and_pnl_optimization)**：Robust Sharpe 提升与 PnL 极速获取。
+    * **[datafields_and_pruning/](./reference/unverified/datafields_and_pruning)**：数据集字段探索与本地去重剪枝。
+    * **[submission_and_progression/](./reference/unverified/submission_and_progression)**：因子提交标准、Value Factor 提升及 Grandmaster 晋级策略。
+    * **[workflow_and_tools/](./reference/unverified/workflow_and_tools)**：自动化优化工作流、提示词设计与性能调优经验。
   * **[official_paper/](./reference/official_paper)**：官方标准与考核指标说明文档。
   * **[reference_report.md](./reference/reference_report.md)**：论坛帖子的本地代码验证报告与操作经验提炼。
 * **[scratch/](./scratch)**：临时草稿、猜想验证与本地单元测试（包含验证参考代码用例的 `test_code_references.py`）。
