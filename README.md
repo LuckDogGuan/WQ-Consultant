@@ -25,8 +25,16 @@
 
 3. **启动服务**
    ```bash
+   # 默认启动 (监听 127.0.0.1:8765)
    python run_gui.py
+
+   # 指定端口启动
+   python run_gui.py --port 8888
+
+   # 允许局域网/公网访问 (监听 0.0.0.0) 并指定端口
+   python run_gui.py --host 0.0.0.0 --port 8888
    ```
+
 
 4. **运行测试**
    ```bash

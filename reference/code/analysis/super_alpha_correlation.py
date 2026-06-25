@@ -28,8 +28,20 @@ def sign_in():
     Authenticate with WQ Brain API.
     Loads credentials dynamically from user_config.json or user_info.txt.
     """
-    username, password = None, None
+    from pathlib import Path
+    possible_paths = [
+        Path("user_config.json"),
+        Path("../user_config.json"),
+        Path("../../user_config.json"),
+        Path(os.path.expanduser("~")) / ".config" / "AiWorkFlow" / "user_config.json",
+        Path("D:/SoftWare/AiWorkFlow/user_config.json")
+    ]
     config_file = r"D:\SoftWare\AiWorkFlow\user_config.json"
+    for p in possible_paths:
+        if p.exists():
+            config_file = str(p)
+            break
+
     
     if os.path.exists(config_file):
         try:

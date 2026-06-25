@@ -56,4 +56,6 @@ This project is indexed by GitNexus as **wq_gui** (1620 symbols, 7571 relationsh
    * 在进行流程优化时，应将具体算法与业务逻辑拆解为颗粒度小、职责单一的**小功能函数**，方便后续流程直接导入与重复调用。
 4. **优先复用现有库 (Reuse Existing Libraries)**：
    * 开发或优化代码时，应尽量使用系统已有的功能组件与成熟模块（例如本项目的 `wqb` 库、`consultant_core` 等内置库），避免重复造轮子。
-
+5. **优先使用 MCP 工具与现有库 (Prioritize MCP & Existing Libraries)**：
+   * 在需要与平台进行数据交互（如因子测试、PnL 查询、数据提交、社区检索等）时，必须优先使用系统内注册的 MCP 工具（如 `wq_gui` 的 MCP 接口或 `cnhkmcp` 等相关平台工具），或直接复用本地的封装库（如 `wqb` 库和 `consultant_core` 等）。
+   * 严格禁止在已有对应 MCP 功能或成熟本地库的情况下，自主通过原生的网络请求（如编写 `playwright`、`httpx` 或 `requests` 等原生逻辑）重写同质化功能。只有在现有 MCP 和现有库均无法支持所需操作时，才允许设计自研逻辑。

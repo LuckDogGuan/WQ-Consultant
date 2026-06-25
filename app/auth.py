@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 from fastapi import Request, HTTPException, status
-from fastapi.responses import RedirectResponse
 
 from .paths import PROJECT_ROOT
 from .storage import get_setting, update_settings

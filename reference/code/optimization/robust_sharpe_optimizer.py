@@ -44,7 +44,20 @@ def login():
     username, password = None, None
     
     # Try user_config.json first
+    from pathlib import Path
+    possible_paths = [
+        Path("user_config.json"),
+        Path("../user_config.json"),
+        Path("../../user_config.json"),
+        Path(os.path.expanduser("~")) / ".config" / "AiWorkFlow" / "user_config.json",
+        Path("D:/SoftWare/AiWorkFlow/user_config.json")
+    ]
     config_file = r"D:\SoftWare\AiWorkFlow\user_config.json"
+    for p in possible_paths:
+        if p.exists():
+            config_file = str(p)
+            break
+
     if os.path.exists(config_file):
         try:
             with open(config_file, 'r', encoding='utf-8') as f:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import logging
 import math
@@ -20,7 +19,6 @@ from .storage import (
     create_job,
     list_jobs,
     list_job_events,
-    list_rows,
     get_setting,
     update_job,
     delete_job,
@@ -396,52 +394,6 @@ def get_dashboard(request: Request, admin: str = Depends(get_current_admin)):
         }
     )
 
-
-@app.get("/flow", response_class=HTMLResponse)
-def get_flow_page(request: Request, admin: str = Depends(get_current_admin)):
-    return templates.TemplateResponse(request, "flow.html", {})
-
-
-@app.get("/daily-inspection", response_class=HTMLResponse)
-def get_daily_inspection_page(request: Request, admin: str = Depends(get_current_admin)):
-    settings = get_settings()
-    with connect() as conn:
-        jobs = conn.execute(
-            """
-            SELECT * FROM jobs
-            WHERE kind IN ('daily_inspection', 'alpha_submit')
-            ORDER BY id DESC
-            LIMIT 8
-            """
-        ).fetchall()
-        submit_candidates = conn.execute(
-            """
-            SELECT
-                a.*,
-                CASE WHEN a.alpha_type IN ('PPA', 'RA', 'ATOM') THEN 'priority' ELSE 'checked_pass' END AS candidate_tier
-            FROM alpha_records a
-            INNER JOIN check_results c ON c.alpha_id = a.alpha_id
-            WHERE c.result = 'PASS'
-              AND UPPER(COALESCE(a.status, '')) NOT IN ('SUBMITTED', 'SUBMIT_SUCCESS')
-              AND UPPER(COALESCE(a.status, '')) NOT LIKE 'SUBMITTED_%'
-            GROUP BY a.alpha_id
-            ORDER BY
-                CASE WHEN a.alpha_type IN ('PPA', 'RA', 'ATOM') THEN 0 ELSE 1 END ASC,
-                MAX(c.created_at) DESC
-            LIMIT 12
-            """
-        ).fetchall()
-    success_msg = "配置已保存。" if request.query_params.get("success") == "1" else None
-    return templates.TemplateResponse(
-        request,
-        "daily_inspection.html",
-        {
-            "settings": settings,
-            "jobs": jobs,
-            "submit_candidates": submit_candidates,
-            "success": success_msg,
-        },
-    )
 
 
 @app.get("/settings", response_class=HTMLResponse)
