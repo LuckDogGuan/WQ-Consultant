@@ -23,10 +23,28 @@
             <div>{{ plan.reason or plan.skip_reason }}</div>
         </div>
 
+        <div style="margin-bottom: 16px; display: flex; gap: 16px; align-items: center; background: rgba(255,255,255,0.02); padding: 12px 16px; border-radius: 6px; border: 1px solid var(--border-color);">
+            <div style="font-size: 14px; font-weight: 500;">批量优化操作：</div>
+            <div class="form-group" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                <label for="variant-neut" style="font-size: 13px; color: var(--text-muted); margin: 0;">中性化级别:</label>
+                <select id="variant-neut" class="filter-select" style="padding: 4px 8px; font-size: 13px;">
+                    <option value="INDUSTRY">INDUSTRY</option>
+                    <option value="SUBINDUSTRY" selected>SUBINDUSTRY</option>
+                    <option value="SECTOR">SECTOR</option>
+                </select>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="submitSelectedVariants()">
+                <i class="fa-solid fa-flask"></i> 回测选中的变体因子 (<span id="selected-count">0</span>)
+            </button>
+        </div>
+
         <div class="table-responsive">
             <table class="table">
                 <thead>
                     <tr>
+                        <th style="width: 40px; text-align: center;">
+                            <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll(this)" style="cursor: pointer; width: 16px; height: 16px;">
+                        </th>
                         <th>模式</th>
                         <th>原因</th>
                         <th>表达式检查</th>
@@ -35,7 +53,10 @@
                 </thead>
                 <tbody>
                     {% for variant in variants %}
-                    <tr>
+                    <tr onclick="toggleRowCheckbox(this, event)" style="cursor: pointer;">
+                        <td style="text-align: center;" onclick="event.stopPropagation()">
+                            <input type="checkbox" class="variant-checkbox" value="{{ variant.expression }}" onchange="updateSelectedCount()" style="cursor: pointer; width: 16px; height: 16px;">
+                        </td>
                         <td><span class="stat-tag">{{ variant.mode }}</span></td>
                         <td><span class="text-xs text-muted">{{ variant.reason }}</span></td>
                         <td>
@@ -54,7 +75,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="4" class="text-center text-muted">没有可用增强候选。请检查该 Alpha 是否可优化、表达式是否有效。</td>
+                        <td colspan="5" class="text-center text-muted">没有可用增强候选。请检查该 Alpha 是否可优化、表达式是否有效。</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -62,4 +83,78 @@
         </div>
     </div>
 </div>
+
+<script>
+    function toggleSelectAll(masterCheckbox) {
+        const checkboxes = document.querySelectorAll(".variant-checkbox");
+        checkboxes.forEach(cb => {
+            cb.checked = masterCheckbox.checked;
+            const tr = cb.closest('tr');
+            if (tr) {
+                tr.style.backgroundColor = masterCheckbox.checked ? 'rgba(59, 130, 246, 0.1)' : '';
+            }
+        });
+        updateSelectedCount();
+    }
+
+    function toggleRowCheckbox(row, event) {
+        if (event.target.tagName === 'INPUT') return;
+        
+        const cb = row.querySelector('.variant-checkbox');
+        if (cb) {
+            cb.checked = !cb.checked;
+            row.style.backgroundColor = cb.checked ? 'rgba(59, 130, 246, 0.1)' : '';
+            updateSelectedCount();
+        }
+    }
+
+    function updateSelectedCount() {
+        const checked = document.querySelectorAll(".variant-checkbox:checked");
+        document.getElementById("selected-count").innerText = checked.length;
+        
+        const checkboxes = document.querySelectorAll(".variant-checkbox");
+        checkboxes.forEach(cb => {
+            const tr = cb.closest('tr');
+            if (tr) {
+                tr.style.backgroundColor = cb.checked ? 'rgba(59, 130, 246, 0.1)' : '';
+            }
+        });
+    }
+
+    function submitSelectedVariants() {
+        const checked = document.querySelectorAll(".variant-checkbox:checked");
+        if (checked.length === 0) {
+            alert("请先选择至少一个增强变体因子。");
+            return;
+        }
+        
+        const expressions = Array.from(checked).map(cb => cb.value).join("\n");
+        const neutralization = document.getElementById("variant-neut").value;
+        
+        const formData = new FormData();
+        formData.append("expressions", expressions);
+        formData.append("neutralization", neutralization);
+        
+        if (!confirm(`确定要将这 ${checked.length} 个变体因子提交到回测管理器进行自定义回测吗？`)) {
+            return;
+        }
+        
+        fetch("/api/jobs/custom_backtest", {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                alert("回测任务已成功创建！点击确认将跳转到回测任务管理器页面查看进度。");
+                window.location.href = "/backtest";
+            } else {
+                alert("回测提交失败: " + data.detail);
+            }
+        })
+        .catch(err => {
+            alert("提交出错: " + err.message);
+        });
+    }
+</script>
 {% endblock %}

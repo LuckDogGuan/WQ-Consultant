@@ -20,37 +20,13 @@
             </div>
             
             <nav class="sidebar-menu">
-                <a href="/daily-inspection" class="menu-item {% if request.url.path == '/daily-inspection' %}active{% endif %}">
-                    <i class="fa-solid fa-calendar-check"></i>
-                    <span>每日因子巡检</span>
-                </a>
-                <a href="/flow" class="menu-item {% if request.url.path == '/flow' %}active{% endif %}">
-                    <i class="fa-solid fa-route"></i>
-                    <span>数据流通</span>
-                </a>
                 <a href="/dashboard" class="menu-item {% if request.url.path == '/dashboard' or request.url.path == '/' %}active{% endif %}">
                     <i class="fa-solid fa-chart-line"></i>
                     <span>仪表盘</span>
                 </a>
-                <a href="/settings" class="menu-item {% if request.url.path == '/settings' %}active{% endif %}">
-                    <i class="fa-solid fa-sliders"></i>
-                    <span>设置</span>
-                </a>
-                <a href="/catalog" class="menu-item {% if request.url.path == '/catalog' %}active{% endif %}">
-                    <i class="fa-solid fa-folder-open"></i>
-                    <span>数据目录</span>
-                </a>
                 <a href="/backtest" class="menu-item {% if request.url.path == '/backtest' %}active{% endif %}">
                     <i class="fa-solid fa-flask"></i>
                     <span>回测任务</span>
-                </a>
-                <a href="/correlation" class="menu-item {% if request.url.path == '/correlation' %}active{% endif %}">
-                    <i class="fa-solid fa-diagram-project"></i>
-                    <span>相关性检测</span>
-                </a>
-                <a href="/check" class="menu-item {% if request.url.path == '/check' %}active{% endif %}">
-                    <i class="fa-solid fa-clipboard-check"></i>
-                    <span>检查提交</span>
                 </a>
                 <a href="/optimization" class="menu-item {% if request.url.path == '/optimization' %}active{% endif %}">
                     <i class="fa-solid fa-wand-magic-sparkles"></i>
@@ -60,9 +36,9 @@
                     <i class="fa-solid fa-database"></i>
                     <span>Alpha 记录</span>
                 </a>
-                <a href="/reference" class="menu-item {% if request.url.path == '/reference' %}active{% endif %}">
-                    <i class="fa-solid fa-book-open"></i>
-                    <span>社区参考库</span>
+                <a href="/settings" class="menu-item {% if request.url.path == '/settings' %}active{% endif %}">
+                    <i class="fa-solid fa-sliders"></i>
+                    <span>设置</span>
                 </a>
                 <a href="/logs" class="menu-item {% if request.url.path == '/logs' %}active{% endif %}">
                     <i class="fa-solid fa-terminal"></i>

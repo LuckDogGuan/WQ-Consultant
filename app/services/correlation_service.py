@@ -530,3 +530,99 @@ def rename_alpha_remote(alpha_id: str, target_name: str) -> None:
             )
     finally:
         s.close()
+
+
+def run_inline_correlation_check(
+    session: Any,
+    alpha_ids: list[str],
+    job_id: int,
+    stage: str = "FO",
+) -> None:
+    """在回测任务中穿插调用的本地相关性检测与类型评估逻辑（仅 Prod 相关性，无 PPA）。
+
+    Args:
+        session:    已登录的 WQ 会话
+        alpha_ids:  待检测的 Alpha ID 列表
+        job_id:     当前 Job ID（用于写入事件日志）
+        stage:      当前所处阶段 ("FO" | "SO" | "TH")，用于读取对应的阈值配置
+    """
+    if not alpha_ids:
+        return
+
+    stage_prefix = stage.lower()
+    logger.info(f"[{stage}] Running inline correlation check for {len(alpha_ids)} alphas...")
+
+    # 更新本地相关性数据缓存
+    try:
+        download_correlation_data(session, flag_increment=True)
+    except Exception as e:
+        logger.error(f"[{stage}] Failed to update correlation cache: {e}")
+
+    # 只加载 Prod 相关性矩阵（不再使用 PPA）
+    all_ids, all_rets = load_correlation_data(tag=None)
+
+    region = get_setting("region", "USA")
+    # 读取该阶段对应的配置阈值
+    corr_sharpe_th = float(get_setting(f"{stage_prefix}_corr_sharpe_th", "1.0"))
+    max_prod_corr  = float(get_setting(f"{stage_prefix}_max_prod_corr",  "0.7"))
+
+    skipped_count = 0
+    passed_count  = 0
+
+    for aid in alpha_ids:
+        try:
+            target_pnl_df = get_alpha_pnl(session, aid)
+            if target_pnl_df.empty or aid not in target_pnl_df.columns:
+                continue
+
+            target_pnl_series = target_pnl_df.set_index('Date')[aid]
+            alpha_rets_series  = target_pnl_series - target_pnl_series.ffill().shift(1)
+            prod_corr = calc_self_corr_local(alpha_rets_series, all_rets, all_ids, region)
+
+            # 从数据库读取 Sharpe / Fitness
+            with connect() as conn:
+                row = conn.execute(
+                    "SELECT sharpe, fitness FROM alpha_records WHERE alpha_id = ?", (aid,)
+                ).fetchone()
+
+            if row:
+                sharpe  = float(row["sharpe"]  or 0)
+                fitness = float(row["fitness"] or 0)
+
+                # 分类判定：prod_corr 超限 或 sharpe 不达标 → SKIP；否则 → RA
+                if sharpe < corr_sharpe_th or prod_corr > max_prod_corr:
+                    alpha_type  = "SKIP"
+                    target_name = "anonymous"
+                    skipped_count += 1
+                else:
+                    alpha_type  = "RA"
+                    target_name = f"RA_{prod_corr:.2f}_{fitness:.2f}"
+                    passed_count += 1
+
+                with connect() as conn:
+                    conn.execute(
+                        """
+                        UPDATE alpha_records
+                        SET prod_corr = ?, alpha_type = ?, name = ?, updated_at = datetime('now')
+                        WHERE alpha_id = ?
+                        """,
+                        (prod_corr, alpha_type, target_name, aid)
+                    )
+            else:
+                # 仅更新相关性字段，不修改 alpha_type
+                alpha_type = "N/A"
+                with connect() as conn:
+                    conn.execute(
+                        "UPDATE alpha_records SET prod_corr = ?, updated_at = datetime('now') WHERE alpha_id = ?",
+                        (prod_corr, aid)
+                    )
+
+            logger.info(f"[{stage}] Inline Corr {aid}: Prod={prod_corr:.4f}, type={alpha_type}")
+
+        except Exception as ex:
+            logger.error(f"[{stage}] Failed to check inline correlation for {aid}: {ex}")
+
+    add_job_event(
+        job_id, "info",
+        f"[{stage}] Inline correlation done: {passed_count} passed (RA), {skipped_count} skipped (SKIP)."
+    )

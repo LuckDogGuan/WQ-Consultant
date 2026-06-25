@@ -205,6 +205,21 @@ DEFAULT_SETTINGS = {
     "daily_inspection_lookback_days": "7",
     "daily_inspection_max_candidates": "4000",
     "daily_inspection_auto_submit": "0",
+    # 各阶段穿插相关性检查（只使用 Prod 相关性，不使用 PPA）
+    # 一阶 FO 结束后检查
+    "fo_corr_enable": "1",          # 默认开启
+    "fo_corr_sharpe_th": "1.0",     # Sharpe 过滤阈值
+    "fo_max_prod_corr": "0.7",      # Prod 最大相关性上限
+    # 二阶 SO 结束后检查
+    "so_corr_enable": "0",          # 默认关闭
+    "so_corr_sharpe_th": "1.2",
+    "so_max_prod_corr": "0.7",
+    # 三阶 TH 结束后检查
+    "th_corr_enable": "0",          # 默认关闭
+    "th_corr_sharpe_th": "1.3",
+    "th_max_prod_corr": "0.7",
+    # 一阶 FO 结束后：自动过滤负夏普垃圾因子（厂字因子最直接识别指标）
+    "fo_filter_negative_sharpe": "1",   # 默认开启，直接从数据库删除不展示
 }
 
 

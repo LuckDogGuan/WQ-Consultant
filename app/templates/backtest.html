@@ -133,6 +133,73 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 6. 各阶段穿插相关性检查设置 -->
+            <div class="settings-section">
+                <h3 class="section-title"><i class="fa-solid fa-code-branch"></i> 6. 各阶段穿插相关性检查与过滤设置</h3>
+                <div class="form-grid">
+                    <!-- FO Stage Correlation -->
+                    <div class="form-group">
+                        <label for="fo_corr_enable">一阶 FO 结束后相关性检查</label>
+                        <select id="fo_corr_enable" name="fo_corr_enable">
+                            <option value="1" {% if settings.fo_corr_enable == '1' %}selected{% endif %}>开启 (推荐)</option>
+                            <option value="0" {% if settings.fo_corr_enable == '0' %}selected{% endif %}>关闭</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="fo_corr_sharpe_th">一阶 FO 相关性 Sharpe 阈值</label>
+                        <input type="text" id="fo_corr_sharpe_th" name="fo_corr_sharpe_th" value="{{ settings.fo_corr_sharpe_th or '1.0' }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="fo_max_prod_corr">一阶 FO 最大 Prod 相关性上限</label>
+                        <input type="text" id="fo_max_prod_corr" name="fo_max_prod_corr" value="{{ settings.fo_max_prod_corr or '0.7' }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="fo_filter_negative_sharpe">一阶 FO 自动过滤负夏普垃圾因子</label>
+                        <select id="fo_filter_negative_sharpe" name="fo_filter_negative_sharpe">
+                            <option value="1" {% if settings.fo_filter_negative_sharpe == '1' %}selected{% endif %}>开启 (默认直接删除)</option>
+                            <option value="0" {% if settings.fo_filter_negative_sharpe == '0' %}selected{% endif %}>关闭</option>
+                        </select>
+                    </div>
+
+                    <!-- SO Stage Correlation -->
+                    <div class="form-group">
+                        <label for="so_corr_enable">二阶 SO 结束后相关性检查</label>
+                        <select id="so_corr_enable" name="so_corr_enable">
+                            <option value="1" {% if settings.so_corr_enable == '1' %}selected{% endif %}>开启</option>
+                            <option value="0" {% if settings.so_corr_enable == '0' or not settings.so_corr_enable %}selected{% endif %}>关闭 (默认)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="so_corr_sharpe_th">二阶 SO 相关性 Sharpe 阈值</label>
+                        <input type="text" id="so_corr_sharpe_th" name="so_corr_sharpe_th" value="{{ settings.so_corr_sharpe_th or '1.2' }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="so_max_prod_corr">二阶 SO 最大 Prod 相关性上限</label>
+                        <input type="text" id="so_max_prod_corr" name="so_max_prod_corr" value="{{ settings.so_max_prod_corr or '0.7' }}">
+                    </div>
+                    <div class="form-group">
+                        <!-- Spacer to align grid -->
+                    </div>
+
+                    <!-- TH Stage Correlation -->
+                    <div class="form-group">
+                        <label for="th_corr_enable">三阶 TH 结束后相关性检查</label>
+                        <select id="th_corr_enable" name="th_corr_enable">
+                            <option value="1" {% if settings.th_corr_enable == '1' %}selected{% endif %}>开启</option>
+                            <option value="0" {% if settings.th_corr_enable == '0' or not settings.th_corr_enable %}selected{% endif %}>关闭 (默认)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="th_corr_sharpe_th">三阶 TH 相关性 Sharpe 阈值</label>
+                        <input type="text" id="th_corr_sharpe_th" name="th_corr_sharpe_th" value="{{ settings.th_corr_sharpe_th or '1.3' }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="th_max_prod_corr">三阶 TH 最大 Prod 相关性上限</label>
+                        <input type="text" id="th_max_prod_corr" name="th_max_prod_corr" value="{{ settings.th_max_prod_corr or '0.7' }}">
+                    </div>
+                </div>
+            </div>
             
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">确认保存回测参数</button>
@@ -269,6 +336,7 @@
         <div class="details-tabs">
             <button class="tab-btn active" onclick="switchDetailsTab('log')">运行日志 (Live Log)</button>
             <button class="tab-btn" onclick="switchDetailsTab('events')">事件轨迹 (Events)</button>
+            <button class="tab-btn" onclick="switchDetailsTab('alphas')">产生因子 (Alphas)</button>
         </div>
         
         <div class="tab-content" id="tab-log">
@@ -297,6 +365,176 @@
                 </table>
             </div>
         </div>
+
+        <div class="tab-content" id="tab-alphas" style="display: none;">
+            <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; align-items: start; min-height: 300px;">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Alpha ID</th>
+                                <th>类型</th>
+                                <th>指标</th>
+                                <th>Margin</th>
+                                <th>相关性</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="job-alphas-list">
+                            <!-- Filled by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card" style="padding: 16px; background: rgba(0,0,0,0.15); min-height: 280px; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px dashed var(--border-color); box-shadow: none;" id="alpha-pnl-chart-container">
+                    <span class="text-muted text-sm">点击左侧 Alpha ID 在此加载 PnL 走势图</span>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
+
+<script>
+    // 在页面加载后绑定和重写详情切换逻辑
+    document.addEventListener("DOMContentLoaded", function() {
+        // 重写详情 Tab 切换逻辑
+        window.switchDetailsTab = function(tab) {
+            window.currentDetailsTab = tab;
+            
+            const tabBtns = document.querySelectorAll(".details-body .tab-btn");
+            tabBtns.forEach(b => b.classList.remove("active"));
+            
+            if (typeof event !== "undefined" && event.target && event.target.tagName === "BUTTON") {
+                event.target.classList.add("active");
+            } else {
+                const targetBtn = Array.from(tabBtns).find(b => b.getAttribute("onclick").includes(`'${tab}'`));
+                if (targetBtn) targetBtn.classList.add("active");
+            }
+            
+            const logTab = document.getElementById("tab-log");
+            const eventsTab = document.getElementById("tab-events");
+            const alphasTab = document.getElementById("tab-alphas");
+
+            if (logTab) logTab.style.display = (tab === 'log') ? "block" : "none";
+            if (eventsTab) eventsTab.style.display = (tab === 'events') ? "block" : "none";
+            if (alphasTab) alphasTab.style.display = (tab === 'alphas') ? "block" : "none";
+            
+            if (tab === 'alphas') {
+                loadJobAlphas();
+            }
+        };
+
+        // 挂接 viewJobDetails
+        const originalViewJobDetails = window.viewJobDetails;
+        window.viewJobDetails = function(jobId) {
+            if (originalViewJobDetails) {
+                originalViewJobDetails(jobId);
+            }
+            
+            if (window.currentDetailsTab === 'alphas') {
+                loadJobAlphas();
+            }
+            
+            const container = document.getElementById("alpha-pnl-chart-container");
+            if (container) {
+                container.innerHTML = `<span class="text-muted text-sm">点击左侧 Alpha ID 在此加载 PnL 走势图</span>`;
+            }
+        };
+    });
+
+    function loadJobAlphas() {
+        if (!window.currentSelectedJobId) return;
+        const tbody = document.getElementById("job-alphas-list");
+        if (!tbody) return;
+        
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted"><i class="fa-solid fa-spinner fa-spin"></i> 正在读取该回测任务产出的因子...</td></tr>`;
+        
+        fetch(`/api/jobs/${window.currentSelectedJobId}/alphas`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">该任务目前尚未产出因子记录。可能回测仍在第一阶段运行，或未能成功通过一阶/二阶筛选。</td></tr>`;
+                    return;
+                }
+                
+                let html = '';
+                data.forEach(a => {
+                    const typeBadge = a.alpha_type && a.alpha_type !== 'SKIP' ? `<span class="badge status-${a.alpha_type}">${a.alpha_type}</span>` : `<span class="badge secondary">PENDING</span>`;
+                    const sharpeStr = a.sharpe !== null ? a.sharpe.toFixed(2) : '—';
+                    const fitnessStr = a.fitness !== null ? a.fitness.toFixed(2) : '—';
+                    const marginPct = a.margin !== null ? `${(a.margin * 10000).toFixed(0)}‱ (${(a.margin * 100).toFixed(1)}%)` : '—';
+                    const ppaStr = a.ppa_corr !== null ? a.ppa_corr.toFixed(2) : '—';
+                    const prodStr = a.prod_corr !== null ? a.prod_corr.toFixed(2) : '—';
+                    
+                    html += `
+                        <tr style="cursor: pointer;" onclick="loadAlphaPnlChart('${a.alpha_id}', this)">
+                            <td>
+                                <a href="/alphas/${a.alpha_id}" class="platform-link-code" target="_blank" onclick="event.stopPropagation()">
+                                    <i class="fa-solid fa-circle-info"></i> ${a.alpha_id}
+                                </a>
+                            </td>
+                            <td>${typeBadge}</td>
+                            <td>S: ${sharpeStr}<br><small class="text-muted">F: ${fitnessStr}</small></td>
+                            <td>${marginPct}</td>
+                            <td>PPA: ${ppaStr}<br><small class="text-muted">Prod: ${prodStr}</small></td>
+                            <td><span class="badge status-${a.status === 'RENAMED' ? 'success' : 'secondary'}">${a.status || 'UNSUBMITTED'}</span></td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            })
+            .catch(err => {
+                console.error("Error fetching job alphas:", err);
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">读取因子失败: ${err.message}</td></tr>`;
+            });
+    }
+
+    function loadAlphaPnlChart(alphaId, rowElem) {
+        if (rowElem) {
+            const rows = rowElem.closest('tbody').querySelectorAll('tr');
+            rows.forEach(r => r.style.backgroundColor = '');
+            rowElem.style.backgroundColor = 'rgba(59, 130, 246, 0.15)';
+        }
+        
+        const container = document.getElementById("alpha-pnl-chart-container");
+        if (!container) return;
+        
+        container.innerHTML = `
+            <div style="text-align: center; color: var(--text-muted);">
+                <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 24px; color: #60a5fa; margin-bottom: 12px;"></i>
+                <p class="text-xs">正在拉取并生成 ${alphaId} 的 PnL 图表，请稍候...</p>
+            </div>
+        `;
+        
+        fetch(`/api/alphas/${alphaId}/pnl_chart`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    container.innerHTML = `
+                        <div style="width: 100%;">
+                            <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--text-main); display: flex; justify-content: space-between;">
+                                <span>${alphaId} PnL Cumulative Return</span>
+                                <a href="/alphas/${alphaId}" target="_blank" class="text-xs" style="color: #60a5fa; text-decoration: none;">详情 <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+                            </h4>
+                            ${data.svg}
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <div style="text-align: center; color: #f87171; padding: 20px;">
+                            <i class="fa-solid fa-circle-exclamation" style="font-size: 24px; margin-bottom: 8px;"></i>
+                            <p class="text-xs">${data.message || '加载图表失败'}</p>
+                        </div>
+                    `;
+                }
+            })
+            .catch(err => {
+                container.innerHTML = `
+                    <div style="text-align: center; color: #f87171; padding: 20px;">
+                        <i class="fa-solid fa-circle-exclamation" style="font-size: 24px; margin-bottom: 8px;"></i>
+                        <p class="text-xs">请求失败: ${err.message}</p>
+                    </div>
+                `;
+            });
+    }
+</script>
 {% endblock %}

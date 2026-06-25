@@ -528,3 +528,32 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
         with session_lock:
             session_container["session"].close()
             logger.info("WorldQuant session closed in check job.")
+
+
+def run_inline_checks(session: Any, alpha_ids: list[str]) -> None:
+    """在回测任务中穿插调用的 Checks 检查逻辑"""
+    if not alpha_ids:
+        return
+    logger.info(f"Running inline checks for {len(alpha_ids)} alphas...")
+    for aid in alpha_ids:
+        try:
+            result, prod_corr, error_msg, check_payload = check_alpha_remotely(session, aid)
+            # 写入 check_results
+            add_check_result(
+                alpha_id=aid,
+                result=result,
+                prod_corr=prod_corr,
+                message=error_msg,
+                source="inline_backtest",
+                payload=check_payload
+            )
+            # 更新 alpha_records 里的最新状态
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE alpha_records SET status = ?, prod_corr = ?, updated_at = datetime('now') WHERE alpha_id = ?",
+                    (f"CHECKED_{result}", prod_corr, aid)
+                )
+            logger.info(f"Inline check for {aid}: {result} (Prod Corr={prod_corr})")
+        except Exception as ex:
+            logger.error(f"Failed to run inline checks for {aid}: {ex}")
+

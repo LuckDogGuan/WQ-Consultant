@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **wq_gui** (1572 symbols, 7687 relationships, 135 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **wq_gui** (1620 symbols, 7571 relationships, 139 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -42,3 +42,18 @@ This project is indexed by GitNexus as **wq_gui** (1572 symbols, 7687 relationsh
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+# 因子回测与参考代码使用开发规范
+
+本工作区包含用于回测的 Jupyter Notebook 及从社区/外部整理的辅助优化代码（统一保存在 `reference/` 下）。在日常因子开发与流程优化中，任何会话或子代理必须严格遵守以下规范：
+
+1. **参考资料目录绝对只读 (Reference Read-Only)**：
+   * `reference/` 目录下的所有回测笔记本（如 `reference/notebook/`）以及外部提取的算法脚本（如 `reference/code/`）仅作为只读参考。
+   * **严禁直接修改 `reference/` 目录下的任何原始回测代码及外部参考代码**。
+2. **复制测试验证规则 (Copy & Test Rule)**：
+   * 如果需要优化回测流程、调整参数或验证任何开发猜想，**必须首先复制一份目标参考文件到临时测试文件夹 `scratch/` 目录中**，在 `scratch/` 中进行修改、运行和验证。
+3. **小功能与模块化设计 (Granular Utilities)**：
+   * 在进行流程优化时，应将具体算法与业务逻辑拆解为颗粒度小、职责单一的**小功能函数**，方便后续流程直接导入与重复调用。
+4. **优先复用现有库 (Reuse Existing Libraries)**：
+   * 开发或优化代码时，应尽量使用系统已有的功能组件与成熟模块（例如本项目的 `wqb` 库、`consultant_core` 等内置库），避免重复造轮子。
+

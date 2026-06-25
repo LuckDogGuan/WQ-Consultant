@@ -623,50 +623,6 @@ async def api_update_settings(request: Request, admin: str = Depends(get_current
     return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
-@app.get("/catalog", response_class=HTMLResponse)
-def get_catalog(
-    request: Request,
-    region: str = None,
-    universe: str = None,
-    delay: int = None,
-    admin: str = Depends(get_current_admin)
-):
-    default_region = get_setting("region", "USA")
-    default_universe = get_setting("universe", "TOP3000")
-    default_delay = int(get_setting("delay", "1"))
-    
-    region = region or default_region
-    universe = universe or default_universe
-    delay = delay if delay is not None else default_delay
-    
-    datasets = load_datasets_from_cache(region, universe, delay)
-    expired, refresh_str = check_cache_expired(region, universe, delay)
-    cached_scopes = get_cached_scopes()
-    day1_scopes = get_all_day1_scopes()
-    settings = get_settings()
-    success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
-    
-    return templates.TemplateResponse(
-        request,
-        "catalog.html",
-        {
-            "datasets": datasets,
-            "cache_expired": expired,
-            "cache_last_refresh": refresh_str,
-            "region": region,
-            "universe": universe,
-            "delay": delay,
-            "default_region": default_region,
-            "default_universe": default_universe,
-            "default_delay": default_delay,
-            "cached_scopes": cached_scopes,
-            "day1_scopes": day1_scopes,
-            "region_names": REGION_DISPLAY_NAMES,
-            "settings": settings,
-            "success": success_msg
-        }
-    )
-
 
 @app.get("/backtest", response_class=HTMLResponse)
 def get_backtest(request: Request, admin: str = Depends(get_current_admin)):
@@ -677,172 +633,6 @@ def get_backtest(request: Request, admin: str = Depends(get_current_admin)):
     success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
     return templates.TemplateResponse(request, "backtest.html", {"jobs": jobs, "settings": settings, "success": success_msg})
 
-
-@app.get("/correlation", response_class=HTMLResponse)
-def get_correlation(
-    request: Request,
-    page: int = 1,
-    date_filter: str = "",
-    admin: str = Depends(get_current_admin)
-):
-    page_size = 12
-    offset = (page - 1) * page_size
-    
-    with connect() as conn:
-        jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'correlation' ORDER BY id DESC LIMIT 5").fetchall()
-        # 加载待改名候选 (PPA/RA/ATOM)
-        where_clause = "alpha_type IN ('PPA', 'RA', 'ATOM')"
-        params = []
-        if date_filter:
-            local_tz = datetime.now().astimezone().tzinfo
-            now_local = datetime.now(local_tz)
-            today_start_local = datetime.combine(now_local.date(), time.min).replace(tzinfo=local_tz)
-            
-            if date_filter == "today":
-                start_utc = today_start_local.astimezone(timezone.utc)
-                where_clause += " AND created_at >= ?"
-                params.append(start_utc.isoformat())
-            elif date_filter == "yesterday":
-                start_utc = (today_start_local - timedelta(days=1)).astimezone(timezone.utc)
-                end_utc = today_start_local.astimezone(timezone.utc) - timedelta(seconds=1)
-                where_clause += " AND created_at >= ? AND created_at <= ?"
-                params.extend([start_utc.isoformat(), end_utc.isoformat()])
-            elif date_filter == "3days":
-                start_utc = (today_start_local - timedelta(days=2)).astimezone(timezone.utc)
-                where_clause += " AND created_at >= ?"
-                params.append(start_utc.isoformat())
-            elif date_filter == "7days":
-                start_utc = (today_start_local - timedelta(days=6)).astimezone(timezone.utc)
-                where_clause += " AND created_at >= ?"
-                params.append(start_utc.isoformat())
-                
-        alphas_all = conn.execute(
-            f"""
-            SELECT * FROM alpha_records 
-            WHERE {where_clause} 
-            ORDER BY created_at DESC
-            """,
-            params
-        ).fetchall()
-        
-        total = len(alphas_all)
-        total_pages = math.ceil(total / page_size) if total > 0 else 1
-        alphas = alphas_all[offset:offset+page_size]
-        
-    settings = get_settings()
-    success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
-    return templates.TemplateResponse(
-        request,
-        "correlation.html",
-        {
-            "jobs": jobs,
-            "alphas": alphas,
-            "settings": settings,
-            "success": success_msg,
-            "page": page,
-            "total_pages": total_pages,
-            "date_filter": date_filter,
-            "total": total
-        }
-    )
-
-
-@app.get("/check", response_class=HTMLResponse)
-def get_check(
-    request: Request,
-    page: int = 1,
-    type_filter: str = "",
-    level_filter: str = "",
-    date_filter: str = "",
-    admin: str = Depends(get_current_admin)
-):
-    page_size = 11
-    offset = (page - 1) * page_size
-    
-    with connect() as conn:
-        jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'check_submission' ORDER BY id DESC LIMIT 5").fetchall()
-        
-        where_clause = "1=1"
-        params = []
-        if type_filter:
-            if type_filter == "PASS":
-                where_clause += " AND c.result = 'PASS'"
-            else:
-                where_clause += " AND a.alpha_type = ?"
-                params.append(type_filter)
-                
-        if date_filter:
-            local_tz = datetime.now().astimezone().tzinfo
-            now_local = datetime.now(local_tz)
-            today_start_local = datetime.combine(now_local.date(), time.min).replace(tzinfo=local_tz)
-            
-            if date_filter == "today":
-                start_utc = today_start_local.astimezone(timezone.utc)
-                where_clause += " AND c.created_at >= ?"
-                params.append(start_utc.isoformat())
-            elif date_filter == "yesterday":
-                start_utc = (today_start_local - timedelta(days=1)).astimezone(timezone.utc)
-                end_utc = today_start_local.astimezone(timezone.utc) - timedelta(seconds=1)
-                where_clause += " AND c.created_at >= ? AND c.created_at <= ?"
-                params.extend([start_utc.isoformat(), end_utc.isoformat()])
-            elif date_filter == "3days":
-                start_utc = (today_start_local - timedelta(days=2)).astimezone(timezone.utc)
-                where_clause += " AND c.created_at >= ?"
-                params.append(start_utc.isoformat())
-            elif date_filter == "7days":
-                start_utc = (today_start_local - timedelta(days=6)).astimezone(timezone.utc)
-                where_clause += " AND c.created_at >= ?"
-                params.append(start_utc.isoformat())
-
-        db_results = conn.execute(
-            f"""
-            SELECT
-                c.id, c.alpha_id, c.result, c.prod_corr, c.source, c.message, c.created_at,
-                c.payload AS check_payload,
-                a.sharpe, a.fitness, a.alpha_type, a.margin, a.returns, a.drawdown,
-                a.payload AS alpha_payload
-            FROM check_results c 
-            LEFT JOIN alpha_records a ON c.alpha_id = a.alpha_id 
-            WHERE {where_clause}
-            ORDER BY c.created_at DESC 
-            """,
-            params
-        ).fetchall()
-        
-        all_results = []
-        for r in db_results:
-            row_dict = dict(r)
-            row_dict["payload"] = row_dict.get("alpha_payload")
-            rating = build_alpha_rating(row_dict, {"result": row_dict.get("result"), "payload": row_dict.get("check_payload")})
-            row_dict.update(rating)
-
-            if level_filter and row_dict["submission_class"] != level_filter:
-                continue
-            all_results.append(row_dict)
-            
-        total = len(all_results)
-        total_pages = math.ceil(total / page_size) if total > 0 else 1
-        results = all_results[offset:offset+page_size]
-        
-    settings = get_settings()
-    success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
-    
-    return templates.TemplateResponse(
-        request, 
-        "check.html", 
-        {
-            "jobs": jobs, 
-            "results": results,
-            "settings": settings,
-            "success": success_msg,
-            "page": page,
-            "total_pages": total_pages,
-            "type_filter": type_filter,
-            "level_filter": level_filter,
-            "date_filter": date_filter,
-            "total": total
-        }
-    )
 
 
 @app.get("/alphas", response_class=HTMLResponse)
@@ -1255,99 +1045,10 @@ def get_csv_data(file_path: Path) -> list[dict[str, Any]]:
         return []
 
 
-@app.get("/reference", response_class=HTMLResponse)
-def get_reference(
-    request: Request,
-    scope: str = None,
-    admin: str = Depends(get_current_admin)
-):
-    import re
-    # 1. Read Grandmaster paper markdown content
-    paper_path = Path("reference/official_paper/Eligibility_Criteria_Grandmaster.md")
-    paper_content = ""
-    if paper_path.exists():
-        try:
-            with paper_path.open("r", encoding="utf-8") as f:
-                paper_content = f.read()
-        except Exception as e:
-            logger.error(f"Failed to read Eligibility_Criteria_Grandmaster.md: {e}")
-            paper_content = f"读取指南失败: {e}"
-    else:
-        paper_content = "未找到指南文件 `Eligibility_Criteria_Grandmaster.md`。"
-
-    # 2. Find available CSV files in reference/code/
-    ref_code_dir = Path("reference/code")
-    dataset_files = []
-    if ref_code_dir.exists():
-        dataset_files = sorted([f.name for f in ref_code_dir.glob("theme_datasets_*.csv")])
-
-    datasets = []
-    fields = []
-    selected_scope = scope or ""
-    
-    if dataset_files:
-        if not selected_scope:
-            default_file = dataset_files[0]
-            match = re.match(r"theme_datasets_(.+)\.csv", default_file)
-            if match:
-                selected_scope = match.group(1)
-                
-        dataset_path = ref_code_dir / f"theme_datasets_{selected_scope}.csv"
-        fields_path = ref_code_dir / f"theme_fields_all_{selected_scope}.csv"
-        
-        datasets = get_csv_data(dataset_path)
-        fields = get_csv_data(fields_path)
-
-    # 3. Limit fields to avoid rendering lag
-    fields = fields[:3000]
-
-    # 4. Find active job
-    with connect() as conn:
-        active_job = conn.execute(
-            "SELECT * FROM jobs WHERE kind = 'reference_fetch' ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-
-    day1_scopes = get_all_day1_scopes()
-    settings = get_settings()
-
-    return templates.TemplateResponse(
-        request,
-        "reference.html",
-        {
-            "paper_content": paper_content,
-            "dataset_files": dataset_files,
-            "datasets": datasets,
-            "fields": fields,
-            "selected_scope": selected_scope,
-            "active_job": active_job,
-            "day1_scopes": day1_scopes,
-            "region_names": REGION_DISPLAY_NAMES,
-            "settings": settings
-        }
-    )
-
 
 # ==========================================
 # 后台任务 API 控制路由
 # ==========================================
-
-@app.post("/api/jobs/reference_fetch")
-def post_reference_fetch(
-    region: str = Form("USA"),
-    universe: str = Form("TOP3000"),
-    delay: int = Form(1),
-    admin: str = Depends(get_current_admin)
-):
-    params = {
-        "region": region,
-        "universe": universe,
-        "delay": delay
-    }
-    
-    title = f"同步 PPA 主题数据 ({region}/{universe}/delay={delay})"
-    job_id = create_job("reference_fetch", title, params)
-    JobRunner().start_job(job_id, "reference_fetch", params)
-    return {"status": "ok", "job_id": job_id}
 
 
 @app.post("/api/jobs/catalog_refresh")
@@ -1395,67 +1096,10 @@ def post_backtest_run(
     return RedirectResponse(url="/backtest", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@app.post("/api/jobs/correlation")
-def post_correlation_run(auto_rename: str = Form("0"), admin: str = Depends(get_current_admin)):
-    params = {"auto_rename": auto_rename == "1"}
-    job_id = create_job("correlation", "相关性检测及改名评定", params)
-    JobRunner().start_job(job_id, "correlation", params)
-    return RedirectResponse(url="/correlation", status_code=status.HTTP_303_SEE_OTHER)
-
-
-@app.post("/api/jobs/check")
-def post_check_run(manual_ids: str = Form(""), admin: str = Depends(get_current_admin)):
-    ids_list = [i.strip() for i in manual_ids.split("\n") if i.strip()]
-    params = {"manual_ids": ids_list}
-    job_id = create_job("check_submission", f"三线程 check_submission 检查 (手动追加 {len(ids_list)} 个)", params)
-    JobRunner().start_job(job_id, "check_submission", params)
-    return RedirectResponse(url="/check", status_code=status.HTTP_303_SEE_OTHER)
-
-
-@app.post("/api/jobs/daily_inspection")
-def post_daily_inspection_run(
-    action: str = Form("run"),
-    schedule_enabled: str = Form("1"),
-    schedule_hour: int = Form(9),
-    lookback_days: int = Form(7),
-    max_candidates: int = Form(4000),
-    auto_submit: str = Form("0"),
-    admin: str = Depends(get_current_admin),
-):
-    update_settings(
-        {
-            "daily_inspection_schedule_enabled": "1" if schedule_enabled == "1" else "0",
-            "daily_inspection_schedule_hour": schedule_hour,
-            "daily_inspection_lookback_days": lookback_days,
-            "daily_inspection_max_candidates": max_candidates,
-            "daily_inspection_auto_submit": "1" if auto_submit == "1" else "0",
-        }
-    )
-    if action == "save_schedule":
-        return RedirectResponse(url="/daily-inspection?success=1", status_code=status.HTTP_303_SEE_OTHER)
-
-    from .services.daily_inspection_service import build_daily_inspection_params
-
-    params = build_daily_inspection_params(
-        {
-            "lookback_days": lookback_days,
-            "max_candidates": max_candidates,
-            "auto_submit": auto_submit == "1",
-        }
-    )
-    if params["auto_submit"] and "alpha_submit" not in params["stages"]:
-        params["stages"].append("alpha_submit")
-    job_id = create_job(
-        "daily_inspection",
-        f"每日因子巡检 (最近 {lookback_days} 天，最多 {max_candidates} 个)",
-        params,
-    )
-    JobRunner().start_job(job_id, "daily_inspection", params)
-    return RedirectResponse(url="/daily-inspection", status_code=status.HTTP_303_SEE_OTHER)
-
 
 @app.post("/api/jobs/submit")
 def post_alpha_submit_run(
+    request: Request,
     source_mode: str = Form("local_pass"),
     manual_ids: str = Form(""),
     limit: int = Form(200),
@@ -1475,7 +1119,10 @@ def post_alpha_submit_run(
     title = f"提交因子 ({source_mode}, 上限 {limit}, 手动 {len(ids_list)} 个)"
     job_id = create_job("alpha_submit", title, params)
     JobRunner().start_job(job_id, "alpha_submit", params)
-    return RedirectResponse(url="/daily-inspection", status_code=status.HTTP_303_SEE_OTHER)
+    
+    if "application/json" in request.headers.get("Accept", ""):
+        return JSONResponse({"status": "ok", "job_id": job_id})
+    return RedirectResponse(url="/alphas", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/api/jobs/optimization")
@@ -1674,3 +1321,154 @@ def get_gui_log_tail_json(max_lines: int = 100, admin: str = Depends(get_current
     path = LOG_DIR / "gui.log"
     lines = read_log_tail(path, max_lines=max_lines)
     return {"lines": lines}
+
+
+@app.post("/api/logs/export")
+def export_logs(
+    log_type: str = Form(...),
+    job_id: str = Form(None),
+    start_time: str = Form(None),
+    end_time: str = Form(None),
+    admin: str = Depends(get_current_admin)
+):
+    from fastapi.responses import StreamingResponse
+    from datetime import datetime
+    from .services.log_service import filter_gui_log, get_job_log_path
+
+    if log_type == "job":
+        if not job_id:
+            raise HTTPException(status_code=400, detail="Job ID is required for job log export.")
+        log_file = get_job_log_path(job_id)
+        if not log_file.exists():
+            raise HTTPException(status_code=404, detail=f"Log file job_{job_id}.log not found.")
+        
+        filename = f"job_{job_id}_export.log"
+        
+        def iter_job_log():
+            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    yield line
+
+        return StreamingResponse(
+            iter_job_log(),
+            media_type="text/plain",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    elif log_type == "gui":
+        now_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"gui_export_{now_str}.log"
+
+        def iter_filtered_gui_log():
+            for line in filter_gui_log(start_time=start_time, end_time=end_time):
+                yield line
+
+        return StreamingResponse(
+            iter_filtered_gui_log(),
+            media_type="text/plain",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid log_type.")
+
+
+@app.get("/api/jobs/{job_id}/alphas")
+def get_job_alphas_json(job_id: int, admin: str = Depends(get_current_admin)):
+    """获取指定 Job 产生的所有子 Alpha 记录"""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT 
+                a.alpha_id, a.name, a.region, a.universe, a.sharpe, a.fitness, a.margin, a.returns, a.drawdown,
+                a.prod_corr, a.ppa_corr, a.status, a.alpha_type
+            FROM alpha_records a
+            WHERE a.source = ? OR a.source LIKE ?
+            ORDER BY a.created_at DESC
+            """,
+            (f"job_{job_id}", f"%job_{job_id}%")
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/alphas/{alpha_id}/pnl_chart")
+def get_alpha_pnl_chart(alpha_id: str, admin: str = Depends(get_current_admin)):
+    """懒加载获取指定因子的 PnL 图表 SVG"""
+    import pandas as pd
+    
+    with connect() as conn:
+        row = conn.execute("SELECT payload FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Alpha not found.")
+        
+    payload = {}
+    if row["payload"]:
+        try:
+            payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+        except Exception:
+            pass
+            
+    recordsets_data = payload.get("recordsets_data", {}) if isinstance(payload, dict) else {}
+    pnl_records = recordsets_data.get("pnl", []) if isinstance(recordsets_data, dict) else []
+    
+    if not pnl_records:
+        settings = get_settings()
+        username = settings.get("wq_username")
+        password = settings.get("wq_password")
+        if not username or not password:
+            return {"status": "error", "message": "请先在设置中配置 WQ 账号和密码。"}
+            
+        try:
+            from .services.wq_client import login_with_credentials
+            from consultant_core.machine_lib import get_alpha_recordset
+            s = login_with_credentials(username.strip(), password.strip())
+            df = get_alpha_recordset(alpha_id, "pnl", session=s)
+            s.close()
+            
+            if not df.empty:
+                records = []
+                for _, r in df.iterrows():
+                    row_dict = dict(r)
+                    for k, v in row_dict.items():
+                        if hasattr(v, "isoformat"):
+                            row_dict[k] = v.isoformat()
+                        elif pd.isna(v):
+                            row_dict[k] = None
+                    records.append(row_dict)
+                
+                # 写入 payload 缓存
+                if not isinstance(payload, dict):
+                    payload = {}
+                if "recordsets_data" not in payload:
+                    payload["recordsets_data"] = {}
+                payload["recordsets_data"]["pnl"] = records
+                
+                with connect() as conn:
+                    conn.execute(
+                        "UPDATE alpha_records SET payload = ?, updated_at = datetime('now') WHERE alpha_id = ?",
+                        (json.dumps(payload, ensure_ascii=False), alpha_id)
+                    )
+                pnl_records = records
+        except Exception as e:
+            logger.error(f"Failed to fetch pnl chart online: {e}")
+            return {"status": "error", "message": f"在线拉取 PnL 失败: {e}"}
+            
+    if pnl_records:
+        try:
+            from consultant_core.alpha_report import render_line_chart
+            df_pnl = pd.DataFrame(pnl_records)
+            if "date" in df_pnl.columns:
+                df_pnl["date"] = pd.to_datetime(df_pnl["date"], errors="coerce")
+            df_pnl = df_pnl.rename(columns={'date': 'Date', 'pnl': alpha_id})
+            chart_svg = render_line_chart(df_pnl, title="PnL 累计收益曲线", y_cols=[alpha_id])
+            
+            # 格式化一下 SVG 类名以便暗黑模式样式统一
+            chart_svg = chart_svg.replace('<svg class="wqb-chart"', '<svg class="wqb-chart" style="width: 100% !important; height: auto !important; max-height: 280px;"')
+            if 'class="wqb-chart"' not in chart_svg:
+                chart_svg = chart_svg.replace('<svg ', '<svg class="wqb-chart" style="width: 100% !important; height: auto !important; max-height: 280px;" ')
+            return {"status": "ok", "svg": chart_svg}
+        except Exception as e:
+            return {"status": "error", "message": f"图表渲染失败: {e}"}
+            
+    return {"status": "empty", "message": "该因子暂无可用的 PnL 数据。"}

@@ -12,11 +12,13 @@ import threading
 from typing import Any
 
 from ..paths import CATALOG_DIR, LOG_DIR
-from ..storage import get_setting, update_job, add_job_event, upsert_alpha
+from ..storage import get_setting, update_job, add_job_event, upsert_alpha, connect
 from ..job_runner import JobRunner, redirected_stdout, redirected_stderr
 from .wq_client import WQRateLimitError, login_with_credentials, get_current_daily_limit_count
 from .catalog_service import load_fields_from_cache, run_catalog_refresh
 from .wq_retry_policy import classify_post_exception, next_wait_seconds, should_retry_without_skipping
+from .correlation_service import run_inline_correlation_check
+
 
 logger = logging.getLogger(__name__)
 
@@ -169,12 +171,13 @@ def login_with_rate_limit_wait(job_id: int, username: str, password: str, contex
             sleep_with_pause_checks(job_id, wait_seconds)
 
 
-def save_children_alphas(s: requests.Session, progress_url: str, region: str, universe: str, source: str) -> None:
-    """提取 multi-simulation 的子任务 Alpha ID，并录入本地数据库"""
+def save_children_alphas(s: requests.Session, progress_url: str, region: str, universe: str, source: str) -> list[str]:
+    """提取 multi-simulation 的子任务 Alpha ID，并录入本地数据库，返回保存成功的 ID 列表"""
+    saved_ids = []
     try:
         resp = s.get(progress_url, timeout=30)
         if resp.status_code != 200:
-            return
+            return []
         
         data = resp.json()
         children = data.get("children", [])
@@ -201,8 +204,10 @@ def save_children_alphas(s: requests.Session, progress_url: str, region: str, un
                         "payload": child_data
                     }
                     upsert_alpha(record)
+                    saved_ids.append(alpha_id)
     except Exception as e:
         logger.error(f"Failed to fetch child alpha details for {progress_url}: {e}")
+    return saved_ids
 
 
 def run_simulation_pool_with_control(
@@ -213,7 +218,7 @@ def run_simulation_pool_with_control(
     universe: str,
     log_path: Path,
     progress_context: dict[str, Any] | None = None,
-) -> None:
+) -> list[str]:
     """定制的回测执行器，支持限额限时拦截、优雅暂停、自动重连以及入库。
     采用单线程顺序发送与轮询机制，利用 WQ 服务端异步并发，彻底避免客户端并发导致的 429 报错与锁死。
     """
@@ -225,6 +230,7 @@ def run_simulation_pool_with_control(
     )
     
     runner = JobRunner()
+    all_saved_ids = []
     
     # 1. 检查断点
     start_index = next_simulation_start(str(log_path))
@@ -494,7 +500,8 @@ def run_simulation_pool_with_control(
                                 "progress_url": progress_url,
                             },
                         )
-                        save_children_alphas(s, progress_url, region, universe, f"job_{job_id}")
+                        child_ids = save_children_alphas(s, progress_url, region, universe, f"job_{job_id}")
+                        all_saved_ids.extend(child_ids)
                         print(f"[Pool {x+1}] [Slot {y+1}] Alphas saved successfully.", flush=True)
                         
                 except Exception as e:
@@ -549,6 +556,7 @@ def run_simulation_pool_with_control(
                 add_job_event(job_id, "info", msg)
 
         write_simulation_log(str(log_path), {"event": "simulation_run_complete"})
+        return all_saved_ids
         
     finally:
         try:
@@ -766,6 +774,7 @@ def should_emit_stage_progress_event(
 
 def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     """后台任务主入口：三阶段回测业务控制层"""
+    from .check_service import run_inline_checks
     from consultant_core import machine_lib
     from consultant_core.machine_lib import (
         process_datafields,
@@ -802,6 +811,49 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     delay = int(get_setting("delay", "1"))
     instrument_type = get_setting("instrument_type", "EQUITY")
     
+    custom_alphas = params.get("custom_alphas")
+    if custom_alphas:
+        logger.info(f"Starting custom backtest job for {len(custom_alphas)} alphas...")
+        update_job(job_id, message=f"Starting custom alpha simulation for {len(custom_alphas)} candidates...")
+        
+        fo_tuples = []
+        for item in custom_alphas:
+            if isinstance(item, (tuple, list)):
+                fo_tuples.append((item[0], item[1]))
+            else:
+                fo_tuples.append((item, 0))
+                
+        fo_children = int(get_setting("fo_backtest_children") or get_setting("backtest_children", "6"))
+        fo_threads = int(get_setting("fo_backtest_threads") or get_setting("backtest_threads", "10"))
+        custom_pools = load_task_pool(fo_tuples, fo_children, fo_threads)
+        
+        custom_log_path = LOG_DIR / f"custom_progress_{job_id}.jsonl"
+        saved_ids = run_simulation_pool_with_control(
+            job_id=job_id,
+            alpha_pools=custom_pools,
+            neut=params.get("neutralization") or "INDUSTRY",
+            region=region,
+            universe=universe,
+            log_path=custom_log_path,
+        )
+        
+        if saved_ids:
+            msg = f"Custom simulation completed. Running inline correlation and checks for {len(saved_ids)} saved alphas..."
+            logger.info(msg)
+            update_job(job_id, message=msg)
+            
+            session = login_with_rate_limit_wait(job_id, username, password, context="Custom Alphas Checks")
+            try:
+                run_inline_correlation_check(session, saved_ids, job_id)
+                run_inline_checks(session, saved_ids)
+            finally:
+                session.close()
+                
+            add_job_event(job_id, "info", f"Custom backtest successfully finished. {len(saved_ids)} alphas evaluated.")
+        else:
+            add_job_event(job_id, "warning", "Custom simulation yielded no saved alphas.")
+        return
+
     fo_children = int(get_setting("fo_backtest_children") or get_setting("backtest_children", "6"))
     fo_threads = int(get_setting("fo_backtest_threads") or get_setting("backtest_threads", "10"))
     so_children = int(get_setting("so_backtest_children") or get_setting("backtest_children", "5"))
@@ -986,7 +1038,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 # 构建 Pool
                 fo_pools = load_task_pool(fo_tuples, fo_children, fo_threads)
                 
-                run_simulation_pool_with_control(
+                saved_ids = run_simulation_pool_with_control(
                     job_id=job_id,
                     alpha_pools=fo_pools,
                     neut=neut_name,
@@ -999,6 +1051,39 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                         group_label=f"分组 {group_index}/{len(group_items)}: {neut_name}",
                     ),
                 )
+                if saved_ids:
+                    # ── 负夏普垃圾因子过滤（厂字识别）──
+                    if get_setting("fo_filter_negative_sharpe", "1") == "1":
+                        neg_ids = []
+                        placeholders_ns = ",".join(["?"] * len(saved_ids))
+                        with connect() as conn:
+                            ns_rows = conn.execute(
+                                f"SELECT alpha_id, sharpe FROM alpha_records WHERE alpha_id IN ({placeholders_ns})",
+                                saved_ids
+                            ).fetchall()
+                        for ns_row in ns_rows:
+                            if ns_row["sharpe"] is not None and float(ns_row["sharpe"]) < 0:
+                                neg_ids.append(ns_row["alpha_id"])
+                        if neg_ids:
+                            neg_ph = ",".join(["?"] * len(neg_ids))
+                            with connect() as conn:
+                                conn.execute(f"DELETE FROM alpha_records WHERE alpha_id IN ({neg_ph})", neg_ids)
+                            add_job_event(job_id, "info",
+                                f"[{dataset_id}] FO: Removed {len(neg_ids)} negative-sharpe garbage alphas (厂字过滤).")
+                            saved_ids = [aid for aid in saved_ids if aid not in neg_ids]
+
+                    # ── FO 穿插相关性检查（可配置开关）──
+                    if saved_ids and get_setting("fo_corr_enable", "1") == "1":
+                        msg = f"[{dataset_id}] FO Group {neut_name}: Running inline correlation checks for {len(saved_ids)} alphas..."
+                        logger.info(msg)
+                        update_job(job_id, message=msg)
+                        add_job_event(job_id, "info", msg)
+
+                        session = login_with_rate_limit_wait(job_id, username, password, context="FO Inline Correlation")
+                        try:
+                            run_inline_correlation_check(session, saved_ids, job_id, stage="FO")
+                        finally:
+                            session.close()
             mark_stage("FO", idx + 1, "completed")
                 
         # ==========================================
@@ -1037,6 +1122,34 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                     )
                 finally:
                     session.close()
+                    
+                if fo_tracker:
+                    alpha_ids = [rec[0] for rec in fo_tracker]
+                    placeholders = ",".join(["?"] * len(alpha_ids))
+                    with connect() as conn:
+                        rows = conn.execute(
+                            f"SELECT alpha_id, alpha_type, status FROM alpha_records WHERE alpha_id IN ({placeholders})",
+                            alpha_ids
+                        ).fetchall()
+                    db_map = {r["alpha_id"]: r for r in rows}
+                    
+                    filtered_fo_tracker = []
+                    for rec in fo_tracker:
+                        aid = rec[0]
+                        if aid in db_map:
+                            alpha_type = db_map[aid]["alpha_type"]
+                            status = db_map[aid]["status"]
+                            if alpha_type == 'SKIP':
+                                logger.info(f"[{dataset_id}] Filtering out FO candidate {aid}: alpha_type is SKIP (correlation conflict/厂字)")
+                                continue
+                            if status and ("FAIL" in status.upper() or "ERROR" in status.upper()):
+                                logger.info(f"[{dataset_id}] Filtering out FO candidate {aid}: status is {status} (bad curve/checks failed)")
+                                continue
+                        filtered_fo_tracker.append(rec)
+                    
+                    original_len = len(fo_tracker)
+                    fo_tracker = filtered_fo_tracker
+                    logger.info(f"[{dataset_id}] Filtered FO tracker candidates: {original_len} -> {len(fo_tracker)}")
                     
                 if not fo_tracker:
                     logger.info(f"[{dataset_id}] No eligible FO tracker candidates. Skipping SO Stage.")
@@ -1081,17 +1194,31 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                         so_tuples.append((so_alpha, decay))
                         
                     so_pools = load_task_pool(so_tuples, so_children, so_threads)
-                    
+
                     # 二阶的 neutralization 使用默认
-                    run_simulation_pool_with_control(
+                    so_saved_ids = run_simulation_pool_with_control(
                         job_id=job_id,
                         alpha_pools=so_pools,
-                        neut="INDUSTRY", # SO 默认 neut 级别
+                        neut="INDUSTRY",
                         region=region,
                         universe=universe,
                         log_path=so_log_path,
                         progress_context=stage_progress_context("SO", idx + 1),
                     )
+
+                    # ── SO 穿插相关性检查（可配置开关）──
+                    if so_saved_ids and get_setting("so_corr_enable", "0") == "1":
+                        msg = f"[{dataset_id}] SO: Running inline correlation checks for {len(so_saved_ids)} alphas..."
+                        logger.info(msg)
+                        update_job(job_id, message=msg)
+                        add_job_event(job_id, "info", msg)
+
+                        session = login_with_rate_limit_wait(job_id, username, password, context="SO Inline Correlation")
+                        try:
+                            run_inline_correlation_check(session, so_saved_ids, job_id, stage="SO")
+                        finally:
+                            session.close()
+
                     mark_stage("SO", idx + 1, "completed")
                 
         # ==========================================
@@ -1131,6 +1258,34 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 finally:
                     session.close()
                     
+                if so_tracker:
+                    alpha_ids = [rec[0] for rec in so_tracker]
+                    placeholders = ",".join(["?"] * len(alpha_ids))
+                    with connect() as conn:
+                        rows = conn.execute(
+                            f"SELECT alpha_id, alpha_type, status FROM alpha_records WHERE alpha_id IN ({placeholders})",
+                            alpha_ids
+                        ).fetchall()
+                    db_map = {r["alpha_id"]: r for r in rows}
+                    
+                    filtered_so_tracker = []
+                    for rec in so_tracker:
+                        aid = rec[0]
+                        if aid in db_map:
+                            alpha_type = db_map[aid]["alpha_type"]
+                            status = db_map[aid]["status"]
+                            if alpha_type == 'SKIP':
+                                logger.info(f"[{dataset_id}] Filtering out SO candidate {aid}: alpha_type is SKIP (correlation conflict/厂字)")
+                                continue
+                            if status and ("FAIL" in status.upper() or "ERROR" in status.upper()):
+                                logger.info(f"[{dataset_id}] Filtering out SO candidate {aid}: status is {status} (bad curve/checks failed)")
+                                continue
+                        filtered_so_tracker.append(rec)
+                    
+                    original_len = len(so_tracker)
+                    so_tracker = filtered_so_tracker
+                    logger.info(f"[{dataset_id}] Filtered SO tracker candidates: {original_len} -> {len(so_tracker)}")
+                    
                 if not so_tracker:
                     logger.info(f"[{dataset_id}] No eligible SO tracker candidates. Skipping TH Stage.")
                     add_job_event(job_id, "warning", f"[{dataset_id}] No SO tracker candidates. Skipping TH.")
@@ -1169,7 +1324,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                         
                     th_pools = load_task_pool(th_tuples, th_children, th_threads)
                     
-                    run_simulation_pool_with_control(
+                    saved_ids = run_simulation_pool_with_control(
                         job_id=job_id,
                         alpha_pools=th_pools,
                         neut="INDUSTRY",
@@ -1178,6 +1333,20 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                         log_path=th_log_path,
                         progress_context=stage_progress_context("TH", idx + 1),
                     )
+                    if saved_ids:
+                        msg = f"[{dataset_id}] TH: Running inline checks for {len(saved_ids)} new alphas..."
+                        logger.info(msg)
+                        update_job(job_id, message=msg)
+                        add_job_event(job_id, "info", msg)
+
+                        session = login_with_rate_limit_wait(job_id, username, password, context="TH Inline Checks")
+                        try:
+                            # ── TH 穿插相关性检查（可配置开关）──
+                            if get_setting("th_corr_enable", "0") == "1":
+                                run_inline_correlation_check(session, saved_ids, job_id, stage="TH")
+                            run_inline_checks(session, saved_ids)
+                        finally:
+                            session.close()
                     mark_stage("TH", idx + 1, "completed")
                 
         # 单个数据集成功结束

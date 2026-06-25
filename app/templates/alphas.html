@@ -40,11 +40,28 @@
     </div>
 
     <div class="card">
+        <!-- 批量操作面板 -->
+        <div class="card-body" style="padding-bottom: 0;">
+            <div style="display: flex; gap: 16px; align-items: center; background: rgba(255,255,255,0.02); padding: 12px 16px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 16px; flex-wrap: wrap;">
+                <div style="font-size: 14px; font-weight: 500; color: var(--text-main);"><i class="fa-solid fa-layer-group"></i> 批量操作：</div>
+                <label class="checkbox-label" style="margin: 0; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="dry-run-checkbox" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+                    <span style="font-size: 13px; color: var(--text-main);">Dry Run (仅模拟检查，不执行真实提测)</span>
+                </label>
+                <button class="btn btn-primary btn-sm" onclick="submitSelectedAlphas()" style="display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> 批量提交选中因子到平台 (<span id="selected-alphas-count">0</span>)
+                </button>
+            </div>
+        </div>
+
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table">
+                <table class="table" id="alphas-table">
                     <thead>
                         <tr>
+                            <th style="width: 40px; text-align: center;">
+                                <input type="checkbox" id="select-all-alphas" onchange="toggleSelectAllAlphas(this)" style="cursor: pointer; width: 16px; height: 16px;">
+                            </th>
                             <th>Alpha ID</th>
                             <th>因子评级</th>
                             <th>评估类型</th>
@@ -58,9 +75,12 @@
                     </thead>
                     <tbody>
                         {% for a in alphas %}
-                        <tr onclick="if(!['A', 'BUTTON', 'INPUT', 'SELECT', 'FORM'].includes(event.target.tagName) && !event.target.closest('a, button, input, select, form')) window.location.href='/alphas/{{ a.alpha_id }}';" style="cursor: pointer;">
+                        <tr onclick="toggleAlphaRow(this, event)" style="cursor: pointer;">
+                            <td style="text-align: center;" onclick="event.stopPropagation()">
+                                <input type="checkbox" class="alpha-checkbox" value="{{ a.alpha_id }}" onchange="updateSelectedAlphasCount()" style="cursor: pointer; width: 16px; height: 16px;">
+                            </td>
                             <td>
-                                <a href="/alphas/{{ a.alpha_id }}" class="platform-link-code">
+                                <a href="/alphas/{{ a.alpha_id }}" class="platform-link-code" onclick="event.stopPropagation()">
                                     <i class="fa-solid fa-circle-info"></i> {{ a.alpha_id }}
                                 </a>
                             </td>
@@ -79,7 +99,7 @@
                                 <span class="text-muted">—</span>
                                 {% endif %}
                             </td>
-                            <td class="name-cell text-sm">{{ a.name or '未命名' }}</td>
+                            <td class="name-cell text-sm" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ a.name or '未命名' }}</td>
                             <td>
                                 <span class="stat-tag">S: {{ "%.2f"|format(a.sharpe) if a.sharpe is not none else 'N/A' }}</span>
                                 <span class="stat-tag">F: {{ "%.2f"|format(a.fitness) if a.fitness is not none else 'N/A' }}</span>
@@ -110,7 +130,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="9" class="text-center text-muted">本地数据库中暂无 Alpha 记录归档。</td>
+                            <td colspan="10" class="text-center text-muted">本地数据库中暂无 Alpha 记录归档。</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -129,7 +149,7 @@
                 {% if page < total_pages %}
                 <a href="/alphas?page={{ page + 1 }}&type_filter={{ type_filter }}&level_filter={{ level_filter }}&date_filter={{ date_filter }}" class="btn btn-secondary btn-sm">下一页</a>
                 {% endif %}
-
+ 
                 <div class="pagination-jump" style="display: flex; align-items: center; gap: 6px; margin-left: 12px; border-left: 1px solid var(--border-color); padding-left: 16px;">
                     <span style="color: var(--text-muted); font-size: 13px;">跳转至:</span>
                     <input type="number" id="jump-page-input" min="1" max="{{ total_pages }}" value="{{ page }}" style="width: 55px; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border-color); background-color: rgba(0, 0, 0, 0.2); color: var(--text-main); text-align: center; font-size: 13px;">
@@ -137,7 +157,7 @@
                     <button type="button" class="btn btn-secondary btn-sm" onclick="jumpToPage()" style="padding: 4px 10px; font-size: 12px;">确定</button>
                 </div>
             </div>
-
+ 
             <script>
                 function jumpToPage() {
                     const input = document.getElementById('jump-page-input');
@@ -160,4 +180,83 @@
         </div>
     </div>
 </div>
+
+<script>
+    function toggleSelectAllAlphas(masterCheckbox) {
+        const checkboxes = document.querySelectorAll(".alpha-checkbox");
+        checkboxes.forEach(cb => {
+            cb.checked = masterCheckbox.checked;
+            const tr = cb.closest('tr');
+            if (tr) {
+                tr.style.backgroundColor = masterCheckbox.checked ? 'rgba(59, 130, 246, 0.1)' : '';
+            }
+        });
+        updateSelectedAlphasCount();
+    }
+
+    function toggleAlphaRow(row, event) {
+        if (event.target.tagName === 'INPUT' || event.target.closest('a')) return;
+        const cb = row.querySelector('.alpha-checkbox');
+        if (cb) {
+            cb.checked = !cb.checked;
+            row.style.backgroundColor = cb.checked ? 'rgba(59, 130, 246, 0.1)' : '';
+            updateSelectedAlphasCount();
+        }
+    }
+
+    function updateSelectedAlphasCount() {
+        const checked = document.querySelectorAll(".alpha-checkbox:checked");
+        document.getElementById("selected-alphas-count").innerText = checked.length;
+        
+        const checkboxes = document.querySelectorAll(".alpha-checkbox");
+        checkboxes.forEach(cb => {
+            const tr = cb.closest('tr');
+            if (tr) {
+                tr.style.backgroundColor = cb.checked ? 'rgba(59, 130, 246, 0.1)' : '';
+            }
+        });
+    }
+
+    function submitSelectedAlphas() {
+        const checked = document.querySelectorAll(".alpha-checkbox:checked");
+        if (checked.length === 0) {
+            alert("请先选择至少一个要提交的因子。");
+            return;
+        }
+        
+        const alphaIds = Array.from(checked).map(cb => cb.value).join("\n");
+        const dryRun = document.getElementById("dry-run-checkbox").checked ? "1" : "0";
+        
+        const formData = new FormData();
+        formData.append("source_mode", "manual");
+        formData.append("manual_ids", alphaIds);
+        formData.append("dry_run", dryRun);
+        formData.append("limit", checked.length);
+        
+        const dryRunLabel = dryRun === "1" ? " (Dry Run 模拟检查)" : "";
+        if (!confirm(`确定要将这 ${checked.length} 个因子提交到 WorldQuant 平台进行正式提交提测吗？${dryRunLabel}`)) {
+            return;
+        }
+        
+        fetch("/api/jobs/submit", {
+            method: "POST",
+            headers: {
+                "Accept": "application/json"
+            },
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                alert("因子提交/检查任务已成功启动，Job ID: #" + data.job_id + "\n系统正在后台串行排队执行，请到日志页面或仪表盘监控进度。");
+                window.location.reload();
+            } else {
+                alert("提交失败: " + data.message);
+            }
+        })
+        .catch(err => {
+            alert("提交请求出错: " + err.message);
+        });
+    }
+</script>
 {% endblock %}

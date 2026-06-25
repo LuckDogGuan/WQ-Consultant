@@ -5,6 +5,45 @@
 
 {% block content %}
 <div class="logs-container">
+    <!-- Logs Export Card -->
+    <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header">
+            <h2><i class="fa-solid fa-file-export"></i> 导出运行日志</h2>
+        </div>
+        <div class="card-body">
+            <form action="/api/logs/export" method="POST" class="form-grid">
+                <div class="form-group">
+                    <label for="log_type">日志类型</label>
+                    <select id="log_type" name="log_type" onchange="toggleLogTypeFields()">
+                        <option value="gui">系统运行日志 (gui.log)</option>
+                        <option value="job">任务回测日志 (job_{id}.log)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="job-id-group" style="display: none;">
+                    <label for="export_job_id">任务 Job ID</label>
+                    <input type="number" id="export_job_id" name="job_id" placeholder="请输入 Job ID">
+                </div>
+                
+                <div class="form-group" id="start-time-group">
+                    <label for="start_time">开始时间</label>
+                    <input type="datetime-local" id="start_time" name="start_time">
+                </div>
+                
+                <div class="form-group" id="end-time-group">
+                    <label for="end_time">结束时间</label>
+                    <input type="datetime-local" id="end_time" name="end_time">
+                </div>
+                
+                <div class="form-group full-width" style="display: flex; flex-direction: row; justify-content: flex-end; margin-top: 10px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fa-solid fa-download"></i> 导出并下载
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Live GUI Log View -->
     <div class="card logs-viewer-card">
         <div class="card-header">
@@ -60,6 +99,23 @@
 </div>
 
 <script>
+function toggleLogTypeFields() {
+    const logType = document.getElementById("log_type").value;
+    const jobIdGroup = document.getElementById("job-id-group");
+    const startTimeGroup = document.getElementById("start-time-group");
+    const endTimeGroup = document.getElementById("end-time-group");
+    
+    if (logType === "job") {
+        jobIdGroup.style.display = "flex";
+        startTimeGroup.style.display = "none";
+        endTimeGroup.style.display = "none";
+    } else {
+        jobIdGroup.style.display = "none";
+        startTimeGroup.style.display = "flex";
+        endTimeGroup.style.display = "flex";
+    }
+}
+
 // 初始化 live log 读取
 document.addEventListener("DOMContentLoaded", function() {
     startGuiLogTailing();

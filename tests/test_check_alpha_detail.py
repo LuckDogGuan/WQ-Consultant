@@ -53,11 +53,8 @@ class CheckAlphaDetailTests(unittest.TestCase):
         )
 
         client = TestClient(main.app)
-        check_response = client.get("/check?type_filter=PASS&level_filter=substandard")
         detail_response = client.get("/alphas/alpha_fail_pass")
 
-        self.assertEqual(check_response.status_code, 200)
-        self.assertIn("不合格因子", check_response.text)
         self.assertEqual(detail_response.status_code, 200)
         self.assertIn("提交判定: 不合格因子", detail_response.text)
         self.assertIn("相关性分类: MARGINAL", detail_response.text)

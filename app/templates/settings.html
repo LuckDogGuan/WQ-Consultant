@@ -123,6 +123,61 @@
             </div>
         </div>
 
+        <!-- SECTION 6: DATA CATALOG & SYSTEM TOOLS -->
+        <div class="card settings-card">
+            <div class="card-header">
+                <h2><i class="fa-solid fa-folder-open"></i> 本地数据目录与系统维护</h2>
+                <div class="card-actions">
+                    <button type="button" class="btn btn-sm btn-primary" id="btn-refresh-catalog" onclick="refreshCatalog()"><i class="fa-solid fa-arrows-rotate"></i> 更新数据目录缓存</button>
+                </div>
+            </div>
+            <div class="card-body form-grid">
+                <div class="form-group">
+                    <label for="region">回测地区 (Region)</label>
+                    <select id="region" name="region">
+                        {% for reg in day1_scopes.scopes.keys() %}
+                            <option value="{{ reg }}" {% if settings.region == reg %}selected{% endif %}>{{ region_names.get(reg, reg) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="universe">股票池 (Universe)</label>
+                    <select id="universe" name="universe">
+                        <!-- 由 JS 动态级联加载 -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="delay">交易延迟 (Delay)</label>
+                    <select id="delay" name="delay">
+                        <!-- 由 JS 动态级联加载 -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="instrument_type">标的类型 (Instrument Type)</label>
+                    <select id="instrument_type" name="instrument_type">
+                        <option value="EQUITY" {% if settings.instrument_type == 'EQUITY' %}selected{% endif %}>EQUITY（股票）</option>
+                        <option value="FUTURES" {% if settings.instrument_type == 'FUTURES' %}selected{% endif %}>FUTURES（期货）</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="api_slow_threshold_ms">API 慢请求告警阈值 (毫秒，0=关闭)</label>
+                    <input type="number" id="api_slow_threshold_ms" name="api_slow_threshold_ms" value="{{ settings.api_slow_threshold_ms or '1500' }}">
+                </div>
+                <div class="form-group">
+                    <label for="daily_alpha_count_usage">日使用量统计模式</label>
+                    <select id="daily_alpha_count_usage" name="daily_alpha_count_usage">
+                        <option value="track" {% if settings.daily_alpha_count_usage == 'track' %}selected{% endif %}>track（追踪统计）</option>
+                        <option value="off" {% if settings.daily_alpha_count_usage == 'off' %}selected{% endif %}>off（关闭）</option>
+                    </select>
+                </div>
+                <div class="form-group full-width">
+                    <label>说明</label>
+                    <small class="form-help">以上参数影响所有新建批量回测任务的默认配置。"更新数据目录缓存"会在后台发起 Catalog 刷新任务，若提示缺失本地字段缓存时可在此一键更新。</small>
+                </div>
+            </div>
+        </div>
+
+
         <div class="form-actions">
             <button type="submit" class="btn btn-primary btn-lg">确认保存配置</button>
         </div>
@@ -147,6 +202,67 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         });
     }
+
+    // 级联加载地区/股票池/延迟对应关系
+    const scopeMapping = {{ day1_scopes.scopes | tojson | safe }};
+    const delayMapping = {{ day1_scopes.delays | tojson | safe }};
+
+    const regionSelect = document.getElementById("region");
+    const universeSelect = document.getElementById("universe");
+    const delaySelect = document.getElementById("delay");
+
+    const initialUniverse = "{{ settings.universe or '' }}";
+    const initialDelay = "{{ settings.delay or '' }}";
+
+    function updateUniversesAndDelays(useInitial = false) {
+        if (!regionSelect || !universeSelect || !delaySelect) return;
+        const region = regionSelect.value;
+        
+        // 更新股票池
+        const universes = scopeMapping[region] || ["TOP3000", "TOP2000", "TOP1000", "TOP500"];
+        universeSelect.innerHTML = "";
+        universes.forEach(u => {
+            const opt = document.createElement("option");
+            opt.value = u;
+            opt.textContent = u;
+            if (useInitial && u === initialUniverse) {
+                opt.selected = true;
+            }
+            universeSelect.appendChild(opt);
+        });
+
+        // 兜底选中
+        if (!universeSelect.value && universeSelect.options.length > 0) {
+            universeSelect.selectedIndex = 0;
+        }
+
+        // 更新延时
+        const delays = delayMapping[region] || ["1"];
+        delaySelect.innerHTML = "";
+        delays.forEach(d => {
+            const opt = document.createElement("option");
+            opt.value = d;
+            opt.textContent = d === "0" ? "0（当日收盘）" : `${d}（次日开盘）`;
+            if (useInitial && d === initialDelay) {
+                opt.selected = true;
+            }
+            delaySelect.appendChild(opt);
+        });
+
+        // 兜底选中
+        if (!delaySelect.value && delaySelect.options.length > 0) {
+            delaySelect.selectedIndex = 0;
+        }
+    }
+
+    if (regionSelect) {
+        regionSelect.addEventListener("change", function() {
+            updateUniversesAndDelays(false);
+        });
+    }
+
+    // 页面初次加载时初始化
+    updateUniversesAndDelays(true);
 
     // 2. AJAX 异步保存或安全提问
     const form = document.getElementById("settings-form");
@@ -201,6 +317,42 @@ function testCredentials() {
             showToast(data.message || "测试登录成功，凭据正确！", "success");
         } else {
             showToast(data.message || "测试登录失败", "error");
+        }
+    })
+    .catch(err => {
+        showToast("请求发生错误: " + err.message, "error");
+    })
+    .finally(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+}
+
+function refreshCatalog() {
+    const btn = document.getElementById("btn-refresh-catalog");
+    let originalText = "";
+    if (btn) {
+        originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 任务启动中...';
+    }
+
+    fetch("/api/jobs/catalog_refresh", {
+        method: "POST"
+    })
+    .then(res => {
+        if (!res.ok) {
+            throw new Error(`HTTP 错误: ${res.status}`);
+        }
+        return res.json();
+    })
+    .then(data => {
+        if (data.status === "ok") {
+            showToast("数据目录更新任务已在后台启动！请至日志页面或仪表盘监控进度。", "success");
+        } else {
+            showToast("数据目录刷新任务启动失败", "error");
         }
     })
     .catch(err => {

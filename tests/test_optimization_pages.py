@@ -32,17 +32,7 @@ class OptimizationPageTests(unittest.TestCase):
         self.assertIn("/api/jobs/optimization", response.text)
         self.assertIn("最近的优化任务", response.text)
 
-    def test_flow_page_renders_data_flow_overview(self):
-        main.app.dependency_overrides[main.get_current_admin] = lambda: "admin"
-        try:
-            client = TestClient(main.app)
-            response = client.get("/flow")
-        finally:
-            main.app.dependency_overrides.clear()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("alpha_records", response.text)
-        self.assertIn("/optimization", response.text)
 
 
 if __name__ == "__main__":
