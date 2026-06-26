@@ -1,0 +1,105 @@
+# 一件获取你各个地区的因子数量和因子平均表现（为combined计划做准备）经验分享
+
+- **链接**: [Commented] 一件获取你各个地区的因子数量和因子平均表现为combined计划做准备经验分享.md
+- **作者**: XX42289
+- **发布时间/热度**: 8个月前, 得票: 89
+
+## 帖子正文
+
+注意：
+记得自己写一个login函数，传回自己的session即可。
+
+start_date="2024-01-01"可以改成自己成为有条件顾问的日期
+
+在获取alpha的url中有type!=SUPER，这个是剔除了SUPER的
+
+```
+import pandas as pdimport requestsimport timeimport loggingfrom typing import List, Dict# 配置日志logging.basicConfig(    level=logging.INFO,    format="%(asctime)s - %(levelname)s - %(message)s")logger = logging.getLogger(__name__)def fetch_submitted_alphas(        session: requests.Session,        start_date: str,        end_date: str,        max_offset: int = 9900  # 最大偏移量限制) -> List[Dict]:    """    拉取指定日期范围内提交的Alpha信息（基于count自动分页）    参数:        session: 已登录的requests会话对象        start_date/end_date: 日期范围（格式：YYYY-MM-DD）        max_offset: 最大偏移量（防止无限循环）    返回:        符合条件的Alpha信息列表    """    alpha_list = []    offset = 0  # 起始偏移量    while True:        # 构建请求URL（恢复原始筛选条件，移除sharpe等额外筛选）        url = (            f"https://api.worldquantbrain.com/users/self/alphas?limit=100&offset={offset}"            "&status!=UNSUBMITTED%1FIS_FAIL"            f"&dateSubmitted%3E={start_date}T00:00:00-04:00"            f"&dateSubmitted%3C={end_date}T00:00:00-04:00"            "&order=-is.sharpe&hidden=false&type!=SUPER"        )        # 发送请求        response = session.get(url)        try:            logger.info(f"当前偏移量: {offset}")            # 解析响应数据            response_data = response.json()            total_count = response_data.get("count", 0)            logger.info(f"符合条件的总数量: {total_count}")            # 提取当前页结果            if "results" in response_data:                alpha_list.extend(response_data["results"])                logger.info(f"累计获取: {len(alpha_list)} 条Alpha")            # 判断终止条件：偏移量超过总数或达到最大限制            offset += 100            if offset >= total_count or offset > max_offset:                logger.info("分页拉取完成")                break            # 避免请求过于频繁            time.sleep(1)        except Exception as e:            logger.error(f"拉取失败: {str(e)}")            # 回退偏移量并重试            offset -= 100            logger.info("等待10秒后重试...")            time.sleep(10)            # 重新登录获取会话            session = login()            # 确保偏移量不为负            if offset < 0:                offset = 0    return alpha_listdef calculate_region_statistics(alpha_records: List[Dict]) -> pd.DataFrame:    """按地区统计Alpha的关键指标"""    analysis_data = []    for alpha in alpha_records:        # 提取地区信息        region = alpha.get("settings", {}).get("region", "UNKNOWN")        # 提取IS指标        is_metrics = alpha.get("is", {})        analysis_data.append({            "region": region,            "is_sharpe": is_metrics.get("sharpe"),            "is_fitness": is_metrics.get("fitness"),            "is_margin": is_metrics.get("margin")        })    # 分组统计    alpha_df = pd.DataFrame(analysis_data)    return alpha_df.groupby("region").agg(        alpha_count=("region", "count"),        avg_is_sharpe=("is_sharpe", "mean"),        avg_is_fitness=("is_fitness", "mean"),        avg_is_margin=("is_margin", "mean")    ).reset_index()def main():    # 登录获取会话    logger.info("开始登录...")    session = login()    if not session:        logger.error("登录失败，无法继续")        return    # 拉取Alpha数据（使用原始日期范围）    logger.info("开始拉取Alpha信息...")    alphas = fetch_submitted_alphas(        session=session,        start_date="2024-01-01",        end_date="2099-11-01"    )    logger.info(f"拉取完成，共获取 {len(alphas)} 条Alpha信息")    # 统计并展示结果    if alphas:        stats = calculate_region_statistics(alphas)        logger.info("\n===== 各地区Alpha统计结果 =====")        print(stats.to_string(index=False))    else:        logger.info("未获取到任何Alpha信息，无法统计")if __name__ == "__main__":    main()
+```
+
+---
+
+## 讨论与评论 (9)
+
+### 评论 #1 (作者: YC62305, 时间: 7个月前)
+
+大佬这个login函数怎么写，俺是小白。
+
+---
+
+### 评论 #2 (作者: MS51256, 时间: 6个月前)
+
+[YC62305](/hc/en-us/profiles/28856294144279-YC62305)  官方给的machine lib中有封装，参考一下就可以了。
+
+**===============================MS51256的评论===============================**
+
+**感谢课代表的分享，课代表的每一次分享都是极为重要的工具，感谢，已安利
+
+================================Do your best ================================**
+
+---
+
+### 评论 #3 (作者: WL58980, 时间: 2个月前)
+
+感谢课代表分享的代码！！！
+
+Learning is endless!!!
+
+============================================================================
+
+Study hard — quality over quantity, no room for mediocrity. Cherish every learning opportunity, stay focused, and learn from the experts. Keep pushing!
+
+============================================================================
+
+```
+def login():    username = ""    password = ""    # Create a session to persistently store the headers    s = requests.Session()    # Save credentials into session    s.auth = (username, password)    # Send a POST request to the /authentication API    response = s.post('https://api.worldquantbrain.com/authentication')    print(response.content)    return s
+```
+
+---
+
+### 评论 #4 (作者: HL81191, 时间: 2个月前)
+
+非常有用，之前以为是点Performance Comparison看到的margin就是平均的margin，用了程序跑出来才发现不是，很直观，可以报名Combined Alpha Performance 提升计划了
+
+---
+
+### 评论 #5 (作者: JL52079, 时间: 2个月前)
+
+太好了，感谢大佬分享，正愁怎么去计算我的margin，雪中送炭！
+
+---
+
+### 评论 #6 (作者: XG98059, 时间: 2个月前)
+
+如何回传自己的session
+
+---
+
+### 评论 #7 (作者: XZ21889, 时间: 2个月前)
+
+感谢大佬分享，非常实用的代码！
+
+---
+
+### 评论 #8 (作者: JD22421, 时间: 2个月前)
+
+感谢大佬分享！ 加个login函数，start_date就直接就能跑出来各个地区的sharp fitness和margin的平均值了，非常实用的脚本！
+
+==================================================================================
+
+持之以恒，继续爬塔   do your best !
+
+====================================================================================================================================================================
+
+---
+
+### 评论 #9 (作者: CZ78575, 时间: 2个月前)
+
+==================================================================================
+
+好东西，已顺利报名
+
+----------    好东西，快把这个代码给我啊==================================================================================
+
+---
+

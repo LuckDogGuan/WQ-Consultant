@@ -1,0 +1,80 @@
+# 优化Sub-universe Sharpe的一个方法经验分享
+
+- **链接**: https://support.worldquantbrain.com/hc/zh-cn/search/click?data=BAh7DjoHaWRsKwgXM9c3zCA6D2FjY291bnRfaWRpA9GrqjoJdHlwZUkiE2NvbW11bml0eV9wb3N0BjoGRVQ6CHVybEkiAZ5odHRwczovL3N1cHBvcnQud29ybGRxdWFudGJyYWluLmNvbS9oYy96aC1jbi9jb21tdW5pdHkvcG9zdHMvMzYwNjE0ODIyNjc0MTUtJUU0JUJDJTk4JUU1JThDJTk2U3ViLXVuaXZlcnNlLVNoYXJwZSVFNyU5QSU4NCVFNCVCOCU4MCVFNCVCOCVBQSVFNiU5NiVCOSVFNiVCMyU5NQY7CFQ6DnNlYXJjaF9pZEkiKTZlODk3M2Q4LTA4OGEtNDU1YS1hYTcyLTM4MzVmYzU3MWE5YgY7CEY6CXJhbmtpCjoLbG9jYWxlSSIKemgtY24GOwhUOgpxdWVyeUkiDE1TNTEyNTYGOwhUOhJyZXN1bHRzX2NvdW50aS0%3D--f216692bb286111b46d34b58860b0a915d9c892f
+- **作者**: WX96180
+- **发布时间/热度**: 7个月前, 得票: 28
+
+## 帖子正文
+
+我们在回测完去筛选Alpha的过程中经常会遇到明明Sharpe、fitness等指标都很不错，但偏偏Sub-universe Sharpe筑起了一道不可逾越的鸿沟，关上了提交的大门。那么如何对其进行优化，使得其成为可以提交的Alpha，今天和大家分享一个方法。论坛上已经有很多小伙伴对于Sub-universe Sharpe是什么给出了详尽的解释，这里不多做赘述，仅分享我自己的经历。首先，是在流动性不那么高的市场上simulate同样的alpha，很多时候alpha会直接没有信号，这种现象说明什么呢？推测可能并不是TOP3000中流动性不高的股票起到主要作用，可能是这个alpha做了较多的TOP1000 ~ TOP3000的股票，所以对应的方法是将低市值的股票排除出去，可以用if_else函数和rank(cap)来实现这个结果。例如，if_else(rank(cap) > 0.3, alpha, 0)然而，实践中发现，虽然不在有Sub-universe Sharpe of xx is below cutoff of xx的报错，但Sharpe和fitness会大大降低，可见这些小市值股票也起到一定的作用，那么如何改进这一情况呢？考虑到Sub-universe Sharpe是衡量流动性小的次级股票池的盈利能力，那么我们可以通过找一些衡量流动性的指标并结合市值联合筛选，比如现金比率就可以用于衡量企业流动性，那么公式可以变成：if_else(and(rank(mdl219_1_cashratio) < 0.9, rank(cap) > 0.15), alpha, 0)。小伙伴们也可以考虑其他的衡量流动性的指标。通过这两个约束条件，我成功实践，将一个原来不能提交的alpha变成达到标准的alpha，但同时我也有疑惑，这样是否会过拟合呢？评论区欢迎大佬进行评价。
+
+---
+
+## 讨论与评论 (11)
+
+### 评论 #1 (作者: LL87164, 时间: 7个月前)
+
+个人理解：mdl219_1_cashratio 指的是短期偿债能力的现金比率，和 sub-universe 的交易流动性不是一个概念。除了 cap，volume*close（交易金额）也是一个衡量流动性的指标。
+
+---
+
+### 评论 #2 (作者: AL13375, 时间: 7个月前)
+
+感谢大佬的分享！做alpha的时候也是经常遇到这个问题过不了check，大佬提出的““推测可能并不是TOP3000中流动性不高的股票起到主要作用，可能是这个alpha做了较多的TOP1000 ~ TOP3000的股票，所以对应的方法是将低市值的股票排除出去，可以用if_else函数和rank(cap)来实现这个结果。”的方法应该是很有经济学意义且有可行性的，应该不存在过拟合的情况。期待大佬更多的产出，祝早日vf1.0！——大角羊
+
+---
+
+### 评论 #3 (作者: JL52079, 时间: 7个月前)
+
+感谢分享，非常好的思路，解答了我对如何提升Sub-universe Sharpe的疑惑。
+
+---
+
+### 评论 #4 (作者: LZ25854, 时间: 7个月前)
+
+谢谢楼主分享。我觉得这是一个很好的思路：并非一味“剔除”，而是用经济合理的流动性特征来引导因子的权重分布。我刚获得顾问权限不久，也有一点想法：是否可以尝试分层回测或加权约束的方式，而不是直接if_else截断？比如对低流动性股票给予一个衰减权重，而不是置零，这样也许能保留部分alpha信号。就像LL87164提出的，mdl219_1_cashratio 确实是不错的流动性指标，不过它偏向财务层面，是否考虑再加入一些市场层面的流动性度量，来构造更稳健的过滤条件？至于“是否过拟合”，我觉得要看这个逻辑能否在其他时间段、其他市场分组下依然有效。如果在多期回测中表现一致，那说明逻辑是稳健的。
+
+---
+
+### 评论 #5 (作者: BW14163, 时间: 7个月前)
+
+感谢分享，通过联合使用市值（cap）和基本面流动性指标来动态屏蔽低流动性、低市值区域，既缓解了 Sub-universe Sharpe 不达标的问题，又保留了 Alpha 在有效样本中的信号强度。使用了mdl219_1_cashratio 数据，这本质上是在“可交易性”与“预测能力”之间做合理权衡，但是，在阅读论坛里面帖子的过程中，发现大部分人都是很不推崇提交太多的model型alpha，目前我的理解model型数据主要是通过历史数据进行建模，从而对于未来进行预测，直接使用model作为评判标准可能存在过拟合。因此是否可以考虑使用基本面数据和pv进行替换。**********************************紧跟大佬的脚步，每天坚持至少学一个知识点，尽量不混信号，不过拟合。每当遇到一个RA时，不要忘了在ppac中捡垃圾的日子。**********************************
+
+---
+
+### 评论 #6 (作者: WX96180, 时间: 7个月前)
+
+LL87164感谢大佬的分享，让我对于sub-universe sharpe有了更深的理解，我去探究一下交易金额的使用方法，非常感谢。
+
+---
+
+### 评论 #7 (作者: DD76063, 时间: 7个月前)
+
+同问，想知道这样会不会过拟合
+
+---
+
+### 评论 #8 (作者: LV21122, 时间: 7个月前)
+
+sub-uni sharpe问题不一定就是和流动性绑定。最好就是用visulization回测分析当前uni和sub-uni。请问if_else(and(rank(mdl219_1_cashratio) < 0.9, rank(cap) > 0.15), alpha, 0)中的threshold0.9和0.15是否有明确的意义呢？如果说0.9->0.8、0.15->0.2，alpha就不能通过，或者在别的alpha没有起到该有的作用，那可能是过拟合的。
+
+---
+
+### 评论 #9 (作者: XW23690, 时间: 7个月前)
+
+if_else(rank(cap) > 0.3, alpha, 0)这个方法应该是人为地划分出sub-universe，虽然可行，但是只能运用一次，下一次使用容易出现sc过高的情况。可以尝试一下group分组、更换neut和decay，或者直接更换较小的universe，如USA区域的ILLIQUID_MINVOL1M
+
+---
+
+### 评论 #10 (作者: JX39934, 时间: 7个月前)
+
+感觉这种方式是有一点过拟合的风险的，而且一个表达式里有3个字段，混信号，而且运算符也有一些多，我个人觉得sub-universe如果差的很多可以直接放弃了，如果少可以调中性化或者decay，也可以试一试hump那些运算符调一下=============================================================================The only thing permanent is change. What we need to do is to constantly improve ourselves.=============================================================================
+
+---
+
+### 评论 #11 (作者: MS51256, 时间: 6个月前)
+
+===============================MS51256的评论===============================感谢分享，LV21122说的非常有道理，如果参数的设置缺乏合理性，那os的爆炸是极为可能的，不过调好一个因子用来点塔是非常可以的。================================Do your best ================================
+
+---
+

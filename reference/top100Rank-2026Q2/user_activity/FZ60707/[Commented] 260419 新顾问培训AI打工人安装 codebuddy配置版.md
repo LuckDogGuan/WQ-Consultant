@@ -1,0 +1,188 @@
+# 26.04.19 新顾问培训AI打工人安装 codebuddy配置版.
+
+- **链接**: [Commented] 260419 新顾问培训AI打工人安装 codebuddy配置版.md
+- **作者**: QX52484
+- **发布时间/热度**: 2个月前, 得票: 12
+
+## 帖子正文
+
+由于周六突发疑似claude官方导致的问题. 在安装AI打工人后遇到该报错的同学建议尝试codebuddy CLI
+
+![图片](images/img_f600f11ca8.png)
+
+请务必完整搜索codebuddy CLI 避免误安装IDE
+
+![图片](images/img_8ced5dc67f.png)
+
+打开网页找到npm install -g @tencent-ai/codebuddy-code 输入cmd进行安装 为避免安装时权限不足 建议按管理员权限打开.
+
+![图片](images/img_04176ba088.png)
+
+由于我已安装过 下载内容较少.
+
+![图片](images/img_ce9e387a04.png)
+
+切换到安装AI打工人的untracked目录 构建一个.mcp.json文件
+
+![图片](images/img_373c734b0d.png)
+
+.mcp.json配置内容 安装个人情况自行修改 如果改不来,可以启动codebuddy 让AI自己改. 启动方式见下文
+
+```
+{  "mcpServers": {    "worldquant-brain-platform": {      "type": "stdio",      "command": "D:/code/python/python.exe",      "args": [        "D:/code/python/Lib/site-packages/cnhkmcp/untracked/platform_functions.py"      ],      "env": {        "PYTHONUNBUFFERED": "1"      },      "description": "WorldQuant BRAIN Platform MCP Server - Comprehensive trading platform integration with simulation management, alpha operations, and authentication.",      "excludeTools": ["submit_alpha", "check_correlation", "create_simulation"],      "autoApprove": true    }  }}
+```
+
+在untracked目录 空白处右键 点击在终端中打开. 实现在当前目录下启动cmd 输入codebuddy
+
+![图片](images/img_352783a8b2.png)
+
+左下角的alt+m 模式为yolo模式 不想被多次询问则进行开启.
+
+在配置完mcp.json后 在codebuddy中输入/mcp 检查是否正常运行
+
+![图片](images/img_9aae54782f.png)
+
+输入/model 修改模型 本次课程建议使用GLM5.1或GLM 5.0 (5.1效果较好但请求高峰问题严重)
+
+![图片](images/img_67ae6d2aea.png)
+
+模型消耗codybuddy端额度,在官网个人页面中进行查询额度 [https://www.codebuddy.cn/profile/usage](https://www.codebuddy.cn/profile/usage)
+
+目前注册有赠送.(到此疑似超图片上传额度详见评论区)
+
+---
+
+## 讨论与评论 (13)
+
+### 评论 #1 (作者: QX52484, 时间: 2个月前)
+
+![图片](images/img_d3c00fa202.png)
+
+有月度额度和额外赠送额度,建议自行体验后考虑其他套餐
+
+---
+
+### 评论 #2 (作者: QX52484, 时间: 2个月前)
+
+调整为API调用时到用户目录 建立models.json文件
+
+![图片](images/img_ad956da6f5.png)
+
+参考该样式进行建立
+
+![图片](images/img_1d2b6cc54f.png)
+
+---
+
+### 评论 #3 (作者: QX52484, 时间: 2个月前)
+
+目前疑似只支持open ai协议
+
+![图片](images/img_f269144583.png)
+
+![图片](images/img_b6c042816f.png)
+
+设置成功后对应模型不再显示额度
+
+![图片](images/img_375359b94a.png)
+
+---
+
+### 评论 #4 (作者: QX52484, 时间: 2个月前)
+
+补充: skills则找到skills文件放在该路径下 即可/skills查看
+
+![图片](images/img_222700a041.png)
+
+---
+
+### 评论 #5 (作者: QX52484, 时间: 2个月前)
+
+后附:一个可参考的科大讯飞的套餐  [https://maas.xfyun.cn/packageSubscription](https://maas.xfyun.cn/packageSubscription)  39/月/1W8次请求 可以支撑一个中度使用AI顾问的月度用量.
+
+可以在 [https://maas.xfyun.cn/packageSubscription](https://maas.xfyun.cn/packageSubscription)  点击邀请用户填写邀请码后再点击旁边的订阅套餐进行购买.
+
+可以找其他顾问互填并购买,这样可以一起拿到39月月卡套餐+39X2的API额度.
+
+如果朋友是最难达成的配置,可以填我的邀请码【MAAS-439467FF】
+
+---
+
+### 评论 #6 (作者: FF65210, 时间: 2个月前)
+
+感谢大佬分享，狠狠学习了。
+
+===============================================================================
+守正心，戒浮躁，恒复盘，危中机。“复利是世界第八大奇迹，关键在于找到可长期重复的正确策略，日复一日、不疾不徐地执行。”—— 爱因斯坦 / 查理・芒格
+Alpha∞ Engine Status: ONLINE [♦♦♦♦♦♦♦♦♦♦] 100%
+sys.setrecursionlimit(α∞)
+PnL = ∑(Robustness * Creativity)
+#无限探索、鲁棒性优先，创新性增值# 有志者事竟成，苦心人天不负。千淘万漉虽辛苦，吹尽狂沙始到金。
+=================================================================================
+
+---
+
+### 评论 #7 (作者: XC66172, 时间: 2个月前)
+
+谢谢思源佬的分享，又多了一个CODEBUDDY CLI可以拿来学习使用~~
+
+=========================================
+
+FIGHTING LABUBU!~
+
+========================================
+
+---
+
+### 评论 #8 (作者: FZ60707, 时间: 2个月前)
+
+大佬太强了，这波codebuddy配置教程非常实用，尤其对刚入门的新顾问来说简直是及时雨！已收藏，回头就照着折腾起来，感谢无私分享
+
+========================================================================================================================================================================
+
+---
+
+### 评论 #9 (作者: WW74101, 时间: 2个月前)
+
+它不是干巴巴的理论，而是带着自己的踩坑经验，把每个环节的操作、截图、命令都写得明明白白。
+它给出的方案（CodeBuddy CLI），完美解决了原 Claude 客户端的兼容性问题，同时保留了 AI 打工人的核心功能。
+
+---
+
+### 评论 #10 (作者: ES80736, 时间: 2个月前)
+
+![图片](images/img_5b76fb2030.png) mcp显示连接不上，请问此类配置要如何修改
+
+---
+
+### 评论 #11 (作者: YP74336, 时间: 2个月前)
+
+使用过workbuddy优化alpha，运行一会就卡住不动了。准备按楼主的方法尝试codebuddy cli，感谢分享
+
+---
+
+### 评论 #12 (作者: XL98962, 时间: 1个月前)
+
+学会了，感谢大佬分享
+
+==================================================================、
+
+==================================================================
+
+---
+
+### 评论 #13 (作者: MZ45384, 时间: 1个月前)
+
+大佬太强了。新工具源源不断，希望alpha也能源源不断。
+
+======================================================================================
+知难上，戒骄狂，常自省，穷途明。“寻找可以重复数千次的东西。”——吉姆·西蒙斯（量化投资之王、文艺复兴科技创始人）
+# Alpha∞ Engine Status: ONLINE [♦♦♦♦♦♦♦♦♦♦] 100%
+# sys.setrecursionlimit(α∞) 
+# PnL = ∑(Robustness * Creativity)
+#无限探索、鲁棒性优先，创新性增值 
+#Where there is a will, there is a way. 路漫漫其修远兮，吾将上下而求索。
+======================================================================================
+
+---
+

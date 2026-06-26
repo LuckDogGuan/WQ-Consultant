@@ -24,3 +24,6 @@ env/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Ignore crawled image assets for Top 100 Advisors
+reference/top100Rank-2026Q2/user_activity/*/images/

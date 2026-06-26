@@ -1,0 +1,1778 @@
+# [OC2025]指标准入和多维度评分一键参与OC2025
+
+- **链接**: [Commented] [OC2025]指标准入和多维度评分一键参与OC2025.md
+- **作者**: JX79797
+- **发布时间/热度**: 6个月前, 得票: 98
+
+## 帖子正文
+
+通过多维度、动态的评估和筛选，自动化形成我们的 Alpha 组合，并对最有潜力的 Alpha 进行资源倾斜。**
+
+它主要遵循以下几个核心原则：
+
+1. **质量优先 (Quality First)**：只接纳满足基本质量门槛的 Alpha。
+
+2. **多维评估 (Multi-dimensional Evaluation)**：超越传统指标，引入稳定性和趋势性分析。
+
+3. **鼓励稀缺 (Incentivize Scarcity)**：主动奖励稀有、独特的 Alpha，促进投资组合的多元化。
+
+4. **控制拥挤 (Control Crowding)**：避免MODEL的过度集中。
+
+5. **动态加权 (Dynamic Allocation)**：根据综合排名，以非线性的方式分配分数，强者更强。
+
+## **核心功能拆解**
+
+## 
+
+## **准入过滤**
+
+不是所有 Alpha 都有资格进入评分系统。脚本首先设置了两道严格的“安检门”：
+
+### **Margin Filter：**
+
+***逻辑**：不同地区的市场环境不同，对 Alpha 的最低盈利能力要求也应不同。脚本为 `USA`, `EUR`, `ASI` 等不同区域设置了差异化的 `margin` 门槛。
+
+***实现 (`cluster_alphas_improved` 函数)**：一个 Alpha 的 `margin * 10000` 必须高于其所在区域的阈值。同时，为了不错杀一些低 `margin` 但高 `returns/turnover` 的优质 Alpha，还设置了一个例外条款，体现了规则的灵活性。
+
+### **Recent Performance Filter：**
+
+#### ***逻辑**：一个好的 Alpha 不应只是“昙花一现”。它需要在最近几年也保持稳健。
+
+#### ***实现 (`cluster_alphas_improved` 函数)**：脚本会检查该 Alpha 倒数第二年和倒数第三年的 `sharpe` 是否都大于 1.0。这确保了我们选择的 Alpha 在近期没有出现明显的衰退迹象。
+
+#### 只有通过这两道考验的 Alpha，才能进入下一步的精细化评估。
+
+#### **多维度的综合评分**
+
+#### 脚本会从多个维度对 Alpha 进行“体检”，并计算出一个综合得分。
+
+#### *** **传统指标**** ：
+
+#### `sharpe`, `fitness`, `returns`, `margin` 这些我们熟悉的指标依然是评分的基础。
+
+#### *** **创新指标**：**
+
+#### *****稳定性得分 (`calculate_stability_score`)**：**
+
+#### ***PNL 曲线平滑度**：使用 `savgol_filter` 对 PNL 曲线进行平滑处理，并计算原始曲线与趋势线的均方误差。PNL 越像一条直线，得分越高。这奖励的是“稳定赚钱”的 Alpha。
+
+#### ***Sharpe 稳定性**：计算历年 `sharpe` 的变异系数（标准差/均值）。变异系数越小，说明每年的表现越稳定，得分越高。
+
+#### 
+
+#### ***趋势得分 (`calculate_trend_score`)**：
+
+#### ***PNL 趋势**：分析近两年 PNL 曲线的斜率。斜率向上，说明 Alpha 近期表现强劲，得分更高。
+
+#### ***Sharpe 趋势**：分析历年 `sharpe` 的变化趋势。`sharpe` 持续走高，说明 Alpha 在不断进化和适应市场，值得加分。
+
+#### * **加权与归一化 (`calculate_weighted_scores`)**：
+
+#### * 首先，使用 `MinMaxScaler` 将上述所有六个指标（传统+创新）分别归一化到 0-100 的范围，消除了量纲影响。
+
+#### * 然后，根据预设的权重（例如 `sharpe` 25%, `fitness` 25%, `trend_score` 15%...）计算加权总分。
+
+#### 组合管理与调控
+
+#### * **控制“MODEL”类拥挤**：
+
+脚本会计算所有金字塔类别的平均 Alpha 数量。如果 `MODEL` 类的 Alpha 数量超过了这个平均值，它会**剔除掉那些得分最低的 `MODEL` Alpha**，直到其数量回归到平均水平。这是一种非常聪明的“再平衡”策略。
+
+#### * **激励稀缺金字塔**：
+
+***逻辑**：点亮更多不同类型的金字塔是成为顶尖顾问的关键。为了激励自己去探索新的领域，脚本会自动识别出当前组合中数量最少的 5 个金字塔类别。
+
+***实现**：在计算加权得分时，如果一个 Alpha 属于这几个“稀缺”类别，**它的 `weighted_score` 会直接乘以 2**。这种巨大的激励会引导我们去填补组合的空白，实现真正的多元化。
+
+### 非线性的分数激励
+
+最后，脚本根据最终的 `normalized_score` 进行排名，并使用 `allocate_scores_by_rank` 函数分配总计 100,000 的 `osmosisPoints`。
+
+分配方式并非线性，而是**几何级数**。这意味着排名第 1 的 Alpha 会比第 2 名多拿很多分，而排名靠后的 Alpha 之间分差则较小。这进一步强化了对顶尖 Alpha 的资源倾斜。
+
+## 如何使用？
+
+脚本的 `if __name__ == '__main__':` 部分已经给出了清晰的工作流：
+
+1. **配置参数**：设置你的顾问日期 (`advisor_date`) 和目标区域 (`target_region`)。
+
+2. **运行脚本**：脚本会自动登录、获取数据、执行上述所有过滤、评分、调控和分配逻辑。
+
+3. **自动更新**：它会调用 BRAIN API，将计算出的 `osmosisPoints` 直接更新到对应的 Alpha 上。
+
+4. **生成报告**：最后，它会打印出详细的分配结果和金字塔分布，并保存到一个 CSV 文件中，方便复盘。
+
+## 
+
+## 代码分享
+
+```
+import urllib.parseimport loggingimport requestsimport numpy as npimport pandas as pdfrom datetime import datetimefrom sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScalerfrom sklearn.cluster import KMeans, DBSCAN, AgglomerativeClusteringfrom sklearn.metrics import silhouette_score, calinski_harabasz_scorefrom sklearn.decomposition import PCAfrom scipy.signal import savgol_filterimport json # <--- ADDED THIS IMPORT# 假设该库返回requests.Session对象from machine_lib import login, get_alpha_pnl, get_alpha_yearstatsdef get_history_alpha_ids(s, region, start_date, limit=50, offset=0):    """    从接口分页获取指定地区、指定日期后的alpha数据    :param s: requests.Session对象，已完成登录的会话    :param region: 地区大写：USA, EUR ... ...    :param start_date: 过滤日期，获取该日期之后的因子    :param limit: 每页获取的数量    :param offset: 分页偏移量    :return: 包含alpha的id和各类is指标的列表    """    alphas_data = []    # 对日期字符串进行URL编码，避免特殊字符影响请求    start_date_str = urllib.parse.quote(start_date.astimezone().isoformat(timespec='seconds'))    # 分页获取数据    while True:        url = (            f"https://api.worldquantbrain.com/users/self/alphas?"            f"limit={limit}&offset={offset}"            f"&dateCreated%3E={start_date_str}"            f"&settings.region={region}&settings.delay=1"            f"&status!=UNSUBMITTED%1FIS-FAIL"            f"&hidden=false"            f"&order=-dateSubmitted&type!=SUPER"        )        try:            resp = s.get(url)            if resp.status_code != 200:                print(f"请求出错，状态码：{resp.status_code}")                break            data = resp.json()            results = data.get("results", [])            alphas_data.extend(results)            # 判断是否获取完所有数据，是则退出循环            if offset + len(results) >= data.get("count", 0) or len(results) < limit:                break            offset += limit        except Exception as e:            print(f"数据获取异常，异常信息：{e}")            break    # 提取需要的指标数据    alpha_metrics = []    for item in alphas_data:        # 检查is中的关键指标是否存在，避免键缺失报错        is_data = item.get('is', {})        metrics = {            'id': item['id'],            'fitness': is_data.get('fitness', 0.0),            'longCount': is_data.get('longCount', 0.0),            'shortCount': is_data.get('shortCount', 0.0),            'turnover': is_data.get('turnover', 0.0),            'returns': is_data.get('returns', 0.0),            'drawdown': is_data.get('drawdown', 0.0),            'margin': is_data.get('margin', 0.0),            'sharpe': is_data.get('sharpe', 0.0),            'region': item.get('settings', {}).get('region', 'UNKNOWN'),            # Extract pyramid names from item['pyramids']            'pyramidCategory': ', '.join([p.get('name', '') for p in item.get('pyramids', [])]) if item.get('pyramids') else 'N/A'        }        alpha_metrics.append(metrics)    if not alpha_metrics:        print("错误：没有获取到有效的alpha数据")        return []    return alpha_metricsdef _get_alpha_pnl_data(s, alpha_id):    """    Fetch PnL data for a given alpha ID.    """    try:        pnl_df = get_alpha_pnl(s, alpha_id)        if pnl_df is not None and not pnl_df.empty:            # The PnL column is named after the alpha_id            if alpha_id in pnl_df.columns:                pnl_series = pnl_df.set_index('Date')[alpha_id]                pnl_series.index = pd.to_datetime(pnl_series.index)                return pnl_series            else:                print(f"Warning: PnL column '{alpha_id}' not found in PnL data for alpha {alpha_id}. Available columns: {pnl_df.columns.tolist()}")    except Exception as e:        print(f"Error fetching PnL data for {alpha_id}: {e}")    return pd.Series()def _get_alpha_yearly_stats_data(s, alpha_id):    """    Fetch yearly statistics for a given alpha ID.    """    try:        yearly_stats = get_alpha_yearstats(s, alpha_id)        if yearly_stats is not None and not yearly_stats.empty:            return yearly_stats    except Exception as e:        print(f"Error fetching yearly stats for {alpha_id}: {e}")    return pd.DataFrame()def calculate_stability_score(alpha_pnl_series, yearly_stats_df):    """    Calculates the stability score based on PnL curve smoothness and Sharpe ratio stability.    """    stability_score = 0    # PnL curve smoothness    if not alpha_pnl_series.empty and len(alpha_pnl_series) > 5:        pnl_clean = alpha_pnl_series.values        window_size = max(7, len(pnl_clean) // 5)        if window_size % 2 == 0: # window_size must be odd            window_size += 1        if window_size < 3: window_size = 3 # minimum window size        try:            polyorder = min(3, window_size - 1)            smoothed = savgol_filter(pnl_clean, window_length=window_size, polyorder=polyorder)            pnl_var = np.var(pnl_clean)            x_raw = np.arange(len(pnl_clean))            a_raw, b_raw = np.polyfit(x_raw, pnl_clean, 1)            line_fit_raw = a_raw * x_raw + b_raw            raw_mse_vs_line = np.mean((pnl_clean - line_fit_raw)**2)            mse_val = raw_mse_vs_line / pnl_var if pnl_var != 0 else 0.0            if mse_val < 0.01: stability_score += 50            elif mse_val < 0.05: stability_score += 30            elif mse_val < 0.1: stability_score += 10        except Exception as e:            print(f"Error calculating PnL smoothness: {e}")    # Sharpe ratio stability (based on yearly data)    if not yearly_stats_df.empty and 'sharpe' in yearly_stats_df.columns:        if len(yearly_stats_df) > 1:            cv_sharpe = yearly_stats_df['sharpe'].std() / yearly_stats_df['sharpe'].mean()            if cv_sharpe < 0.1: stability_score += 50            elif cv_sharpe < 0.2: stability_score += 30            elif cv_sharpe < 0.3: stability_score += 10        return stability_scoredef calculate_trend_score(alpha_pnl_series, yearly_stats_df):    """    Calculates the trend score based on PnL trend and Sharpe ratio trend.    """    trend_score = 0    # PnL trend (last two years)    if not alpha_pnl_series.empty:        pnl_last_2_years = alpha_pnl_series[alpha_pnl_series.index >= (alpha_pnl_series.index.max() - pd.DateOffset(years=2))]        if len(pnl_last_2_years) >= 2:            x_trend = np.arange(len(pnl_last_2_years))            try:                slope, _ = np.polyfit(x_trend, pnl_last_2_years, 1)                if slope > 0: trend_score += 50            except Exception as e:                print(f"Error calculating PnL trend: {e}")    # Sharpe ratio trend (yearly data)    if not yearly_stats_df.empty and 'sharpe' in yearly_stats_df.columns:        if len(yearly_stats_df) >= 2:            x_yearly = np.arange(len(yearly_stats_df))            try:                slope_sharpe, _ = np.polyfit(x_yearly, yearly_stats_df['sharpe'], 1)                if slope_sharpe > 0: trend_score += 50            except Exception as e:                print(f"Error calculating Sharpe trend: {e}")        return trend_scoredef determine_clusters_multi_criteria(X, min_clusters=10, max_clusters=50):    """    多指标确定聚类数（结合轮廓系数、CH指数，同时限制聚类数范围）    :param X: 标准化后的特征数据    :param min_clusters: 最小聚类数（避免过少）    :param max_clusters: 最大聚类数（避免过多）    :return: 最终聚类数量    """    if len(X) <= min_clusters:        return len(X)  # 样本数少于最小聚类数时，取样本数    # 限制聚类数范围：2 ~ 样本数（但不超过max_clusters，不低于min_clusters）    cluster_range = range(max(2, min_clusters), min(max_clusters + 1, len(X)))    scores = []    for k in cluster_range:        kmeans = KMeans(n_clusters=k, random_state=42, n_init='auto')        labels = kmeans.fit_predict(X)        # 轮廓系数：衡量聚类紧密度和分离度，越接近1越好        sil_score = silhouette_score(X, labels)        # CH指数：数值越大表示聚类效果越好（类内紧密，类间分离）        ch_score = calinski_harabasz_score(X, labels)        # 综合得分（归一化后加权，可调整权重）        scores.append({            'k': k,            'sil': sil_score,            'ch': ch_score,            # 权重可调整，平衡轮廓系数和CH指数的影响            'composite': 0.4 * sil_score + 0.6 * (ch_score / 100000)        })    # 转换为DataFrame方便排序    score_df = pd.DataFrame(scores)    # 按综合得分降序排序，取第一个作为最佳聚类数    best_k = score_df.sort_values('composite', ascending=False)['k'].iloc[0]    # 兜底：确保聚类数在合理范围    best_k = max(min_clusters, min(best_k, max_clusters))    return best_kdef calculate_weighted_scores(df, smallest_pyramid_categories=None):    """    计算每个因子的加权得分    :param df: 包含选中因子的DataFrame    :return: 包含加权得分和排名的DataFrame    """    # 定义评分指标，现在包含稳定性得分和趋势得分，以便它们也被缩放到0-100    score_metrics = ['sharpe', 'fitness', 'returns', 'margin', 'stability_score', 'trend_score']        # 确保所有指标都存在且没有NaN值    for metric in score_metrics:        if metric not in df.columns:            df[metric] = 0.0        df[metric] = pd.to_numeric(df[metric], errors='coerce').fillna(0.0)        # 使用MinMaxScaler将每个指标缩放到0-100分    scaler = MinMaxScaler(feature_range=(0, 100))        # 为每个指标计算0-100的得分    for metric in score_metrics:        if df[metric].nunique() > 1:            scaled_values = scaler.fit_transform(df[[metric]].values)            df[f'{metric}_score'] = scaled_values.flatten()        else:            df[f'{metric}_score'] = 50.0 # 如果所有值相同，则给相同的基础分        # 计算加权总分    df['weighted_score'] = (        0.25 * df['sharpe_score'] +         0.25 * df['fitness_score'] +         0.10 * df['returns_score'] +         0.15 * df['margin_score'] +        0.10 * df['stability_score_score'] +  # Use the scaled version        0.15 * df['trend_score_score']       # Use the scaled version    )    # 对属于数量最少的金字塔类别的 Alpha 应用 2 倍权重    if smallest_pyramid_categories:        for category in smallest_pyramid_categories:            # Check if the alpha's pyramidCategory contains the current smallest category            # Use .str.contains for partial match within the comma-separated string            df.loc[df['pyramidCategory'].str.contains(category, na=False), 'weighted_score'] *= 2            print(f"DEBUG: Applied 2x weight for category: {category}")        # 对加权得分进行归一化，确保总分在0-100之间    if df['weighted_score'].nunique() > 1:        df['normalized_score'] = scaler.fit_transform(df[['weighted_score']].values).flatten()    else:        df['normalized_score'] = df['weighted_score']        # 按加权得分降序排名    df['rank'] = df['normalized_score'].rank(ascending=False, method='min').astype(int)        return dfdef allocate_scores_by_rank(df, total_points=100000):    """    根据排名分配分数    :param df: 包含排名和得分的DataFrame    :param total_points: 总分（默认为100000）    :return: 分配好分数的DataFrame    """    n = len(df)        # 方法1：按排名权重分配（排名越高权重越大）    # 使用几何级数分配权重，排名第一的权重最大    if n > 1:        # 计算几何级数的公比，确保排名第一的权重是最后一名权重的2倍        r = 2 ** (1/(n-1))        # 生成权重序列        weights = [r ** (n - i) for i in range(1, n+1)]        weights = np.array(weights)        weights = weights / weights.sum()  # 归一化    else:        weights = np.array([1.0])        # 分配分数    df['allocated_score'] = (weights * total_points).astype(int)        # 调整四舍五入误差    allocated_sum = df['allocated_score'].sum()    if allocated_sum != total_points:        difference = total_points - allocated_sum        # 将差值加到排名第一的因子上        df.loc[df['rank'] == 1, 'allocated_score'] += difference        return dfdef cluster_alphas_improved(alpha_metrics, session):    """    改进的聚类逻辑：支持PCA降维、多种聚类算法、多指标确定聚类数    :param alpha_metrics: alpha的指标数据    :return: 选中的alpha列表（每个聚类fitness最大）    """    # 转换为DataFrame方便处理    df = pd.DataFrame(alpha_metrics)    print(f"DEBUG: Initial number of alphas: {len(df)}")    filtered_alpha_metrics = []        for index, row in df.iterrows():        alpha_id = row['id']        alpha_region = row.get('region', 'UNKNOWN')        alpha_margin = row.get('margin', 0.0)        # Fetch PnL and yearly stats        alpha_pnl_series = _get_alpha_pnl_data(session, alpha_id)        yearly_stats_df = _get_alpha_yearly_stats_data(session, alpha_id)        # --- Apply Margin Filter ---        margin_threshold = 0.0        if alpha_region == 'USA':            margin_threshold = 6.0        elif alpha_region in ['GLB', 'EUR']:            margin_threshold = 10.0        elif alpha_region == 'ASI':            margin_threshold = 15.0        else: # Other countries            margin_threshold = 15.0                alpha_margin_scaled = alpha_margin * 10000                # Check if alpha should be skipped based on margin        skip_margin = False        if alpha_margin_scaled <= margin_threshold:            # If margin is too low, check the exception condition            if not (alpha_margin_scaled > (0.75 * margin_threshold) and \                    row.get('returns', 0.0) > (0.3 * row.get('turnover', 0.0))):                skip_margin = True                if skip_margin:            print(f"Skipping alpha {alpha_id}: Margin {alpha_margin} (scaled: {alpha_margin_scaled:.2f}) <= {margin_threshold} for region {alpha_region}, and exception condition not met.")            continue # Skip this alpha        else:            print(f"DEBUG: Alpha {alpha_id} passed margin filter.")        # --- Apply Recent Two-Year Sharpe Filter (second to last and third to last years) ---        sharpe_ok = True        if not yearly_stats_df.empty and 'sharpe' in yearly_stats_df.columns and 'year' in yearly_stats_df.columns:            all_years = sorted(yearly_stats_df['year'].unique())                        if len(all_years) >= 3: # Need at least 3 years to get second to last and third to last                target_years = [all_years[-3], all_years[-2]] # Third to last and second to last                                sharpes_target_years = yearly_stats_df[yearly_stats_df['year'].isin(target_years)]                                # Check if both target years' data are present and their Sharpe is > 1.0                if len(sharpes_target_years) < 2 or not all(sharpes_target_years['sharpe'] > 1.0):                    sharpe_ok = False            else:                sharpe_ok = False # Not enough years to apply the filter        else:            sharpe_ok = False # No yearly stats, sharpe, or year data, so not OK        if not sharpe_ok:            print(f"Skipping alpha {alpha_id}: Recent two-year Sharpe not > 1.0")            continue # Skip this alpha        else:            print(f"DEBUG: Alpha {alpha_id} passed Sharpe filter.")                # If both filters pass, calculate stability and trend scores        stability_score = calculate_stability_score(alpha_pnl_series, yearly_stats_df)        trend_score = calculate_trend_score(alpha_pnl_series, yearly_stats_df)                # Create a new dictionary for the filtered alpha, including new scores        filtered_alpha_data = row.to_dict()        filtered_alpha_data['stability_score'] = stability_score        filtered_alpha_data['trend_score'] = trend_score                # pyramidCategory is now pre-processed in get_history_alpha_ids        filtered_alpha_data['pyramidCategory'] = row.get('pyramidCategory', 'N/A')        filtered_alpha_metrics.append(filtered_alpha_data)        if not filtered_alpha_metrics:        print("No alphas passed the filtering criteria.")        return pd.DataFrame() # Return empty DataFrame if no alphas pass    df = pd.DataFrame(filtered_alpha_metrics)    print(f"DEBUG: Number of alphas after all filters: {len(df)}")        # Calculate weighted scores and allocate ranks directly after filtering    df = calculate_weighted_scores(df)    df = allocate_scores_by_rank(df)        return dfif __name__ == '__main__':    # 配置参数：顾问相关日期、分页参数    advisor_date = datetime(2025, 7, 1)  # 成为顾问的日期，用于过滤该日期之后的因子    page_limit = 100  # 每页获取的alpha数量    page_offset = 0   # 分页起始偏移量    target_region = "GLB"  # 目标地区    # 初始化登录会话    session = login()    logging.info("登录成功，开始获取alpha数据")    # 获取alpha的指标数据    alpha_metrics_list = get_history_alpha_ids(        s=session,        region=target_region,        start_date=advisor_date,        limit=page_limit,        offset=page_offset    )    # 校验数据是否有效    if not alpha_metrics_list:        print("程序终止：未获取到有效alpha数据")        exit(1)    # 执行聚类并选择每个类别中fitness最大的alpha    selected_df = cluster_alphas_improved(        alpha_metrics=alpha_metrics_list,        session=session    )    # 校验聚类结果    if selected_df.empty:        print("程序终止：聚类后未选中任何alpha")        exit(1)    # 打印金字塔分布数据    print("\n" + "="*100)    print("ALPHA金字塔分布数据 (按单个金字塔统计)")    print("="*100)    # Split the pyramidCategory string into individual pyramids and then count each one    # Handle cases where pyramidCategory might be 'N/A' or empty    all_pyramids = selected_df['pyramidCategory'].dropna().apply(lambda x: [p.strip() for p in x.split(',') if p.strip() != 'N/A'])    # Explode the list of pyramids into separate rows and then count    exploded_pyramids = all_pyramids.explode()    pyramid_distribution = exploded_pyramids.value_counts()    print(pyramid_distribution.to_string())    print("="*100)    # --- 新增逻辑：限制 MODEL 金字塔的 Alpha 数量 ---    if not selected_df.empty and not pyramid_distribution.empty:        average_pyramid_count = pyramid_distribution.mean()        print(f"\n平均每个金字塔的 Alpha 实例数: {average_pyramid_count:.2f}")        # 识别包含 'MODEL' 的 Alpha        model_alphas_mask = selected_df['pyramidCategory'].str.contains('MODEL', na=False)        model_alphas_df = selected_df[model_alphas_mask].copy() # 使用 .copy() 避免 SettingWithCopyWarning        if not model_alphas_df.empty:            current_model_count = len(model_alphas_df)            print(f"当前包含 'MODEL' 金字塔的 Alpha 数量: {current_model_count}")            if current_model_count > average_pyramid_count:                num_to_remove = int(current_model_count - average_pyramid_count)                if num_to_remove > 0:                    print(f"需要移除 {num_to_remove} 个评分最低的 'MODEL' Alpha。")                                        # 排序 'MODEL' Alpha，评分最低的在前                    model_alphas_df_sorted = model_alphas_df.sort_values(by='normalized_score', ascending=True)                                        # 获取要移除的 Alpha ID                    alphas_to_remove_ids = model_alphas_df_sorted.head(num_to_remove)['id'].tolist()                                        # 从 selected_df 中移除这些 Alpha                    selected_df = selected_df[~selected_df['id'].isin(alphas_to_remove_ids)]                    print(f"已移除 {len(alphas_to_remove_ids)} 个 'MODEL' Alpha。")                    print(f"剩余包含 'MODEL' 金字塔的 Alpha 数量: {len(selected_df[selected_df['pyramidCategory'].str.contains('MODEL', na=False)])}")            else:                print("包含 'MODEL' 金字塔的 Alpha 数量未超过平均值，无需移除。")        else:            print("未找到包含 'MODEL' 金字塔的 Alpha。")    else:        print("无法计算金字塔分布或 selected_df 为空，跳过 'MODEL' 金字塔过滤。")    # --- 结束新增逻辑 ---        # 输出详细的得分信息 (在过滤后打印)    print("\n" + "="*100)    print("ALPHA因子评分和分配结果 (过滤后)")    print("="*100)        # 按排名排序输出 (在过滤后重新排序)    selected_df = selected_df.sort_values('rank')    # --- 识别数量最少的5个金字塔类别 ---    smallest_pyramid_categories = []    if not selected_df.empty:        # 重新计算金字塔分布，确保是最新的 selected_df        all_pyramids_current = selected_df['pyramidCategory'].dropna().apply(lambda x: [p.strip() for p in x.split(',') if p.strip() != 'N/A'])        exploded_pyramids_current = all_pyramids_current.explode()        pyramid_distribution_current = exploded_pyramids_current.value_counts()                if not pyramid_distribution_current.empty:            # 获取计数最少的5个金字塔类别            smallest_pyramid_categories = pyramid_distribution_current.nsmallest(5).index.tolist()            print(f"\n数量最少的5个金字塔类别: {smallest_pyramid_categories}")        else:            print("\n当前金字塔分布为空，无法识别数量最少的类别。")    else:        print("\nselected_df 为空，无法识别数量最少的金字塔类别。")    # --- 结束识别 ---        # --- 第1阶段：首次尝试分配分数 ---    print("\n" + "="*100)    print("第 1 阶段：首次尝试分数分配")    print("="*100)        successful_updates = []    failed_updates = []    total_allocated_score = 0    # 计算加权得分和排名 (传入 smallest_pyramid_categories)    selected_df = calculate_weighted_scores(selected_df, smallest_pyramid_categories)        # 根据排名分配分数    selected_df = allocate_scores_by_rank(selected_df)    for idx, row in selected_df.iterrows():        alpha_id = row['id']        score_to_allocate = int(row['allocated_score'])                print(f"\n处理排名 #{row['rank']} 的 Alpha: {alpha_id} (尝试分配 {score_to_allocate} 分)")                try:            update_url = f"https://api.worldquantbrain.com/alphas/{alpha_id}"            response = session.patch(update_url, json={"osmosisPoints": score_to_allocate})            response.raise_for_status()                        print(f"  - ✓ 成功更新 Alpha {alpha_id} 的分数为 {score_to_allocate}")            successful_updates.append({'id': alpha_id, 'original_score': score_to_allocate})            total_allocated_score += score_to_allocate        except requests.exceptions.HTTPError as http_err:            error_text = response.text            # 仅当错误是特定的、可恢复的业务逻辑错误时，才重新分配分数            if "Cannot update Osmosis points for inactive alpha" in error_text or \               "Cannot update Osmosis points for this alpha delay" in error_text:                try:                    # 尝试解析JSON并提取具体的错误信息                    error_detail = json.loads(error_text).get("osmosisPoints", [error_text])[0]                except json.JSONDecodeError:                    error_detail = error_text # 如果不是有效的JSON，则直接显示原文                print(f"  - ⚠ 更新 Alpha {alpha_id} 失败 (可恢复的业务错误): {error_detail}")                print(f"  -   分数 {score_to_allocate} 将被重新分配。")                failed_updates.append({'id': alpha_id, 'lost_score': score_to_allocate})            else:                # 对于其他不可预期的HTTP错误，仅记录日志，分数将损失                print(f"  - ✗ 更新 Alpha {alpha_id} 失败 (HTTP Error): {http_err}")                print(f"  -   服务器响应: {error_text}")        except Exception as err:            # 对于网络等其他错误，也仅记录日志，分数将损失            print(f"  - ✗ 更新 Alpha {alpha_id} 失败 (其他错误): {err}")    # --- 第2阶段：重新分配失败的分数 ---    total_lost_score = sum(item['lost_score'] for item in failed_updates)        if total_lost_score > 0 and successful_updates:        print("\n" + "="*100)        print(f"第 2 阶段：重新分配 {total_lost_score} 点损失分数")        print("="*100)        num_successful = len(successful_updates)        bonus_per_alpha = total_lost_score // num_successful        remainder = total_lost_score % num_successful        print(f"共有 {num_successful} 个成功的 Alpha，每个将额外获得 {bonus_per_alpha} 分。")        if remainder > 0:            print(f"前 {remainder} 个 Alpha 将再额外获得 1 分以确保分数完全分配。")        for i, update_info in enumerate(successful_updates):            alpha_id = update_info['id']            original_score = update_info['original_score']                        # 计算额外奖金            bonus = bonus_per_alpha            if i < remainder:                bonus += 1                        new_total_score = original_score + bonus            print(f"\n重新更新 Alpha {alpha_id}:")            print(f"  - 原始分数: {original_score}, 额外奖金: {bonus}, 新总分: {new_total_score}")            try:                update_url = f"https://api.worldquantbrain.com/alphas/{alpha_id}"                response = session.patch(update_url, json={"osmosisPoints": new_total_score})                response.raise_for_status()                print(f"  - ✓ 成功将 Alpha {alpha_id} 的分数更新至 {new_total_score}")                # 更新最初成功分配的总分                total_allocated_score += bonus                        except requests.exceptions.HTTPError as http_err:                print(f"  - ✗ 在第二阶段更新 Alpha {alpha_id} 时失败 (HTTP Error): {http_err}")                print(f"  -   服务器响应: {response.text}")                # 如果第二阶段也失败，需要从总分中减去这部分奖金                total_allocated_score -= (original_score + bonus) # 减去全部，因为之前加过                total_allocated_score += original_score # 再加回原始分            except Exception as err:                print(f"  - ✗ 在第二阶段更新 Alpha {alpha_id} 时失败 (其他错误): {err}")                total_allocated_score -= (original_score + bonus)                total_allocated_score += original_score        # --- 最终汇总 ---    print("\n" + "="*100)    print("最终分配汇总")    print("="*100)        final_successful_count = len(successful_updates)    final_failed_count = len(failed_updates)    print(f"初始选中 Alpha 数量: {len(selected_df)}")    print(f"成功分配 Alpha 数量: {final_successful_count}")    print(f"因不活跃而失败数量: {final_failed_count}")        if total_lost_score > 0:        print(f"重新分配的总分数: {total_lost_score}")    # 检查最终分数分配是否正确    if total_allocated_score == 100000:        print(f"✓ 分数分配完成：最终成功分配总分数 {total_allocated_score} 分，无分数损耗。")    else:        print(f"⚠ 分数分配警告：最终成功分配总分数 {total_allocated_score} 分，与目标 100000 有 {100000 - total_allocated_score} 分的偏差。")        # 输出权重信息    print(f"\n评分权重:")    print(f"  - Sharpe: 25%")    print(f"  - Fitness: 25%")    print(f"  - Returns: 10%")    print(f"  - Margin: 15%")    print(f"  - Stability Score: 10%")    print(f"  - Trend Score: 15%")        # 输出统计信息    print(f"\n统计信息:")    print(f"  - 选中的Alpha数量: {len(selected_df)}")    print(f"  - 最高得分: {selected_df['normalized_score'].max():.2f}")    print(f"  - 最低得分: {selected_df['normalized_score'].min():.2f}")    print(f"  - 平均得分: {selected_df['normalized_score'].mean():.2f}")    print(f"  - 最高分配分数: {selected_df['allocated_score'].max()}")    print(f"  - 最低分配分数: {selected_df['allocated_score'].min()}")    # 再次打印金字塔分布数据 (最终结果)    print("\n" + "="*100)    print("最终 ALPHA 金字塔分布数据 (按单个金字塔统计)")    print("="*100)    if not selected_df.empty:        all_pyramids_final = selected_df['pyramidCategory'].dropna().apply(lambda x: [p.strip() for p in x.split(',') if p.strip() != 'N/A'])        exploded_pyramids_final = all_pyramids_final.explode()        pyramid_distribution_final = exploded_pyramids_final.value_counts()        print(pyramid_distribution_final.to_string())    else:        print("无 Alpha 通过过滤，金字塔分布为空。")    print("="*100)        # 可选：保存结果到CSV文件    output_filename = f"alpha_allocation_{target_region}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"    selected_df.to_csv(output_filename, index=False, encoding='utf-8-sig')    print(f"\n✓ 详细结果已保存到: {output_filename}")
+```
+
+---
+
+## 讨论与评论 (12)
+
+### 评论 #1 (作者: SZ83096, 时间: 6个月前)
+
+谢谢分享，我周末试试看，羡慕JX 哥 daily pnl 每天几万+
+
+---
+
+### 评论 #2 (作者: GC13416, 时间: 6个月前)
+
+感谢大佬分享，小小的补充：这个代码运行依赖machine_lib，参数配置在881行，
+
+---
+
+### 评论 #3 (作者: KD86036, 时间: 6个月前)
+
+感谢JX79797大佬分享，整个alpha赋分流程很精彩,但是我的代码没有跑通，原因是我们的machine_lib没有
+
+get_alpha_pnl, get_alpha_yearstats这两个函数的代码，能否方便提供，这两个函数对于筛选优质alpha至关重要，再次感谢大佬分享。
+
+---
+
+### 评论 #4 (作者: QZ28759, 时间: 6个月前)
+
+感想分享，有个问题请教一下，get_alpha_yearstats 这个方法是在machine_lib.py里面找不到，可否分享一下？
+
+---
+
+### 评论 #5 (作者: CM48632, 时间: 5个月前)
+
+[JX79797](/hc/en-us/profiles/30384388968343-JX79797)
+
+```
+get_alpha_pnlget_alpha_yearstats
+```
+
+这两个函数是自己封装的吗？
+
+---
+
+### 评论 #6 (作者: OY62064, 时间: 5个月前)
+
+感谢大佬的分享，先试试看~
+
+---
+
+### 评论 #7 (作者: MZ45384, 时间: 5个月前)
+
+Very nice ! 不同于前面两位大佬的机器学习筛选分配方法，你的方法更直观易懂地注重了alpha指标，走势等表现，已学习。
+
+======================================================================================
+知难上，戒骄狂，常自省，穷途明。“寻找可以重复数千次的东西。”——吉姆·西蒙斯（量化投资之王、文艺复兴科技创始人）
+# Alpha∞ Engine Status: ONLINE [♦♦♦♦♦♦♦♦♦♦] 100%
+# sys.setrecursionlimit(α∞) 
+# PnL = ∑(Robustness * Creativity)
+#无限探索、鲁棒性优先，创新性增值 Where there is a will, there is a way.
+======================================================================================
+
+---
+
+### 评论 #8 (作者: JX79797, 时间: 5个月前)
+
+@CM48632      @ [QZ28759](/hc/en-us/profiles/30222727766295-QZ28759)
+
+@ [KD86036](/hc/en-us/profiles/27031622119831-KD86036)
+
+def get_alpha_pnl(sess,alpha_id: str) -> pd.DataFrame:
+
+"""
+
+获取指定 alpha 的 PnL数据，并返回一个包含日期和 PnL 的 DataFrame。
+
+此函数通过调用 WorldQuant Brain API 获取指定 alpha 的 PnL 数据，
+
+并将其转换为 pandas DataFrame 格式，方便后续数据处理。
+
+Args:
+
+alpha_id (str): Alpha 的唯一标识符。
+
+Returns:
+
+pd.DataFrame: 包含日期和对应 PnL 数据的 DataFrame，列名为 'Date' 和 alpha_id。
+
+"""
+
+pnl = wait_get(sess, " [https://api.worldquantbrain.com/alphas/](https://api.worldquantbrain.com/alphas/) " + alpha_id + "/recordsets/pnl").json()
+
+df = pd.DataFrame(pnl['records'], columns=[item['name'] for item in pnl['schema']['properties']])
+
+df = df.rename(columns={'date':'Date', 'pnl':alpha_id})
+
+df = df[['Date', alpha_id]]
+
+return df
+
+def wait_get(sess, url: str, max_retries: int = 10) -> Response:
+
+"""
+
+发送带有重试机制的 GET 请求，直到成功或达到最大重试次数。
+
+此函数会根据服务器返回的 `Retry-After` 头信息进行等待，并在遇到 401 状态码时重新初始化配置。
+
+Args:
+
+url (str): 目标 URL。
+
+max_retries (int, optional): 最大重试次数，默认为 10。
+
+Returns:
+
+Response: 请求的响应对象。
+
+"""
+
+retries = 0
+
+while retries < max_retries:
+
+while True:
+
+simulation_progress = sess.get(url)
+
+if simulation_progress.headers.get("Retry-After", 0) == 0:
+
+break
+
+time.sleep(float(simulation_progress.headers["Retry-After"]))
+
+if simulation_progress.status_code < 400:
+
+break
+
+else:
+
+time.sleep(2 ** retries)
+
+retries += 1
+
+return simulation_progress
+
+def get_alpha_yearstats(s, alpha_id):
+
+while True:
+
+response = s.get(" [https://api.worldquantbrain.com/alphas/](https://api.worldquantbrain.com/alphas/) " + alpha_id+"/recordsets/yearly-stats")
+
+if "retry-after" in response.headers:
+
+time.sleep(float(response.headers["Retry-After"]))
+
+else:
+
+break
+
+response.raise_for_status() # 检查HTTP状态码
+
+data = response.json()
+
+# 提取字段名和数据
+
+columns = [prop["name"] for prop in data["schema"]["properties"]]
+
+records = data["records"]
+
+# 转换为DataFrame
+
+df = pd.DataFrame(records, columns=columns)
+
+return df
+
+---
+
+### 评论 #9 (作者: JX79797, 时间: 5个月前)
+
+版本2:
+
+按金字塔优先填充alpha，可自定义填充几轮
+
+支持等权重和按排名赋分两种形式
+
+初始配置：
+
+![图片](images/img_63b9c9f707.png)
+
+import urllib.parse
+
+import logging
+
+import requests
+
+import numpy as np
+
+import pandas as pd
+
+from datetime import datetime, timedelta
+
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
+
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
+
+from sklearn.decomposition import PCA
+
+from scipy.signal import savgol_filter
+
+import json # <--- ADDED THIS IMPORT
+
+from concurrent.futures import ThreadPoolExecutor # 导入 ThreadPoolExecutor
+
+**# 假设该库返回requests.Session对象**
+
+from machine_lib import login, get_alpha_pnl, get_alpha_yearstats
+
+def get_history_alpha_ids(s, region, start_date, limit=50, offset=0):
+
+"""
+
+从接口分页获取指定地区、指定日期后的alpha数据
+
+:param s: requests.Session对象，已完成登录的会话
+
+:param region: 地区大写：USA, EUR ... ...
+
+:param start_date: 过滤日期，获取该日期之后的因子
+
+:param limit: 每页获取的数量
+
+:param offset: 分页偏移量
+
+:return: 包含alpha的id和各类is指标的列表
+
+"""
+
+alphas_data = []
+
+# 对日期字符串进行URL编码，避免特殊字符影响请求
+
+start_date_str = urllib.parse.quote(start_date.astimezone().isoformat(timespec='seconds'))
+
+# 分页获取数据
+
+while True:
+
+url = (
+
+f" [https://api.worldquantbrain.com/users/self/alphas](https://api.worldquantbrain.com/users/self/alphas) ?"
+
+f"limit={limit}&offset={offset}"
+
+f"&dateCreated%3E={start_date_str}"
+
+f"&settings.region={region}&settings.delay=1"
+
+f"&status!=UNSUBMITTED%1FIS-FAIL"
+
+f"&hidden=false"
+
+f"&order=-dateSubmitted&type!=SUPER"
+
+)
+
+try:
+
+resp = s.get(url)
+
+if resp.status_code != 200:
+
+print(f"请求出错，状态码：{resp.status_code}")
+
+break
+
+data = resp.json()
+
+results = data.get("results", [])
+
+alphas_data.extend(results)
+
+# 判断是否获取完所有数据，是则退出循环
+
+if offset + len(results) >= data.get("count", 0) or len(results) < limit:
+
+break
+
+offset += limit
+
+except Exception as e:
+
+print(f"数据获取异常，异常信息：{e}")
+
+break
+
+# 提取需要的指标数据
+
+alpha_metrics = []
+
+for item in alphas_data:
+
+# 检查is中的关键指标是否存在，避免键缺失报错
+
+is_data = item.get('is', {})
+
+metrics = {
+
+'id': item['id'],
+
+'fitness': is_data.get('fitness', 0.0),
+
+'longCount': is_data.get('longCount', 0.0),
+
+'shortCount': is_data.get('shortCount', 0.0),
+
+'turnover': is_data.get('turnover', 0.0),
+
+'returns': is_data.get('returns', 0.0),
+
+'drawdown': is_data.get('drawdown', 0.0),
+
+'margin': is_data.get('margin', 0.0),
+
+'sharpe': is_data.get('sharpe', 0.0),
+
+'region': item.get('settings', {}).get('region', 'UNKNOWN'),
+
+'pyramidCategory': ', '.join([p.get('name', '') for p in item.get('pyramids', [])]) if item.get('pyramids') else 'N/A',
+
+'code': item.get('regular', {}).get('code', '') # Add alpha expression code
+
+}
+
+alpha_metrics.append(metrics)
+
+if not alpha_metrics:
+
+print("错误：没有获取到有效的alpha数据")
+
+return []
+
+return alpha_metrics
+
+def _get_alpha_pnl_data(s, alpha_id):
+
+"""
+
+Fetch PnL data for a given alpha ID.
+
+"""
+
+try:
+
+pnl_df = get_alpha_pnl(s, alpha_id)
+
+if pnl_df is not None and not pnl_df.empty:
+
+# The PnL column is named after the alpha_id
+
+if alpha_id in pnl_df.columns:
+
+pnl_series = pnl_df.set_index('Date')[alpha_id]
+
+pnl_series.index = pd.to_datetime(pnl_series.index)
+
+return pnl_series
+
+else:
+
+print(f"Warning: PnL column '{alpha_id}' not found in PnL data for alpha {alpha_id}. Available columns: {pnl_df.columns.tolist()}")
+
+except Exception as e:
+
+print(f"Error fetching PnL data for {alpha_id}: {e}")
+
+return pd.Series()
+
+def _get_alpha_yearly_stats_data(s, alpha_id):
+
+"""
+
+Fetch yearly statistics for a given alpha ID.
+
+"""
+
+try:
+
+yearly_stats = get_alpha_yearstats(s, alpha_id)
+
+if yearly_stats is not None and not yearly_stats.empty:
+
+return yearly_stats
+
+except Exception as e:
+
+print(f"Error fetching yearly stats for {alpha_id}: {e}")
+
+return pd.DataFrame()
+
+def calculate_stability_score(alpha_pnl_series, yearly_stats_df):
+
+"""
+
+Calculates the stability score based on PnL curve smoothness and Sharpe ratio stability.
+
+"""
+
+stability_score = 0
+
+# PnL curve smoothness
+
+if not alpha_pnl_series.empty and len(alpha_pnl_series) > 5:
+
+pnl_clean = alpha_pnl_series.values
+
+window_size = max(7, len(pnl_clean) // 5)
+
+if window_size % 2 == 0: # window_size must be odd
+
+window_size += 1
+
+if window_size < 3: window_size = 3 # minimum window size
+
+try:
+
+polyorder = min(3, window_size - 1)
+
+smoothed = savgol_filter(pnl_clean, window_length=window_size, polyorder=polyorder)
+
+pnl_var = np.var(pnl_clean)
+
+x_raw = np.arange(len(pnl_clean))
+
+a_raw, b_raw = np.polyfit(x_raw, pnl_clean, 1)
+
+line_fit_raw = a_raw * x_raw + b_raw
+
+raw_mse_vs_line = np.mean((pnl_clean - line_fit_raw)**2)
+
+mse_val = raw_mse_vs_line / pnl_var if pnl_var != 0 else 0.0
+
+if mse_val < 0.01: stability_score += 50
+
+elif mse_val < 0.05: stability_score += 30
+
+elif mse_val < 0.1: stability_score += 10
+
+except Exception as e:
+
+print(f"Error calculating PnL smoothness: {e}")
+
+# Sharpe ratio stability (based on yearly data)
+
+if not yearly_stats_df.empty and 'sharpe' in yearly_stats_df.columns:
+
+if len(yearly_stats_df) > 1:
+
+cv_sharpe = yearly_stats_df['sharpe'].std() / yearly_stats_df['sharpe'].mean()
+
+if cv_sharpe < 0.1: stability_score += 50
+
+elif cv_sharpe < 0.2: stability_score += 30
+
+elif cv_sharpe < 0.3: stability_score += 10
+
+return stability_score
+
+def calculate_trend_score(alpha_pnl_series, yearly_stats_df):
+
+"""
+
+Calculates the trend score based on PnL trend and Sharpe ratio trend.
+
+"""
+
+trend_score = 0
+
+# PnL trend (last two years)
+
+if not alpha_pnl_series.empty:
+
+pnl_last_2_years = alpha_pnl_series[alpha_pnl_series.index >= (alpha_pnl_series.index.max() - pd.DateOffset(years=2))]
+
+if len(pnl_last_2_years) >= 2:
+
+x_trend = np.arange(len(pnl_last_2_years))
+
+try:
+
+slope, _ = np.polyfit(x_trend, pnl_last_2_years, 1)
+
+if slope > 0: trend_score += 50
+
+except Exception as e:
+
+print(f"Error calculating PnL trend: {e}")
+
+# Sharpe ratio trend (yearly data)
+
+if not yearly_stats_df.empty and 'sharpe' in yearly_stats_df.columns:
+
+if len(yearly_stats_df) >= 2:
+
+x_yearly = np.arange(len(yearly_stats_df))
+
+try:
+
+slope_sharpe, _ = np.polyfit(x_yearly, yearly_stats_df['sharpe'], 1)
+
+if slope_sharpe > 0: trend_score += 50
+
+except Exception as e:
+
+print(f"Error calculating Sharpe trend: {e}")
+
+return trend_score
+
+def calculate_weighted_scores(df, smallest_pyramid_categories=None):
+
+"""
+
+计算每个因子的加权得分
+
+:param df: 包含选中因子的DataFrame
+
+:return: 包含加权得分和排名的DataFrame
+
+"""
+
+# 定义评分指标，现在包含稳定性得分和趋势得分，以便它们也被缩放到0-100
+
+score_metrics = ['sharpe', 'fitness', 'returns', 'margin', 'stability_score', 'trend_score']
+
+# 确保所有指标都存在且没有NaN值
+
+for metric in score_metrics:
+
+if metric not in df.columns:
+
+df[metric] = 0.0
+
+df[metric] = pd.to_numeric(df[metric], errors='coerce').fillna(0.0)
+
+# 使用MinMaxScaler将每个指标缩放到0-100分
+
+scaler = MinMaxScaler(feature_range=(0, 100))
+
+# 为每个指标计算0-100的得分
+
+for metric in score_metrics:
+
+if df[metric].nunique() > 1:
+
+scaled_values = scaler.fit_transform(df[[metric]].values)
+
+df[f'{metric}_score'] = scaled_values.flatten()
+
+else:
+
+df[f'{metric}_score'] = 50.0 # 如果所有值相同，则给相同的基础分
+
+# 计算加权总分
+
+df['weighted_score'] = (
+
+0.25 * df['sharpe_score'] +
+
+0.25 * df['fitness_score'] +
+
+0.10 * df['returns_score'] +
+
+0.15 * df['margin_score'] +
+
+0.10 * df['stability_score_score'] +  # Use the scaled version
+
+0.15 * df['trend_score_score']       # Use the scaled version
+
+)
+
+# 对属于数量最少的金字塔类别的 Alpha 应用 2 倍权重 (已移除)
+
+# 根据用户要求，此功能已移除。
+
+# 对加权得分进行归一化，确保总分在0-100之间
+
+if df['weighted_score'].nunique() > 1:
+
+df['normalized_score'] = scaler.fit_transform(df[['weighted_score']].values).flatten()
+
+else:
+
+df['normalized_score'] = df['weighted_score']
+
+# 按加权得分降序排名
+
+df['rank'] = df['normalized_score'].rank(ascending=False, method='min').astype(int)
+
+return df
+
+def allocate_scores_by_rank(df, total_points=100000):
+
+"""
+
+根据排名分配分数
+
+:param df: 包含排名和得分的DataFrame
+
+:param total_points: 总分（默认为100000）
+
+:return: 分配好分数的DataFrame
+
+"""
+
+n = len(df)
+
+# 方法1：按排名权重分配（排名越高权重越大）
+
+# 使用几何级数分配权重，排名第一的权重最大
+
+if n > 1:
+
+# 计算几何级数的公比，确保排名第一的权重是最后一名权重的2倍
+
+r = 2 ** (1/(n-1))
+
+# 生成权重序列
+
+weights = [r ** (n - i) for i in range(1, n+1)]
+
+weights = np.array(weights)
+
+weights = weights / weights.sum()  # 归一化
+
+else:
+
+weights = np.array([1.0])
+
+# 分配分数
+
+df['allocated_score'] = (weights * total_points).astype(int)
+
+# 调整四舍五入误差
+
+allocated_sum = df['allocated_score'].sum()
+
+if allocated_sum != total_points:
+
+difference = total_points - allocated_sum
+
+# 将差值加到排名第一的因子上
+
+df.loc[df['rank'] == 1, 'allocated_score'] += difference
+
+return df
+
+def filter_and_score_alphas(alpha_metrics, session):
+
+"""
+
+过滤 alpha 并计算其加权得分和排名。
+
+:param alpha_metrics: alpha的指标数据
+
+:return: 选中的alpha列表（过滤后）
+
+"""
+
+# 转换为DataFrame方便处理
+
+df = pd.DataFrame(alpha_metrics)
+
+print(f"DEBUG: Initial number of alphas: {len(df)}")
+
+filtered_alpha_metrics = []
+
+for index, row in df.iterrows():
+
+alpha_id = row['id']
+
+alpha_region = row.get('region', 'UNKNOWN')
+
+alpha_margin = row.get('margin', 0.0)
+
+alpha_returns = row.get('returns', 0.0) # Get alpha returns
+
+# Fetch PnL and yearly stats
+
+alpha_pnl_series = _get_alpha_pnl_data(session, alpha_id)
+
+yearly_stats_df = _get_alpha_yearly_stats_data(session, alpha_id)
+
+# --- Apply Margin Filter ---
+
+margin_threshold = 0.0
+
+if alpha_region == 'USA':
+
+margin_threshold = 6.0
+
+elif alpha_region in ['GLB', 'EUR']:
+
+margin_threshold = 10.0
+
+elif alpha_region == 'ASI':
+
+margin_threshold = 15.0
+
+else: # Other countries
+
+margin_threshold = 10.0
+
+alpha_margin_scaled = alpha_margin * 10000
+
+# Check if alpha should be skipped based on margin (removed the exception condition for stricter filtering)
+
+if alpha_margin_scaled <= margin_threshold:
+
+print(f"Skipping alpha {alpha_id}: Margin {alpha_margin} (scaled: {alpha_margin_scaled:.2f}) <= {margin_threshold} for region {alpha_region}.")
+
+continue # Skip this alpha
+
+else:
+
+print(f"DEBUG: Alpha {alpha_id} passed margin filter.")
+
+# --- Apply Returns Filter ---
+
+returns_threshold = 0.0
+
+if alpha_region == 'USA':
+
+returns_threshold = 0.05 # 5%
+
+else:
+
+returns_threshold = 0.04 # 4%
+
+if alpha_returns <= returns_threshold:
+
+print(f"Skipping alpha {alpha_id}: Returns {alpha_returns:.2%} <= {returns_threshold:.2%} for region {alpha_region}.")
+
+continue # Skip this alpha
+
+else:
+
+print(f"DEBUG: Alpha {alpha_id} passed returns filter.")
+
+# --- Apply Recent Two-Year Sharpe Filter (second to last and third to last years) ---
+
+sharpe_ok = True
+
+if not yearly_stats_df.empty and 'sharpe' in yearly_stats_df.columns and 'year' in yearly_stats_df.columns:
+
+all_years = sorted(yearly_stats_df['year'].unique())
+
+if len(all_years) >= 3: # Need at least 3 years to get second to last and third to last
+
+target_years = [all_years[-3], all_years[-2]] # Third to last and second to last
+
+sharpes_target_years = yearly_stats_df[yearly_stats_df['year'].isin(target_years)]
+
+# Check if both target years' data are present and their Sharpe is > 1.0
+
+if len(sharpes_target_years) < 2 or not all(sharpes_target_years['sharpe'] > 1.0):
+
+sharpe_ok = False
+
+else:
+
+sharpe_ok = False # Not enough years to apply the filter
+
+else:
+
+sharpe_ok = False # No yearly stats, sharpe, or year data, so not OK
+
+if not sharpe_ok:
+
+print(f"Skipping alpha {alpha_id}: Recent two-year Sharpe not > 1.0")
+
+continue # Skip this alpha
+
+else:
+
+print(f"DEBUG: Alpha {alpha_id} passed Sharpe filter.")
+
+# If all filters pass, calculate stability and trend scores
+
+stability_score = calculate_stability_score(alpha_pnl_series, yearly_stats_df)
+
+trend_score = calculate_trend_score(alpha_pnl_series, yearly_stats_df)
+
+# Create a new dictionary for the filtered alpha, including new scores
+
+filtered_alpha_data = row.to_dict()
+
+filtered_alpha_data['stability_score'] = stability_score
+
+filtered_alpha_data['trend_score'] = trend_score
+
+# pyramidCategory is now pre-processed in get_history_alpha_ids
+
+filtered_alpha_data['pyramidCategory'] = row.get('pyramidCategory', 'N/A')
+
+filtered_alpha_metrics.append(filtered_alpha_data)
+
+if not filtered_alpha_metrics:
+
+print("No alphas passed the filtering criteria.")
+
+return pd.DataFrame() # Return empty DataFrame if no alphas pass
+
+df = pd.DataFrame(filtered_alpha_metrics)
+
+print(f"DEBUG: Number of alphas after all filters: {len(df)}")
+
+# Calculate weighted scores (but not final allocation or ranking yet)
+
+df = calculate_weighted_scores(df) # This will add weighted_score, normalized_score, and a temporary rank
+
+return df
+
+def allocate_scores_equally(df, total_points=100000):
+
+"""
+
+将总分数平均分配给DataFrame中的所有Alpha。
+
+:param df: 包含Alpha的DataFrame
+
+:param total_points: 总分（默认为100000）
+
+:return: 分配好分数的DataFrame
+
+"""
+
+n = len(df)
+
+if n == 0:
+
+df['allocated_score'] = 0
+
+return df
+
+score_per_alpha = total_points // n
+
+remainder = total_points % n
+
+df['allocated_score'] = score_per_alpha
+
+# 将余数分配给前 'remainder' 个 Alpha
+
+# 确保在修改之前DataFrame至少有 'remainder' 行
+
+if remainder > 0:
+
+df.loc[df.index[:remainder], 'allocated_score'] += 1
+
+return df
+
+def up_alpha_properties_to_clear(s, alpha_id: str, old_osmosisPoints: str):
+
+"""
+
+一个专门用于清除 Alpha 分数的函数。
+
+它通过将 'osmosisPoints' 字段设置为 null 来实现。
+
+"""
+
+params = {"osmosisPoints": None}  # 在 requests 中, None 会被序列化为 JSON null
+
+response = s.patch(
+
+f" [https://api.worldquantbrain.com/alphas/{alpha_id}](https://api.worldquantbrain.com/alphas/{alpha_id}) ", json=params
+
+)
+
+if response.status_code == 200:
+
+print(f"成功清除 Alpha {alpha_id} 的分数 (原分数: {old_osmosisPoints})。")
+
+return "SUCCESS"
+
+else:
+
+print(f"清除 Alpha {alpha_id} 分数失败，状态码: {response.status_code}, 信息: {response.text}")
+
+return "FAILED"
+
+def get_alphas_for_clearing(s, region, start_date_str, end_date_str, alpha_num_limit=1000):
+
+"""
+
+获取在指定日期范围内、指定地区、设置了分数的常规 (non-SUPER) Alpha。
+
+"""
+
+alphas_to_clear_list = []
+
+print(f"开始查找从 {start_date_str} 到 {end_date_str}，地区为 {region}，所有已设置分数的常规 Alpha...")
+
+limit = 100
+
+offset = 0
+
+while True:
+
+# 【重要】在 URL 中加入了 dateSubmitted 过滤器
+
+url = (
+
+f" [https://api.worldquantbrain.com/users/self/alphas?limit={limit}&offset={offset}](https://api.worldquantbrain.com/users/self/alphas?limit={limit}&offset={offset}) "
+
+f"&status!=UNSUBMITTED&status!=IS_FAIL&type!=SUPER&hidden=false"
+
+f"&settings.region={region}" # Filter by region
+
+f"&dateSubmitted>={start_date_str}T00:00:00-04:00" # Assuming -04:00 is desired
+
+f"&dateSubmitted<{end_date_str}T00:00:00-04:00"
+
+)
+
+try:
+
+response = s.get(url)
+
+response.raise_for_status()
+
+alpha_list = response.json().get("results", [])
+
+if not alpha_list:
+
+print("已扫描完所有符合条件的 Alpha。")
+
+break
+
+# 在客户端筛选出有分数的 Alpha
+
+for alpha in alpha_list:
+
+if alpha.get("osmosisPoints") is not None:
+
+record = {
+
+"id": alpha["id"],
+
+"osmosisPoints": alpha["osmosisPoints"],
+
+"pyramidCategory": ', '.join([p.get('name', '') for p in alpha.get('pyramids', [])]) if alpha.get('pyramids') else 'N/A'
+
+}
+
+alphas_to_clear_list.append(record)
+
+offset += limit
+
+if len(alpha_list) < limit or offset >= alpha_num_limit: # Stop if less than limit or reached overall limit
+
+break
+
+except Exception as e:
+
+print(f"获取alpha时发生异常: {e}")
+
+resp = s.get(' [https://api.worldquantbrain.com/users/self](https://api.worldquantbrain.com/users/self) ')
+
+if resp.status_code != 200:
+
+print(f"用户会话可能已过期，状态码: {resp.status_code}")
+
+break
+
+print(f"\n查找完毕！共找到 {len(alphas_to_clear_list)} 个在指定日期内、地区为 {region} 且需要清除分数的 Alpha。")
+
+return alphas_to_clear_list
+
+def run_clear_osmosis_points(session, config):
+
+"""
+
+执行清空现有 Alpha 分数的逻辑。
+
+"""
+
+clear_osmosis_points_before_allocation = config['clear_osmosis_points_before_allocation']
+
+advisor_date = config['advisor_date']
+
+target_region = config['target_region']
+
+MAX_WORKERS_CLEAR = config['MAX_WORKERS_CLEAR']
+
+if clear_osmosis_points_before_allocation:
+
+print("\n" + "="*100)
+
+print("执行清空现有 Alpha 分数逻辑")
+
+print("="*100)
+
+# 计算日期范围
+
+begin_date_clear = advisor_date.strftime("%Y-%m-%d")
+
+end_date_obj_clear = datetime.now() + timedelta(days=1)
+
+end_date_clear = end_date_obj_clear.strftime("%Y-%m-%d")
+
+print(f"清空范围：顾问开始日 ({begin_date_clear}) 到 脚本截止日期 ({end_date_clear})，目标地区：{target_region}")
+
+alphas_to_clear = get_alphas_for_clearing(
+
+s=session,
+
+region=target_region,
+
+start_date_str=begin_date_clear,
+
+end_date_str=end_date_clear
+
+)
+
+if not alphas_to_clear:
+
+print("在指定日期范围内未找到任何设置了分数的 Alpha，跳过清空操作。")
+
+else:
+
+print(f"\n准备开始清除 {len(alphas_to_clear)} 个 Alpha 的分数...")
+
+tasks = []
+
+with ThreadPoolExecutor(max_workers=MAX_WORKERS_CLEAR) as executor:
+
+for alpha_data in alphas_to_clear:
+
+alpha_id = alpha_data["id"]
+
+old_osmosisPoints = alpha_data["osmosisPoints"]
+
+tasks.append(executor.submit(up_alpha_properties_to_clear, session, alpha_id, old_osmosisPoints))
+
+results = [task.result() for task in tasks]
+
+success_count = results.count("SUCCESS")
+
+failed_count = results.count("FAILED")
+
+print("\n" + "=" * 50)
+
+print("分数清除任务总结:")
+
+print(f"- 成功清除分数的 Alpha 数量: {success_count}")
+
+print(f"- 失败的任务数量: {failed_count}")
+
+print("=" * 50)
+
+# 打印清空 Alpha 的金字塔分布
+
+if alphas_to_clear:
+
+cleared_df = pd.DataFrame(alphas_to_clear)
+
+print("\n" + "="*100)
+
+print("已清空 Alpha 的金字塔分布数据")
+
+print("="*100)
+
+# 统计清空 Alpha 的金字塔分布，基于它们的 pyramidCategory
+
+all_pyramids_cleared = cleared_df['pyramidCategory'].dropna().apply(lambda x: [p.strip() for p in x.split(',') if p.strip() != 'N/A'])
+
+exploded_pyramids_cleared = all_pyramids_cleared.explode()
+
+pyramid_distribution_cleared = exploded_pyramids_cleared.value_counts()
+
+print(pyramid_distribution_cleared.to_string())
+
+print("="*100)
+
+print("\n" + "="*100)
+
+print("清空分数逻辑执行完毕。")
+
+print("="*100)
+
+return
+
+def get_and_process_alphas(session, config):
+
+"""
+
+获取、过滤、评分、限制 MODEL Alpha、识别最小金字塔类别并进行轮次选择。
+
+返回最终用于分配的 DataFrame。
+
+"""
+
+advisor_date = config['advisor_date']
+
+page_limit = config['page_limit']
+
+page_offset = config['page_offset']
+
+target_region = config['target_region']
+
+num_selection_rounds = config['num_selection_rounds']
+
+# 获取alpha的指标数据
+
+alpha_metrics_list = get_history_alpha_ids(
+
+s=session,
+
+region=target_region,
+
+start_date=advisor_date,
+
+limit=page_limit,
+
+offset=page_offset
+
+)
+
+# 校验数据是否有效
+
+if not alpha_metrics_list:
+
+print("程序终止：未获取到有效alpha数据")
+
+return pd.DataFrame(), []
+
+# 执行过滤和评分
+
+selected_df = filter_and_score_alphas(
+
+alpha_metrics=alpha_metrics_list,
+
+session=session
+
+)
+
+# 校验过滤结果
+
+if selected_df.empty:
+
+print("程序终止：过滤后未选中任何alpha")
+
+return pd.DataFrame(), []
+
+# 打印金字塔分布数据 (初始)
+
+print("\n" + "="*100)
+
+print("ALPHA金字塔分布数据 (初始统计)")
+
+print("="*100)
+
+all_pyramids = selected_df['pyramidCategory'].dropna().apply(lambda x: [p.strip() for p in x.split(',') if p.strip() != 'N/A'])
+
+exploded_pyramids = all_pyramids.explode()
+
+pyramid_distribution = exploded_pyramids.value_counts()
+
+print(pyramid_distribution.to_string())
+
+print("="*100)
+
+# --- 限制 MODEL 金字塔的 Alpha 数量 (已移除) ---
+
+# 根据用户要求，此功能已移除。
+
+# 输出详细的得分信息 (在过滤后打印)
+
+print("\n" + "="*100)
+
+print("ALPHA因子评分和分配结果 (过滤后)")
+
+print("="*100)
+
+selected_df = selected_df.sort_values('rank') # Ensure sorted for consistent debug output
+
+# print(selected_df[['id', 'sharpe', 'fitness', 'returns', 'margin', 'stability_score', 'trend_score', 'normalized_score', 'rank', 'pyramidCategory']].to_string()) # Optional: detailed output
+
+# print("="*100)
+
+# --- 识别数量最少的5个金字塔类别 ---
+
+smallest_pyramid_categories = []
+
+if not selected_df.empty:
+
+all_pyramids_current = selected_df['pyramidCategory'].dropna().apply(lambda x: [p.strip() for p in x.split(',') if p.strip() != 'N/A'])
+
+exploded_pyramids_current = all_pyramids_current.explode()
+
+pyramid_distribution_current = exploded_pyramids_current.value_counts()
+
+if not pyramid_distribution_current.empty:
+
+smallest_pyramid_categories = pyramid_distribution_current.nsmallest(5).index.tolist()
+
+print(f"\n数量最少的5个金字塔类别: {smallest_pyramid_categories}")
+
+else:
+
+print("\n当前金字塔分布为空，无法识别数量最少的类别。")
+
+else:
+
+print("\nselected_df 为空，无法识别数量最少的金字塔类别。")
+
+# --- 重新计算加权得分，应用金字塔类别权重 (在轮次选择前) ---
+
+selected_df = calculate_weighted_scores(selected_df, smallest_pyramid_categories)
+
+# --- 基于轮次的 Alpha 选择 ---
+
+print("\n" + "="*100)
+
+print("基于轮次的 Alpha 选择")
+
+print("="*100)
+
+final_selected_alpha_ids = []
+
+selected_ids_set = set()
+
+all_pyramids_for_selection = selected_df['pyramidCategory'].dropna().apply(lambda x: [p.strip() for p in x.split(',') if p.strip() != 'N/A'])
+
+exploded_pyramids_for_selection = all_pyramids_for_selection.explode()
+
+unique_pyramid_categories = exploded_pyramids_for_selection.unique().tolist()
+
+selected_df['pyramidCategory_first'] = selected_df.apply(
+
+lambda row: ([p.strip() for p in row['pyramidCategory'].split(',') if p.strip() != 'N/A'][1]
+
+if 'trade' in row['code'] and len([p.strip() for p in row['pyramidCategory'].split(',') if p.strip() != 'N/A']) > 1
+
+else ([p.strip() for p in row['pyramidCategory'].split(',') if p.strip() != 'N/A'][0]
+
+if row['pyramidCategory'] and [p.strip() for p in row['pyramidCategory'].split(',') if p.strip() != 'N/A'] else None))
+
+if row['pyramidCategory'] else None,
+
+axis=1
+
+)
+
+for round_num in range(num_selection_rounds):
+
+print(f"\n--- 第 {round_num + 1} 轮选择 ---")
+
+round_selections_made = False
+
+for category in unique_pyramid_categories:
+
+candidate_alphas = selected_df[
+
+(selected_df['pyramidCategory_first'] == category) &
+
+(~selected_df['id'].isin(selected_ids_set))
+
+].sort_values(by='normalized_score', ascending=False)
+
+if not candidate_alphas.empty:
+
+chosen_alpha = candidate_alphas.iloc[0]
+
+final_selected_alpha_ids.append(chosen_alpha['id'])
+
+selected_ids_set.add(chosen_alpha['id'])
+
+round_selections_made = True
+
+print(f"  - 在类别 '{category}' 中选中 Alpha: {chosen_alpha['id']} (得分: {chosen_alpha['normalized_score']:.2f})")
+
+else:
+
+print(f"  - 类别 '{category}' 中没有可用的 Alpha。")
+
+if not round_selections_made:
+
+print(f"第 {round_num + 1} 轮没有新的 Alpha 被选中，停止选择。")
+
+break
+
+final_df_for_allocation = selected_df[selected_df['id'].isin(final_selected_alpha_ids)].copy()
+
+if final_df_for_allocation.empty:
+
+print("基于轮次选择后，没有 Alpha 被选中。程序终止。")
+
+return pd.DataFrame(), []
+
+print(f"\n最终选中的 Alpha 数量: {len(final_df_for_allocation)}")
+
+return final_df_for_allocation, smallest_pyramid_categories
+
+def execute_allocation_and_updates(session, final_df_for_allocation, config):
+
+"""
+
+执行分数分配和两阶段 API 更新。
+
+"""
+
+equal_allocation_mode = config['equal_allocation_mode']
+
+target_region = config['target_region'] # For output filename
+
+# 重新计算排名和分配分数 (仅针对最终选中的 Alpha)
+
+# 再次调用 calculate_weighted_scores 确保 rank 和 normalized_score 是基于 final_df_for_allocation 的
+
+# Note: smallest_pyramid_categories is needed here. It should be passed from get_and_process_alphas or re-calculated.
+
+# For now, let's assume it's handled or not critical for this specific call.
+
+# Re-reading the original code, smallest_pyramid_categories is used in calculate_weighted_scores.
+
+# It's better to pass it from get_and_process_alphas or make it a global config if it's truly static.
+
+# For refactoring, let's assume config can pass it or it's re-derived if needed.
+
+# For now, I'll use a placeholder or assume it's not needed for this specific call if scores are already final.
+
+# However, the original code calls calculate_weighted_scores again here.
+
+# Let's pass smallest_pyramid_categories through config for now.
+
+smallest_pyramid_categories = config.get('smallest_pyramid_categories', []) # Assuming it can be passed or is empty
+
+final_df_for_allocation = calculate_weighted_scores(final_df_for_allocation, smallest_pyramid_categories)
+
+if equal_allocation_mode:
+
+print("\n使用等权重分配模式。")
+
+final_df_for_allocation = allocate_scores_equally(final_df_for_allocation)
+
+else:
+
+print("\n使用按排名权重分配模式。")
+
+final_df_for_allocation = allocate_scores_by_rank(final_df_for_allocation)
+
+# 将处理后的 DataFrame 赋值回 selected_df，以便后续的 API 调用使用
+
+selected_df = final_df_for_allocation.sort_values('rank')
+
+# --- 第1阶段：首次尝试分数分配 ---
+
+print("\n" + "="*100)
+
+print("第 1 阶段：首次尝试分数分配")
+
+print("="*100)
+
+successful_updates = []
+
+failed_updates = []
+
+total_allocated_score = 0
+
+for idx, row in selected_df.iterrows():
+
+alpha_id = row['id']
+
+score_to_allocate = int(row['allocated_score'])
+
+print(f"\n处理排名 #{row['rank']} 的 Alpha: {alpha_id} (尝试分配 {score_to_allocate} 分)")
+
+try:
+
+update_url = f" [https://api.worldquantbrain.com/alphas/{alpha_id}](https://api.worldquantbrain.com/alphas/{alpha_id}) "
+
+response = session.patch(update_url, json={"osmosisPoints": score_to_allocate})
+
+response.raise_for_status()
+
+print(f"  - ✓ 成功更新 Alpha {alpha_id} 的分数为 {score_to_allocate}")
+
+successful_updates.append({'id': alpha_id, 'original_score': score_to_allocate})
+
+total_allocated_score += score_to_allocate
+
+except requests.exceptions.HTTPError as http_err:
+
+error_text = response.text
+
+if "Cannot update Osmosis points for inactive alpha" in error_text:
+
+try:
+
+error_detail = json.loads(error_text).get("osmosisPoints", [error_text])[0]
+
+except json.JSONDecodeError:
+
+error_detail = error_text
+
+print(f"  - ⚠ 更新 Alpha {alpha_id} 失败 (可恢复的业务错误): {error_detail}")
+
+print(f"  -   分数 {score_to_allocate} 将被重新分配。")
+
+failed_updates.append({'id': alpha_id, 'lost_score': score_to_allocate})
+
+else:
+
+print(f"  - ✗ 更新 Alpha {alpha_id} 失败 (HTTP Error): {http_err}")
+
+print(f"  -   服务器响应: {error_text}")
+
+except Exception as err:
+
+print(f"  - ✗ 更新 Alpha {alpha_id} 失败 (其他错误): {err}")
+
+# --- 第2阶段：重新分配失败的分数 ---
+
+total_lost_score = sum(item['lost_score'] for item in failed_updates)
+
+if total_lost_score > 0 and successful_updates:
+
+print("\n" + "="*100)
+
+print(f"第 2 阶段：重新分配 {total_lost_score} 点损失分数")
+
+print("="*100)
+
+num_successful = len(successful_updates)
+
+bonus_per_alpha = total_lost_score // num_successful
+
+remainder = total_lost_score % num_successful
+
+print(f"共有 {num_successful} 个成功的 Alpha，每个将额外获得 {bonus_per_alpha} 分。")
+
+if remainder > 0:
+
+print(f"前 {remainder} 个 Alpha 将再额外获得 1 分以确保分数完全分配。")
+
+for i, update_info in enumerate(successful_updates):
+
+alpha_id = update_info['id']
+
+original_score = update_info['original_score']
+
+bonus = bonus_per_alpha
+
+if i < remainder:
+
+bonus += 1
+
+new_total_score = original_score + bonus
+
+print(f"\n重新更新 Alpha {alpha_id}:")
+
+print(f"  - 原始分数: {original_score}, 额外奖金: {bonus}, 新总分: {new_total_score}")
+
+try:
+
+update_url = f" [https://api.worldquantbrain.com/alphas/{alpha_id}](https://api.worldquantbrain.com/alphas/{alpha_id}) "
+
+response = session.patch(update_url, json={"osmosisPoints": new_total_score})
+
+response.raise_for_status()
+
+print(f"  - ✓ 成功将 Alpha {alpha_id} 的分数更新至 {new_total_score}")
+
+total_allocated_score += bonus
+
+except requests.exceptions.HTTPError as http_err:
+
+print(f"  - ✗ 在第二阶段更新 Alpha {alpha_id} 时失败 (HTTP Error): {http_err}")
+
+print(f"  -   服务器响应: {response.text}")
+
+total_allocated_score -= (original_score + bonus)
+
+total_allocated_score += original_score
+
+except Exception as err:
+
+print(f"  - ✗ 在第二阶段更新 Alpha {alpha_id} 时失败 (其他错误): {err}")
+
+total_allocated_score -= (original_score + bonus)
+
+total_allocated_score += original_score
+
+# --- 最终汇总 ---
+
+print("\n" + "="*100)
+
+print("最终分配汇总")
+
+print("="*100)
+
+final_successful_count = len(successful_updates)
+
+final_failed_count = len(failed_updates)
+
+print(f"初始选中 Alpha 数量: {len(selected_df)}")
+
+print(f"成功分配 Alpha 数量: {final_successful_count}")
+
+print(f"因不活跃而失败数量: {final_failed_count}")
+
+if total_lost_score > 0:
+
+print(f"重新分配的总分数: {total_lost_score}")
+
+if total_allocated_score == 100000:
+
+print(f"✓ 分数分配完成：最终成功分配总分数 {total_allocated_score} 分，无分数损耗。")
+
+else:
+
+print(f"⚠ 分数分配警告：最终成功分配总分数 {total_allocated_score} 分，与目标 100000 有 {100000 - total_allocated_score} 分的偏差。")
+
+print(f"\n评分权重:")
+
+print(f"  - Sharpe: 25%")
+
+print(f"  - Fitness: 25%")
+
+print(f"  - Returns: 10%")
+
+print(f"  - Margin: 15%")
+
+print(f"  - Stability Score: 10%")
+
+print(f"  - Trend Score: 15%")
+
+print(f"\n统计信息:")
+
+print(f"  - 选中的Alpha数量: {len(selected_df)}")
+
+print(f"  - 最高得分: {selected_df['normalized_score'].max():.2f}")
+
+print(f"  - 最低得分: {selected_df['normalized_score'].min():.2f}")
+
+print(f"  - 平均得分: {selected_df['normalized_score'].mean():.2f}")
+
+print(f"  - 最高分配分数: {selected_df['allocated_score'].max()}")
+
+print(f"  - 最低分配分数: {selected_df['allocated_score'].min()}")
+
+print("\n" + "="*100)
+
+print("最终 ALPHA 金字塔分布数据 (按单个金字塔统计)")
+
+print("="*100)
+
+if not selected_df.empty:
+
+pyramid_distribution_final = selected_df['pyramidCategory_first'].dropna().value_counts()
+
+print(pyramid_distribution_final.to_string())
+
+else:
+
+print("无 Alpha 通过过滤，金字塔分布为空。")
+
+print("="*100)
+
+output_filename = f"alpha_allocation_{target_region}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+selected_df.to_csv(output_filename, index=False, encoding='utf-8-sig')
+
+print(f"\n✓ 详细结果已保存到: {output_filename}")
+
+if __name__ == '__main__':
+
+# 配置参数
+
+advisor_date = datetime(2025, 7, 1)  # 成为顾问的日期，用于过滤该日期之后的因子
+
+page_limit = 100  # 每页获取的alpha数量
+
+page_offset = 0   # 分页起始偏移量
+
+target_region = "EUR"  # 目标地区
+
+equal_allocation_mode = True # 配置：是否启用等权重分配模式 (True: 等权重, False: 按排名权重)
+
+num_selection_rounds = 3 # 配置：基于金字塔轮次选择的轮次数量
+
+clear_osmosis_points_before_allocation = True # 配置：是否在分配前清空现有分数
+
+MAX_WORKERS_CLEAR = 4 # 配置：清空操作的并发线程数
+
+# 初始化登录会话
+
+session = login()
+
+logging.info("登录成功，开始获取alpha数据")
+
+config = {
+
+'advisor_date': advisor_date,
+
+'page_limit': page_limit,
+
+'page_offset': page_offset,
+
+'target_region': target_region,
+
+'equal_allocation_mode': equal_allocation_mode,
+
+'num_selection_rounds': num_selection_rounds,
+
+'clear_osmosis_points_before_allocation': clear_osmosis_points_before_allocation,
+
+'MAX_WORKERS_CLEAR': MAX_WORKERS_CLEAR
+
+}
+
+run_clear_osmosis_points(session, config)
+
+final_df_for_allocation, smallest_pyramid_categories = get_and_process_alphas(session, config)
+
+if final_df_for_allocation.empty:
+
+print("程序终止：没有 Alpha 被选中进行分配。")
+
+exit(1)
+
+config['smallest_pyramid_categories'] = smallest_pyramid_categories
+
+execute_allocation_and_updates(session, final_df_for_allocation, config)
+
+---
+
+### 评论 #10 (作者: AK76468, 时间: 5个月前)
+
+====================================================================================
+
+有一些函数是没有的，但是用ai也很容易改好的，评论区的顾问可以尝试用ai改改代码。还有一点是，用之前应该要先清空分数。
+
+====================================================================================
+
+---
+
+### 评论 #11 (作者: JX14975, 时间: 5个月前)
+
+大佬，你在calculate_stability_score 这个函数中计算了smoothed 这个变量，但是在后续的计算中没有用到这个变量。不知用平滑后还是平滑前的曲线计算stability_score更加合理？大佬怎么看？
+
+---
+
+### 评论 #12 (作者: WX89624, 时间: 3个月前)
+
+看完这个脚本，感触挺深的。
+
+大多数人管理 Alpha 组合靠的还是"感觉"，而这个脚本把这件事系统化了——准入卡门槛、多维打分、稀缺激励、非线性分配，每一步都有明确的逻辑闭环。
+
+最喜欢的设计是 **稀缺金字塔 2 倍加权** ，本质上是用算法逼自己走出舒适区，去探索冷门领域，这个思路很反人性、也很有效。
+
+感谢大佬分享！！
+
+---
+

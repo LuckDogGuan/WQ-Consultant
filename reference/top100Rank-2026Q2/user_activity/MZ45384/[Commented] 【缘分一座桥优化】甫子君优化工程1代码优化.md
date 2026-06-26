@@ -1,0 +1,81 @@
+# 【缘分一座桥优化】甫子君优化工程1代码优化
+
+- **链接**: [Commented] 【缘分一座桥优化】甫子君优化工程1代码优化.md
+- **作者**: TL32287
+- **发布时间/热度**: 6个月前, 得票: 56
+
+## 帖子正文
+
+作为受益者，我发现每次回测之后都不能重新断点回测，于是我优化了相关的代码，以便于能够每次回测的时候不是每次都重新回测；
+
+具体代码实现原理如下：
+
+```
+FUNCTION fetch_alphas(start_date, end_date):    VALIDATE start_date AND end_date ARE NOT EMPTY    SHOW loading_indicator    TRY:        response = SEND_POST_REQUEST("/api/yuanfen/fetch_alphas",                                     {"session_id": currentSessionId, "start_date": start_date, "end_date": end_date})                # 处理服务器端流式响应        reader = GET_STREAM_READER(response)        buffer = ""        WHILE True:            chunk, done = READ_CHUNK(reader)            IF done: BREAK            buffer += DECODE_CHUNK(chunk)            lines = SPLIT_BUFFER_INTO_LINES(buffer)  # 可能保留最后不完整行                        FOR EACH line IN lines:                IF line IS EMPTY: CONTINUE                message = PARSE_JSON(line)                SWITCH message.type:                    CASE "progress":                        UPDATE loading_indicator TEXT WITH message.message                    CASE "result":                        IF message.success:                            analyzedAlphas = message.alphas                            UPDATE alpha_count DISPLAY                            ENABLE download AND queue buttons                            CALL render_alphas(analyzedAlphas)                        ELSE:                            RAISE ERROR message.message                    CASE "error":                        RAISE ERROR message.message    EXCEPT error AS e:        DISPLAY "获取 Alpha 失败: " + e.message    FINALLY:        HIDE loading_indicatorFUNCTION render_alphas(alpha_list):    container = GET_ELEMENT("alphasList")    container.CLEAR()    UPDATE_SIMULATION_STATS()  # 更新回测统计信息        FOR EACH alpha IN alpha_list WITH INDEX index:        simulated_count = 0        variants_html = ""                FOR EACH variant IN alpha.variants:            settings = variant.diff_settings            button_label = settings.region + "/" + settings.universe + "/delay_" + settings.delay            payload = ENCODE_TO_URL_SAFE_STRING(JSON_STRINGIFY(variant.simulation_payload))                        # 检查该变体是否已回测过            existing_record = CHECK_SIMULATION_RECORD(variant.simulation_payload)                        IF existing_record EXISTS:                simulated_count INCREMENT BY 1                # 已回测按钮：显示夏普率等信息，点击跳转                button_html = CREATE_BUTTON("success", "夏普: " + existing_record.sharpe + " | 收益: " + existing_record.returns,                                            ONCLICK=JUMP_TO_ALPHA_PAGE(existing_record.alphaId))            ELSE:                # 未回测按钮：显示基本标签，点击触发回测                button_html = CREATE_BUTTON("default", button_label, ONCLICK=simulate_variant(payload))                        variants_html += button_html                # 创建Alpha项的HTML结构        alpha_item_html = CREATE_ALPHA_ITEM_HTML(alpha.id, alpha.dateSubmitted, alpha.variants.length, simulated_count, variants_html)        APPEND alpha_item_html TO container
+```
+
+我的介绍到此结束，具体优化代码参考，可以联系。
+
+---
+
+## 讨论与评论 (7)
+
+### 评论 #1 (作者: XG98059, 时间: 6个月前)
+
+大佬太强了。
+
+---
+
+### 评论 #2 (作者: RL71875, 时间: 6个月前)
+
+感谢大佬分享
+
+---
+
+### 评论 #3 (作者: HZ99685, 时间: 6个月前)
+
+请问这个代码怎么用啊？
+
+---
+
+### 评论 #4 (作者: YQ84572, 时间: 6个月前)
+
+这个代码具体应该应用在哪呢，不是太能明白，希望大佬可以补充一个评论说明
+
+---------------------------------------------------------------------------
+
+感谢大佬的分享，祝大佬vf0.9+
+
+---------------------------------------------------------------------------
+
+---
+
+### 评论 #5 (作者: MY49971, 时间: 6个月前)
+
+没看懂具体优化了啥.......
+
+===================================================================================
+===================Talk is cheap,show me the alpha=================================
+
+---
+
+### 评论 #6 (作者: ZH12413, 时间: 6个月前)
+
+这个优化解决了实际使用中的痛点，之前回测后没办法断点重测，每次都要从头跑一遍，确实比较耗时。优化后的代码会检查已有的回测记录，已完成的变体会直接显示夏普率、收益等数据，不用重复操作，未回测的也能清晰区分，操作逻辑更顺畅了。作为受益者，觉得这个调整很实用，大幅提升了回测的效率，感谢分享。
+
+---
+
+### 评论 #7 (作者: MZ45384, 时间: 5个月前)
+
+非常好的辅助代码，但是有没有version for python
+
+======================================================================================
+知难上，戒骄狂，常自省，穷途明。“寻找可以重复数千次的东西。”——吉姆·西蒙斯（量化投资之王、文艺复兴科技创始人）
+# Alpha∞ Engine Status: ONLINE [♦♦♦♦♦♦♦♦♦♦] 100%
+# sys.setrecursionlimit(α∞) 
+# PnL = ∑(Robustness * Creativity)
+#无限探索、鲁棒性优先，创新性增值 Where there is a will, there is a way.
+======================================================================================
+
+---
+

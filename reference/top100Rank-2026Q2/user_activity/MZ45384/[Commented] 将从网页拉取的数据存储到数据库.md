@@ -1,0 +1,1019 @@
+# 将从网页拉取的数据存储到数据库
+
+- **链接**: [Commented] 将从网页拉取的数据存储到数据库.md
+- **作者**: CZ39633
+- **发布时间/热度**: 3个月前, 得票: 61
+
+## 帖子正文
+
+由于最近我想要搭建自己的本地数据字段库，为此我向SD17531(小虎哥)取经。在与小虎哥的聊天中才知道之前用代码拉起数据已经因为接口限流导致不能使用，只能自行在网页中下载数据，存放在本地。但是由于数据的过于混乱导致没什么用处，为此我写了怎么将txt文件中拉取的数据存储的数据库的代码。
+
+代码如下：
+
+import hashlib
+
+import json
+
+import logging
+
+from collections import Counter
+
+from datetime import datetime
+
+from pathlib import Path
+
+from typing import Dict, Generator, Iterable, List, Optional, Tuple
+
+import pymysql
+
+# 使用说明：
+
+# 1) 先修改 DB_CONFIG 和 RUN_CONFIG
+
+# 2) 保存后直接运行：python data_failed.py
+
+# 3) 首次运行会自动建表或补齐缺失字段
+
+NUMERIC_FIELDS = [
+
+"delay",
+
+"dateCoverage",
+
+"coverage",
+
+"userCount",
+
+"alphaCount",
+
+"pyramidMultiplier",
+
+]
+
+DB_CONFIG = {
+
+# MySQL 连接参数，按你的环境修改
+
+"host": "127.0.0.1",
+
+"port": 3306,
+
+"user": "root",
+
+"password": "数据库密码",
+
+"database": "数据库名",
+
+"charset": "utf8mb4",
+
+"autocommit": False,
+
+}
+
+RUN_CONFIG = {
+
+# 原始数据文件路径（txt/json lines/json）
+
+"input_path": r" F: \data_failed.txt",
+
+# 地区代码，会写入 region 字段
+
+"region": "EUR",
+
+# 目标表名
+
+"table": "data_fields",
+
+# 每批入库条数
+
+"batch_size": 1000,
+
+# >0 时仅输出前 N 条用于抽样检查
+
+"sample_size": 0,
+
+# True=只清洗不入库，False=清洗并入库
+
+"skip_db": False,
+
+# 清洗结果输出路径（JSON Lines）
+
+"output_path": r"d:\cleaned.json",
+
+# 建表 SQL 输出路径
+
+"schema_path": r"d: \data_fields_schema.sql",
+
+}
+
+CREATE_TABLE_SQL = """
+
+CREATE TABLE IF NOT EXISTS data_fields (
+
+id VARCHAR(128) PRIMARY KEY,
+
+description TEXT,
+
+dataset_id VARCHAR(64),
+
+dataset_name VARCHAR(255),
+
+category_id VARCHAR(64),
+
+category_name VARCHAR(255),
+
+subcategory_id VARCHAR(64),
+
+subcategory_name VARCHAR(255),
+
+region VARCHAR(16),
+
+delay INT,
+
+universe VARCHAR(64),
+
+type VARCHAR(32),
+
+dateCoverage TINYINT,
+
+coverage FLOAT,
+
+userCount INT,
+
+alphaCount INT,
+
+pyramidMultiplier FLOAT,
+
+themes JSON,
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+""".strip()
+
+UPSERT_SQL = """
+
+INSERT INTO data_fields (
+
+id, description, dataset_id, dataset_name, category_id, category_name, subcategory_id, subcategory_name,
+
+region, delay, universe, type, dateCoverage, coverage, userCount, alphaCount, pyramidMultiplier, themes
+
+)
+
+VALUES (
+
+%(id)s, %(description)s, %(dataset_id)s, %(dataset_name)s, %(category_id)s, %(category_name)s, %(subcategory_id)s, %(subcategory_name)s,
+
+%(region)s, %(delay)s, %(universe)s, %(type)s, %(dateCoverage)s, %(coverage)s, %(userCount)s, %(alphaCount)s, %(pyramidMultiplier)s, %(themes)s
+
+)
+
+ON DUPLICATE KEY UPDATE
+
+description=VALUES(description),
+
+dataset_id=VALUES(dataset_id),
+
+dataset_name=VALUES(dataset_name),
+
+category_id=VALUES(category_id),
+
+category_name=VALUES(category_name),
+
+subcategory_id=VALUES(subcategory_id),
+
+subcategory_name=VALUES(subcategory_name),
+
+region=VALUES(region),
+
+delay=VALUES(delay),
+
+universe=VALUES(universe),
+
+type=VALUES(type),
+
+dateCoverage=VALUES(dateCoverage),
+
+coverage=VALUES(coverage),
+
+userCount=VALUES(userCount),
+
+alphaCount=VALUES(alphaCount),
+
+pyramidMultiplier=VALUES(pyramidMultiplier),
+
+themes=VALUES(themes)
+
+""".strip()
+
+REQUIRED_COLUMNS = {
+
+"description": "TEXT",
+
+"dataset_id": "VARCHAR(64)",
+
+"dataset_name": "VARCHAR(255)",
+
+"category_id": "VARCHAR(64)",
+
+"category_name": "VARCHAR(255)",
+
+"subcategory_id": "VARCHAR(64)",
+
+"subcategory_name": "VARCHAR(255)",
+
+"region": "VARCHAR(16)",
+
+"delay": "INT",
+
+"universe": "VARCHAR(64)",
+
+"type": "VARCHAR(32)",
+
+"dateCoverage": "TINYINT",
+
+"coverage": "FLOAT",
+
+"userCount": "INT",
+
+"alphaCount": "INT",
+
+"pyramidMultiplier": "FLOAT",
+
+"themes": "JSON",
+
+"created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+
+}
+
+def setup_logger(log_dir: Path) -> logging.Logger:
+
+log_dir.mkdir(parents=True, exist_ok=True)
+
+date_str = datetime.now().strftime("%Y%m%d")
+
+log_file = log_dir / f"etl_{date_str}.log"
+
+logger = logging.getLogger("data_etl")
+
+logger.setLevel(logging.INFO)
+
+logger.handlers.clear()
+
+formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+file_handler = logging.FileHandler(log_file, encoding="utf-8")
+
+file_handler.setFormatter(formatter)
+
+console_handler = logging.StreamHandler()
+
+console_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+
+logger.addHandler(console_handler)
+
+return logger
+
+def safe_text(value: object) -> str:
+
+if value is None:
+
+return ""
+
+text = str(value)
+
+return text.strip()
+
+def to_number(value: object, field_name: str, row_no: int, logger: logging.Logger) -> Optional[float]:
+
+if value is None or value == "":
+
+logger.warning("line=%s field=%s invalid=missing -> NULL", row_no, field_name)
+
+return None
+
+try:
+
+if isinstance(value, bool):
+
+raise ValueError("bool is not accepted")
+
+return float(value)
+
+except (TypeError, ValueError):
+
+logger.warning("line=%s field=%s invalid=%r -> NULL", row_no, field_name, value)
+
+return None
+
+def to_sortable(value: object) -> str:
+
+if value is None:
+
+return ""
+
+return str(value)
+
+def iter_raw_records(file_path: Path, logger: logging.Logger) -> Generator[Tuple[int, dict], None, None]:
+
+with file_path.open("r", encoding="utf-8", errors="replace") as f:
+
+non_empty_lines = 0
+
+first_non_empty = ""
+
+for line_no, line in enumerate(f, start=1):
+
+stripped = line.strip()
+
+if not stripped:
+
+continue
+
+non_empty_lines += 1
+
+if not first_non_empty:
+
+first_non_empty = stripped
+
+try:
+
+obj = json.loads(stripped)
+
+except json.JSONDecodeError:
+
+if non_empty_lines == 1 and first_non_empty and (first_non_empty[0] in "{["):
+
+break
+
+logger.error("line=%s json parse failed", line_no)
+
+continue
+
+for record in extract_records_from_json(obj):
+
+yield line_no, record
+
+else:
+
+return
+
+with file_path.open("r", encoding="utf-8", errors="replace") as f:
+
+try:
+
+root_obj = json.load(f)
+
+except json.JSONDecodeError as e:
+
+raise ValueError(f"input parse failed: {e}") from e
+
+for record in extract_records_from_json(root_obj):
+
+yield 1, record
+
+def extract_records_from_json(obj: object) -> Iterable[dict]:
+
+if isinstance(obj, list):
+
+for item in obj:
+
+if isinstance(item, dict):
+
+yield item
+
+return
+
+if isinstance(obj, dict):
+
+results = obj.get("results")
+
+if isinstance(results, list):
+
+for item in results:
+
+if isinstance(item, dict):
+
+yield item
+
+else:
+
+yield obj
+
+def clean_record(raw: dict, row_no: int, region: str, logger: logging.Logger) -> Optional[dict]:
+
+record_id = safe_text(raw.get("id"))
+
+if not record_id:
+
+logger.error("line=%s missing id", row_no)
+
+return None
+
+dataset = raw.get("dataset") if isinstance(raw.get("dataset"), dict) else {}
+
+category = raw.get("category") if isinstance(raw.get("category"), dict) else {}
+
+subcategory = raw.get("subcategory") if isinstance(raw.get("subcategory"), dict) else {}
+
+dataset_name = safe_text(dataset.get("name")) or "Unknown"
+
+category_name = safe_text(category.get("name")) or "Unknown"
+
+cleaned = {
+
+"id": record_id,
+
+"description": safe_text(raw.get("description")),
+
+"dataset": {
+
+"id": safe_text(dataset.get("id")),
+
+"name": dataset_name,
+
+},
+
+"category": {
+
+"id": safe_text(category.get("id")),
+
+"name": category_name,
+
+},
+
+"subcategory": {
+
+"id": safe_text(subcategory.get("id")),
+
+"name": safe_text(subcategory.get("name")),
+
+},
+
+"region": region,
+
+"delay": to_number(raw.get("delay"), "delay", row_no, logger),
+
+"universe": safe_text(raw.get("universe")),
+
+"type": safe_text(raw.get("type")),
+
+"dateCoverage": to_number(raw.get("dateCoverage"), "dateCoverage", row_no, logger),
+
+"coverage": to_number(raw.get("coverage"), "coverage", row_no, logger),
+
+"userCount": to_number(raw.get("userCount"), "userCount", row_no, logger),
+
+"alphaCount": to_number(raw.get("alphaCount"), "alphaCount", row_no, logger),
+
+"pyramidMultiplier": to_number(raw.get("pyramidMultiplier"), "pyramidMultiplier", row_no, logger),
+
+"themes": [],
+
+"_row_no": row_no,
+
+}
+
+return cleaned
+
+def sort_key(record: dict) -> Tuple[str, str, str]:
+
+return (
+
+to_sortable(record["category"]["id"]),
+
+to_sortable(record["dataset"]["id"]),
+
+to_sortable(record["id"]),
+
+)
+
+def to_db_row(record: dict) -> dict:
+
+return {
+
+"id": record["id"],
+
+"description": record["description"] or None,
+
+"dataset_id": record["dataset"]["id"] or None,
+
+"dataset_name": record["dataset"]["name"] or None,
+
+"category_id": record["category"]["id"] or None,
+
+"category_name": record["category"]["name"] or None,
+
+"subcategory_id": record["subcategory"]["id"] or None,
+
+"subcategory_name": record["subcategory"]["name"] or None,
+
+"region": record["region"],
+
+"delay": int(record["delay"]) if record["delay"] is not None else None,
+
+"universe": record["universe"] or None,
+
+"type": record["type"] or None,
+
+"dateCoverage": int(record["dateCoverage"]) if record["dateCoverage"] is not None else None,
+
+"coverage": float(record["coverage"]) if record["coverage"] is not None else None,
+
+"userCount": int(record["userCount"]) if record["userCount"] is not None else None,
+
+"alphaCount": int(record["alphaCount"]) if record["alphaCount"] is not None else None,
+
+"pyramidMultiplier": float(record["pyramidMultiplier"]) if record["pyramidMultiplier"] is not None else None,
+
+"themes": json.dumps(record["themes"], ensure_ascii=False),
+
+"_row_no": record["_row_no"],
+
+}
+
+def replace_table_name(sql: str, table_name: str) -> str:
+
+return sql.replace("data_fields", table_name)
+
+def write_schema_file(schema_path: Path, table_name: str) -> None:
+
+schema_sql = replace_table_name(CREATE_TABLE_SQL, table_name)
+
+schema_path.write_text(schema_sql + "\n", encoding="utf-8")
+
+def write_cleaned_json(cleaned_records: List[dict], output_path: Path) -> None:
+
+with output_path.open("w", encoding="utf-8") as f:
+
+for rec in cleaned_records:
+
+rec_out = {k: v for k, v in rec.items() if not k.startswith("_")}
+
+f.write(json.dumps(rec_out, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+def md5_of_file(path: Path) -> str:
+
+h = hashlib.md5()
+
+with path.open("rb") as f:
+
+for chunk in iter(lambda: f.read(1024 * 1024), b""):
+
+h.update(chunk)
+
+return h.hexdigest()
+
+def ensure_table(connection, table_name: str) -> None:
+
+sql = replace_table_name(CREATE_TABLE_SQL, table_name)
+
+with connection.cursor() as cursor:
+
+cursor.execute(sql)
+
+# 兼容旧表结构：缺哪一列就补哪一列
+
+cursor.execute(f"SHOW COLUMNS FROM {table_name}")
+
+existing_columns = {row[0] for row in cursor.fetchall()}
+
+for column, ddl in REQUIRED_COLUMNS.items():
+
+if column not in existing_columns:
+
+cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {ddl}")
+
+connection.commit()
+
+def upsert_batch(connection, table_name: str, batch: List[dict]) -> int:
+
+if not batch:
+
+return 0
+
+sql = replace_table_name(UPSERT_SQL, table_name)
+
+with connection.cursor() as cursor:
+
+cursor.executemany(sql, batch)
+
+return len(batch)
+
+def safe_upsert_with_rollback(
+
+connection,
+
+table_name: str,
+
+batch: List[dict],
+
+logger: logging.Logger,
+
+) -> Tuple[int, int]:
+
+if not batch:
+
+return 0, 0
+
+try:
+
+count = upsert_batch(connection, table_name, batch)
+
+connection.commit()
+
+return count, 0
+
+except Exception:
+
+connection.rollback()
+
+failed_rows = 0
+
+ok_rows = 0
+
+for row in batch:
+
+try:
+
+upsert_batch(connection, table_name, [row])
+
+connection.commit()
+
+ok_rows += 1
+
+except Exception as e:
+
+connection.rollback()
+
+failed_rows += 1
+
+logger.error("db failed line=%s id=%s error=%s", row.get("_row_no"), row.get("id"), str(e))
+
+return ok_rows, failed_rows
+
+def export_mysql_to_json(connection, table_name: str, region: str, output_path: Path) -> int:
+
+sql = f"""
+
+SELECT
+
+id, description, dataset_id, dataset_name, category_id, category_name,
+
+subcategory_id, subcategory_name, region, delay, universe, type, dateCoverage,
+
+coverage, userCount, alphaCount, pyramidMultiplier, themes
+
+FROM {table_name}
+
+WHERE region=%s
+
+ORDER BY category_id ASC, dataset_id ASC, id ASC
+
+"""
+
+with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+
+cursor.execute(sql, (region,))
+
+rows = cursor.fetchall()
+
+with output_path.open("w", encoding="utf-8") as f:
+
+for row in rows:
+
+out = {
+
+"id": row["id"],
+
+"description": safe_text(row["description"]),
+
+"dataset": {
+
+"id": safe_text(row["dataset_id"]),
+
+"name": safe_text(row["dataset_name"]) or "Unknown",
+
+},
+
+"category": {
+
+"id": safe_text(row["category_id"]),
+
+"name": safe_text(row["category_name"]) or "Unknown",
+
+},
+
+"subcategory": {
+
+"id": safe_text(row["subcategory_id"]),
+
+"name": safe_text(row["subcategory_name"]),
+
+},
+
+"region": safe_text(row["region"]),
+
+"delay": row["delay"],
+
+"universe": safe_text(row["universe"]),
+
+"type": safe_text(row["type"]),
+
+"dateCoverage": row["dateCoverage"],
+
+"coverage": row["coverage"],
+
+"userCount": row["userCount"],
+
+"alphaCount": row["alphaCount"],
+
+"pyramidMultiplier": row["pyramidMultiplier"],
+
+"themes": json.loads(row["themes"]) if row["themes"] else [],
+
+}
+
+f.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+return len(rows)
+
+def print_summary(
+
+unique_count: int,
+
+category_counter: Counter,
+
+numeric_null_counts: Dict[str, int],
+
+total_records: int,
+
+) -> None:
+
+print("========== ETL SUMMARY ==========")
+
+print(f"唯一记录数: {unique_count}")
+
+print("各 category 分布:")
+
+for category_id, cnt in sorted(category_counter.items(), key=lambda x: x[0]):
+
+print(f"  {category_id}: {cnt}")
+
+print("数值字段空值率:")
+
+for field in NUMERIC_FIELDS:
+
+null_count = numeric_null_counts.get(field, 0)
+
+ratio = (null_count / total_records) if total_records else 0
+
+print(f"  {field}: {ratio:.6%}")
+
+print("=================================")
+
+def main() -> None:
+
+# 从 RUN_CONFIG 读取可配置参数
+
+input_path = Path(RUN_CONFIG["input_path"])
+
+region = str(RUN_CONFIG["region"]).strip()
+
+table = str(RUN_CONFIG["table"]).strip()
+
+batch_size = int(RUN_CONFIG["batch_size"])
+
+sample_size = int(RUN_CONFIG["sample_size"])
+
+skip_db = bool(RUN_CONFIG["skip_db"])
+
+output_path = Path(RUN_CONFIG["output_path"])
+
+schema_path = Path(RUN_CONFIG["schema_path"])
+
+logger = setup_logger(Path.cwd())
+
+logger.info("start input=%s region=%s", str(input_path), region)
+
+if not input_path.exists():
+
+raise FileNotFoundError(f"input file not found: {input_path}")
+
+cleaned_map: Dict[Tuple[str, str], dict] = {}
+
+read_lines = 0
+
+clean_failed = 0
+
+duplicate_skipped = 0
+
+category_counter: Counter = Counter()
+
+numeric_null_counts: Dict[str, int] = {field: 0 for field in NUMERIC_FIELDS}
+
+for line_no, raw in iter_raw_records(input_path, logger):
+
+read_lines += 1
+
+if not isinstance(raw, dict):
+
+clean_failed += 1
+
+logger.error("line=%s non-dict record skipped", line_no)
+
+continue
+
+cleaned = clean_record(raw, line_no, region, logger)
+
+if cleaned is None:
+
+clean_failed += 1
+
+continue
+
+key = (cleaned["id"], cleaned["region"])
+
+if key in cleaned_map:
+
+duplicate_skipped += 1
+
+continue
+
+cleaned_map[key] = cleaned
+
+category_counter[cleaned["category"]["id"]] += 1
+
+for field in NUMERIC_FIELDS:
+
+if cleaned[field] is None:
+
+numeric_null_counts[field] += 1
+
+all_records = sorted(cleaned_map.values(), key=sort_key)
+
+output_records = all_records[:sample_size] if sample_size > 0 else all_records
+
+write_cleaned_json(output_records, output_path)
+
+write_schema_file(schema_path, table)
+
+db_success = 0
+
+db_failed = 0
+
+mysql_export_path = output_path.with_name(f"mysql_export_{region}.json")
+
+md5_cleaned = md5_of_file(output_path)
+
+md5_export = ""
+
+mysql_count = 0
+
+if not skip_db:
+
+connection = pymysql.connect(**DB_CONFIG)
+
+try:
+
+ensure_table(connection, table)
+
+db_rows = [to_db_row(r) for r in all_records]
+
+batch: List[dict] = []
+
+for row in db_rows:
+
+batch.append(row)
+
+if len(batch) >= batch_size:
+
+ok, failed = safe_upsert_with_rollback(connection, table, batch, logger)
+
+db_success += ok
+
+db_failed += failed
+
+batch.clear()
+
+if batch:
+
+ok, failed = safe_upsert_with_rollback(connection, table, batch, logger)
+
+db_success += ok
+
+db_failed += failed
+
+mysql_count = export_mysql_to_json(connection, table, region, mysql_export_path)
+
+md5_export = md5_of_file(mysql_export_path)
+
+finally:
+
+connection.close()
+
+logger.info("读取行数=%s", read_lines)
+
+logger.info("清洗失败行数=%s", clean_failed)
+
+logger.info("入库成功条数=%s", db_success)
+
+logger.info("跳过重数=%s", duplicate_skipped)
+
+logger.info("唯一记录数=%s", len(all_records))
+
+logger.info("输出记录数=%s", len(output_records))
+
+logger.info("cleaned_md5=%s", md5_cleaned)
+
+if md5_export:
+
+logger.info("mysql_export_md5=%s", md5_export)
+
+logger.info("mysql_region_count=%s", mysql_count)
+
+print_summary(
+
+unique_count=len(all_records),
+
+category_counter=category_counter,
+
+numeric_null_counts=numeric_null_counts,
+
+total_records=len(all_records),
+
+)
+
+print(f"cleaned file: {output_path}")
+
+print(f"schema file: {schema_path}")
+
+print(f"cleaned md5: {md5_cleaned}")
+
+if md5_export:
+
+print(f"mysql export: {mysql_export_path}")
+
+print(f"mysql export md5: {md5_export}")
+
+print(f"mysql count(region={region}): {mysql_count}")
+
+if __name__ == "__main__":
+
+# 直接运行当前文件即可开始 ETL
+
+main()
+
+---
+
+## 讨论与评论 (5)
+
+### 评论 #1 (作者: ES81271, 时间: 3个月前)
+
+这个限流到这种程度了吗？为了个数据，存的文件是否可以让AI整理数据呢。不过点赞大佬的这种精神。
+
+---
+
+### 评论 #2 (作者: SJ65808, 时间: 3个月前)
+
+将数据存储到本地，减少获取数据的时间，很不错的分享
+
+==================================================================================
+==================纸上得来终觉浅，绝知此事要躬行======================================
+
+---
+
+### 评论 #3 (作者: MY49971, 时间: 3个月前)
+
+不错的想法，感谢大佬分享
+
+==================================================================================
+===================Talk is cheap,show me the alpha=================================
+
+---
+
+### 评论 #4 (作者: MZ45384, 时间: 3个月前)
+
+非常好用的存储数据集和数据字段的代码，谢谢大佬的无私分享。
+
+======================================================================================
+知难上，戒骄狂，常自省，穷途明。“寻找可以重复数千次的东西。”——吉姆·西蒙斯（量化投资之王、文艺复兴科技创始人）
+# Alpha∞ Engine Status: ONLINE [♦♦♦♦♦♦♦♦♦♦] 100%
+# sys.setrecursionlimit(α∞) 
+# PnL = ∑(Robustness * Creativity)
+#无限探索、鲁棒性优先，创新性增值 
+#Where there is a will, there is a way. 路漫漫其修远兮，吾将上下而求索。
+======================================================================================
+
+---
+
+### 评论 #5 (作者: JW52291, 时间: 3个月前)
+
+非常好用，感谢分享，马上做起来============================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================================
+
+---
+
