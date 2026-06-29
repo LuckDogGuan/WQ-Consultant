@@ -217,6 +217,9 @@ class JobRunner:
                 elif kind == "optimization_run":
                     from .services.optimization_run_service import run_optimization_job
                     run_optimization_job(job_id, params)
+                elif kind == "template_iteration":
+                    from .services.template_iteration import run_template_iteration_job
+                    run_template_iteration_job(job_id, params)
                 elif kind == "submitted_cleanup":
                     from .services.maintenance_service import run_submitted_cleanup_job
                     run_submitted_cleanup_job(job_id, params)

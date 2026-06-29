@@ -181,6 +181,64 @@ async def post_validate_expression(request: Request, admin: str = Depends(get_cu
     return validate_expression(expression).to_dict()
 
 
+@app.get("/template-iteration", response_class=HTMLResponse)
+def get_template_iteration_page(request: Request, admin: str = Depends(get_current_admin)):
+    return templates.TemplateResponse(request, "template_iteration.html", {"success": None})
+
+
+@app.post("/api/template-iteration/preview")
+async def post_template_iteration_preview(request: Request, admin: str = Depends(get_current_admin)):
+    from .services.template_iteration import dedupe_candidates, expand_template_candidates, normalize_template_iteration_options
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    options = normalize_template_iteration_options(payload)
+    fields = list(payload.get("fields") or [])
+    if not fields:
+        fields = _load_template_iteration_fields(options.regions, str(payload.get("universe") or "TOP3000"), int(payload.get("delay") or 1))
+    return dedupe_candidates(expand_template_candidates(
+        payload.get("templates") or "",
+        fields,
+        options,
+    )).to_dict()
+
+
+@app.post("/api/jobs/template_iteration")
+async def post_template_iteration_job(request: Request, admin: str = Depends(get_current_admin)):
+    from .services.template_iteration import create_template_iteration_job_params
+
+    try:
+        payload = await request.json()
+        params = create_template_iteration_job_params(payload.get("candidates") or [], payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid template iteration payload: {exc}") from exc
+
+    params["custom_alphas"] = [item["expression"] for item in params["candidates"]]
+    title = f"模板迭代回测 ({len(params['custom_alphas'])} 个候选)"
+    job_id = create_job("template_iteration", title, params)
+    JobRunner().start_job(job_id, "template_iteration", params)
+    return {"status": "ok", "job_id": job_id}
+
+
+def _load_template_iteration_fields(regions: list[str], universe: str, delay: int) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    for region in regions:
+        for dataset in load_datasets_from_cache(region, universe, delay)[:10]:
+            dataset_id = str(dataset.get("id") or dataset.get("dataset_id") or "")
+            if not dataset_id:
+                continue
+            for field in load_fields_from_cache(region, universe, delay, dataset_id):
+                item = dict(field)
+                item.setdefault("region", region)
+                item.setdefault("dataset", dataset_id)
+                fields.append(item)
+    return fields
+
+
 @app.get("/api/optimization/variants/{alpha_id}")
 def get_optimization_variants(alpha_id: str, max_variants: int = 30, admin: str = Depends(get_current_admin)):
     from .services.alpha_enhancement import generate_variants_for_alpha_id

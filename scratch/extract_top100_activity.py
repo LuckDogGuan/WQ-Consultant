@@ -339,13 +339,17 @@ def extract_forum_links(text: str) -> list[str]:
     return list(set(normalized_links))
 
 def extract_post_id(url: str) -> str:
+    if not url:
+        return ""
     match = re.search(r'/community/posts/(\d+)', url)
     if match:
         return match.group(1)
     match = re.search(r'/articles/(\d+)', url)
     if match:
         return match.group(1)
-    return url
+    if isinstance(url, str) and url.isdigit():
+        return url
+    return ""
 
 def load_advisor_list() -> list[str]:
     """从 user_rank.md 解析前100名顾问 ID"""
@@ -391,8 +395,9 @@ def scan_all_local_posts(output_base_dir: Path) -> dict[str, Path]:
 
 def save_post_content_to_file(url, title, body, comments, post_data, output_dir, prefix) -> Path:
     """统一的文件写入辅助函数"""
+    post_id = extract_post_id(url)
     clean_title = "".join(c for c in title if c.isalnum() or c in " -_[]【】").strip()
-    filename = output_dir / f"{prefix}{clean_title}.md"
+    filename = output_dir / f"{prefix}{clean_title}_{post_id}.md"
     
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(f"# {title}\n\n")
@@ -525,64 +530,61 @@ async def read_full_forum_post_custom(page, post_url_or_id: str, output_dir: Pat
             if comment_data not in comments:
                 comments.append(comment_data)
                 
-        # 检查是否有多页评论 (在分页导航中是否存在 page=2 链接)
-        has_more_pages = any('page=2' in a.get('href', '') for a in soup.select('.pagination a'))
-        
-        if has_more_pages and max_comment_pages > 1:
-            page_num = 2
-            while page_num <= max_comment_pages:
-                comment_url = f"{base_url}?page={page_num}#comments"
-                print(f"Navigating to comment page: {comment_url}")
+        # 检查是否有多页评论 (通过是否存在下一页链接判断)
+        next_a = soup.select_one('a.pagination-next-link')
+        page_num = 2
+        while next_a and page_num <= max_comment_pages:
+            next_href = next_a.get('href', '')
+            if not next_href:
+                break
+            comment_url = next_href if next_href.startswith('http') else f"https://support.worldquantbrain.com{next_href}"
+            print(f"Navigating to comment page: {comment_url}")
+            
+            try:
+                response = await page.goto(comment_url, wait_until="domcontentloaded")
+                if response and response.status == 404:
+                    break
+                await page.wait_for_selector('.comment-list', timeout=3000, state="visible")
+            except Exception:
+                break
+
+            comment_html = await page.content()
+            sniff_profiles_from_html(comment_html)
+            
+            comment_soup = BeautifulSoup(comment_html, 'html.parser')
+            comment_elements = comment_soup.select('.comment')
+
+            if not comment_elements:
+                break
+            
+            new_comments_found = 0
+            for comment_element in comment_elements:
+                author_span = comment_element.select_one('.comment-author span[title]')
+                author_id = author_span['title'] if author_span else 'Unknown'
+
+                body_element = comment_element.select_one('.comment-body')
+                date_element = comment_element.select_one('.comment-meta .meta-data')
                 
-                try:
-                    response = await page.goto(comment_url, wait_until="domcontentloaded")
-                    if response and response.status == 404:
-                        break
-                    await page.wait_for_selector('.comment-list', timeout=3000, state="visible")
-                except Exception:
-                    break
+                if body_element:
+                    comment_body = await preprocess_html_to_markdown(page, body_element, output_dir, download_images=download_images)
+                else:
+                    comment_body = ''
 
-                comment_html = await page.content()
-                sniff_profiles_from_html(comment_html)
+                comment_data = {
+                    'author': author_id,
+                    'body': comment_body,
+                    'date': date_element.get_text(strip=True) if date_element else 'Unknown Date'
+                }
                 
-                comment_soup = BeautifulSoup(comment_html, 'html.parser')
-                comment_elements = comment_soup.select('.comment')
+                if comment_data not in comments:
+                    comments.append(comment_data)
+                    new_comments_found += 1
 
-                if not comment_elements:
-                    break
+            if new_comments_found == 0:
+                break
                 
-                new_comments_found = 0
-                for comment_element in comment_elements:
-                    author_span = comment_element.select_one('.comment-author span[title]')
-                    author_id = author_span['title'] if author_span else 'Unknown'
-
-                    body_element = comment_element.select_one('.comment-body')
-                    date_element = comment_element.select_one('.comment-meta .meta-data')
-                    
-                    if body_element:
-                        comment_body = await preprocess_html_to_markdown(page, body_element, output_dir, download_images=download_images)
-                    else:
-                        comment_body = ''
-
-                    comment_data = {
-                        'author': author_id,
-                        'body': comment_body,
-                        'date': date_element.get_text(strip=True) if date_element else 'Unknown Date'
-                    }
-                    
-                    if comment_data not in comments:
-                        comments.append(comment_data)
-                        new_comments_found += 1
-
-                if new_comments_found == 0:
-                    break
-                    
-                # 检查是否还有下一页，避免不必要的访问
-                has_next = any(f'page={page_num + 1}' in a.get('href', '') for a in comment_soup.select('.pagination a'))
-                if not has_next:
-                    break
-                    
-                page_num += 1
+            next_a = comment_soup.select_one('a.pagination-next-link')
+            page_num += 1
 
     return {
         "success": True,
@@ -591,10 +593,12 @@ async def read_full_forum_post_custom(page, post_url_or_id: str, output_dir: Pat
         "total_comments": len(comments)
     }
 
-async def fetch_links_from_profile_page(page, user_id: str, adv_id: str) -> list[str]:
+async def fetch_links_from_profile_page(page, user_id: str, adv_id: str) -> tuple[list[str], int, int]:
     """通过顾问的 Zendesk 个人主页获取其发表的所有发帖和回帖链接 (支持 Cursor 分页)"""
     links = []
     seen = set()
+    expected_posts = 0
+    expected_comments = 0
     
     # 1. 抓取他发表的主帖 (Posts)
     current_url = f"https://support.worldquantbrain.com/hc/zh-cn/profiles/{user_id}-{adv_id}?filter_by=posts&sort_by=recent_user_activity"
@@ -610,6 +614,24 @@ async def fetch_links_from_profile_page(page, user_id: str, adv_id: str) -> list
                 
             content = await page.content()
             soup = BeautifulSoup(content, 'html.parser')
+            
+            # Parse expected counts on the very first page load
+            if page_num == 1:
+                try:
+                    for a in soup.find_all('a'):
+                        href = a.get('href', '')
+                        tab_text = a.get_text(strip=True)
+                        if 'filter_by=posts' in href:
+                            posts_m = re.search(r'(?:帖子|posts)[（(]\s*(\d+)\s*[）)]', tab_text, re.IGNORECASE)
+                            if posts_m:
+                                expected_posts = int(posts_m.group(1))
+                        elif 'filter_by=comments' in href:
+                            comments_m = re.search(r'(?:评论|comments)[（(]\s*(\d+)\s*[）)]', tab_text, re.IGNORECASE)
+                            if comments_m:
+                                expected_comments = int(comments_m.group(1))
+                    print(f"[{adv_id}] 解析到期望数据量 - 帖子: {expected_posts}, 评论: {expected_comments}")
+                except Exception as e:
+                    print(f"Failed to parse expected counts: {e}")
             
             new_links_found = 0
             for a in soup.select("a"):
@@ -677,10 +699,10 @@ async def fetch_links_from_profile_page(page, user_id: str, adv_id: str) -> list
             print(f"Failed to fetch profile comments: {e}")
             break
             
-    return links
+    return links, expected_posts, expected_comments
 
 
-async def fetch_post_with_cache(page, email, password, url, output_dir, prefix="", global_local_posts=None, max_comment_pages: int = 20, download_images: bool = True) -> tuple[bool, str, list[str], dict | None, list | None]:
+async def fetch_post_with_cache(page, email, password, url, output_dir, prefix="", global_local_posts=None, max_comment_pages: int = 20, download_images: bool = True, force: bool = False) -> tuple[bool, str, list[str], dict | None, list | None, str]:
     """
     带有多级缓存的帖子拉取函数：
     1. 检查目标顾问目录下是否已存在。
@@ -691,54 +713,47 @@ async def fetch_post_with_cache(page, email, password, url, output_dir, prefix="
     post_id = extract_post_id(url)
     global_local_posts = global_local_posts or {}
     
-    # 1. 检查目标目录是否已存在
-    for p in output_dir.glob("*.md"):
-        try:
-            content = p.read_text(encoding="utf-8")
-            if url in content or (post_id and post_id in content):
-                # 检查是否存在未本地化的图片链接
-                if "hc/user_images/" in content:
-                    print(f"File {p.name} contains un-localized images. Re-downloading to localize images...")
-                    break
-                
-                title_match = re.match(r'# (.*)', content)
-                title = title_match.group(1) if title_match else p.stem
-                print(f"Skipping download (already exists in target folder): {title} ({p.name})")
-                extracted_links = extract_forum_links(content)
-                mock_post = {"author": "Local", "details": {"date": "Local", "votes": "0"}}
-                return True, title, extracted_links, mock_post, []
-        except Exception:
-            pass
-
-    # 2. 检查全局本地已下载映射
-    if post_id in global_local_posts:
+    # 1. 检查目标目录与全局缓存是否已存在
+    if not force and post_id in global_local_posts:
         source_path = global_local_posts[post_id]
         if source_path.exists():
-            try:
-                content = source_path.read_text(encoding="utf-8")
-                # 仅在源缓存文件不含有未本地化图片时，才直接拷贝缓存
-                if "hc/user_images/" not in content:
-                    print(f"Copying local cache from: {source_path.relative_to(source_path.parent.parent.parent)}")
-                    title_match = re.match(r'# (.*)', content)
-                    title = title_match.group(1) if title_match else source_path.stem
-                    
-                    extracted_links = extract_forum_links(content)
-                    
-                    clean_title = "".join(c for c in title if c.isalnum() or c in " -_[]【】").strip()
-                    dest_path = output_dir / f"{prefix}{clean_title}.md"
-                    shutil.copy2(source_path, dest_path)
-                    
-                    # Copy images referenced in the markdown
-                    copy_referenced_images(source_path, dest_path)
-                    
-                    return True, title, extracted_links, {"author": "Local"}, []
-                else:
-                    print(f"Local cache for post {post_id} contains un-localized images. Will re-fetch from web to localize.")
-            except Exception as e:
-                print(f"Failed to copy local cache: {e}")
+            # 如果它已经存在于当前顾问目录中
+            if source_path.parent == output_dir:
+                try:
+                    content = source_path.read_text(encoding="utf-8")
+                    if "hc/user_images/" not in content:
+                        title_match = re.match(r'# (.*)', content)
+                        title = title_match.group(1) if title_match else source_path.stem
+                        print(f"Skipping download (already exists in target folder): {title} ({source_path.name})")
+                        extracted_links = extract_forum_links(content)
+                        mock_post = {"author": "Local", "details": {"date": "Local", "votes": "0"}}
+                        return True, title, extracted_links, mock_post, [], post_id
+                    else:
+                        print(f"File {source_path.name} contains un-localized images. Re-downloading to localize images...")
+                except Exception:
+                    pass
+            # 如果它存在于其他顾问的目录中，则复制过来
+            else:
+                try:
+                    content = source_path.read_text(encoding="utf-8")
+                    if "hc/user_images/" not in content:
+                        print(f"Copying local cache from: {source_path.relative_to(source_path.parent.parent.parent)}")
+                        title_match = re.match(r'# (.*)', content)
+                        title = title_match.group(1) if title_match else source_path.stem
+                        extracted_links = extract_forum_links(content)
+                        clean_title = "".join(c for c in title if c.isalnum() or c in " -_[]【】").strip()
+                        dest_path = output_dir / f"{prefix}{clean_title}_{post_id}.md"
+                        shutil.copy2(source_path, dest_path)
+                        copy_referenced_images(source_path, dest_path)
+                        global_local_posts[post_id] = dest_path
+                        return True, title, extracted_links, {"author": "Local"}, [], post_id
+                    else:
+                        print(f"Local cache for post {post_id} contains un-localized images. Will re-fetch from web to localize.")
+                except Exception as e:
+                    print(f"Failed to copy local cache: {e}")
 
     # 3. 检查内存缓存
-    if post_id in network_cache:
+    if not force and post_id in network_cache:
         print(f"Using memory cache for post_id: {post_id}")
         cached_data = network_cache[post_id]
         if cached_data["success"]:
@@ -751,9 +766,9 @@ async def fetch_post_with_cache(page, email, password, url, output_dir, prefix="
                     copy_referenced_images(src_p, dest_file)
                 
             extracted_links = extract_forum_links(cached_data["body"] + "\n" + "\n".join([c.get("body", "") for c in cached_data["comments"]]))
-            return True, cached_data["title"], extracted_links, cached_data["post"], cached_data["comments"]
+            return True, cached_data["title"], extracted_links, cached_data["post"], cached_data["comments"], post_id
         else:
-            return False, "", [], None, None
+            return False, "", [], None, None, post_id
 
     # 4. 网络拉取
     try:
@@ -761,7 +776,7 @@ async def fetch_post_with_cache(page, email, password, url, output_dir, prefix="
         if not post_detail.get("success"):
             print(f"Failed to fetch content for URL: {url}")
             network_cache[post_id] = {"success": False}
-            return False, "", [], None, None
+            return False, "", [], None, None, post_id
         
         post = post_detail.get("post", {})
         comments = post_detail.get("comments", [])
@@ -784,11 +799,91 @@ async def fetch_post_with_cache(page, email, password, url, output_dir, prefix="
         content_to_scan = body + "\n" + "\n".join([c.get("body", "") for c in comments])
         extracted_links = extract_forum_links(content_to_scan)
         
-        return True, title, extracted_links, post, comments
+        resolved_post_id = extract_post_id(page.url)
+        if not resolved_post_id:
+            resolved_post_id = post_id
+            
+        return True, title, extracted_links, post, comments, resolved_post_id
     except Exception as e:
         print(f"Exception extracting post '{url}': {e}")
         network_cache[post_id] = {"success": False}
-        return False, "", [], None, None
+        return False, "", [], None, None, post_id
+
+async def main():
+    email, password = load_credentials()
+    client = ForumClient()
+    
+    # 加载 100 顾问列表
+    advisors = load_advisor_list()
+    print(f"Loaded {len(advisors)} advisors to process.")
+    
+def migrate_old_filenames(output_base_dir: Path):
+    """
+    将旧版没有包含 post_id 的文件名迁移到新版格式：
+    如 2024Q4薪资分享.md -> 2024Q4薪资分享_41063717088919.md
+    """
+    print("\n================== 正在进行旧文件名迁移 ==================")
+    migrated_count = 0
+    deleted_count = 0
+    for root, dirs, files in os.walk(output_base_dir):
+        for file in files:
+            if file.endswith(".md"):
+                file_path = Path(root) / file
+                name_stem = file_path.stem
+                
+                # 如果文件名已经是以 _数字 结尾，说明已经是新格式，跳过
+                if re.search(r'_\d{5,}$', name_stem):
+                    continue
+                
+                try:
+                    content = file_path.read_text(encoding="utf-8")
+                    url_match = re.search(r'- \*\*链接\*\*: (https://[^\s\n]+)', content)
+                    if url_match:
+                        url = url_match.group(1)
+                        post_id = extract_post_id(url)
+                        if post_id:
+                            # 构造新文件名
+                            new_name = f"{name_stem}_{post_id}.md"
+                            new_path = file_path.parent / new_name
+                            
+                            if new_path.exists():
+                                # 如果新格式已存在，说明是重复的旧文件，直接删除旧的
+                                file_path.unlink()
+                                deleted_count += 1
+                            else:
+                                file_path.rename(new_path)
+                                migrated_count += 1
+                except Exception as e:
+                    print(f"Error migrating file {file_path}: {e}")
+                    
+    print(f"文件名迁移完成：已迁移 {migrated_count} 个文件，清理 {deleted_count} 个重复旧文件。\n")
+
+def count_local_activity(adv_dir: Path, adv_id: str) -> tuple[int, int]:
+    """
+    计算本地已保存的顾问 activity 数量：
+    1. 属于该顾问的主帖数 (文件名不含 [Commented] 和 [L2])
+    2. 该顾问在所有本地文件中的评论数总和
+    """
+    local_posts = 0
+    local_comments = 0
+    for p_file in adv_dir.glob("*.md"):
+        if p_file.name.startswith("[L2]"):
+            continue
+        try:
+            content = p_file.read_text(encoding="utf-8")
+            
+            # 判断是否为主贴作者
+            if not p_file.name.startswith("[Commented]"):
+                local_posts += 1
+                
+            # 计算该顾问在当前文件中的评论数
+            # 匹配格式如：### 评论 #1 (作者: ZS59763, 时间: ...)
+            comment_pattern = rf'### 评论 #\d+ \(作者:\s*{adv_id}\b'
+            comments_found = len(re.findall(comment_pattern, content))
+            local_comments += comments_found
+        except Exception:
+            pass
+    return local_posts, local_comments
 
 async def main():
     email, password = load_credentials()
@@ -808,6 +903,9 @@ async def main():
     output_base_dir = Path("reference/top100Rank-2026Q2/user_activity")
     output_base_dir.mkdir(parents=True, exist_ok=True)
     
+    # 执行旧文件名迁移，防止重名覆盖以及校验失败
+    migrate_old_filenames(output_base_dir)
+    
     # 全局本地已下载文件扫描，用于秒级断点续传
     global_local_posts = scan_all_local_posts(output_base_dir)
     print(f"Scanned {len(global_local_posts)} posts already present in local folders.")
@@ -816,61 +914,86 @@ async def main():
         browser, context = await client._get_browser_context(p, email, password)
         page = await client._new_page(context)
         
+        # 必须先触发 SSO 登录流程，使浏览器在 support.worldquantbrain.com 域名下也处于登录状态
+        # 否则匿名状态下访问个人主页会看到“发贴(0)”或“回复(0)”的空页面，导致无法抓取
+        signin_url = "https://support.worldquantbrain.com/hc/zh-cn/signin"
+        print(f"Triggering SSO Sign-in by navigating to {signin_url}...")
+        try:
+            await page.goto(signin_url, wait_until="networkidle")
+            print("SSO login succeeded. Current URL:", page.url)
+        except Exception as e:
+            print(f"SSO login navigation timed out or failed: {e}, continuing...")
+        
+        # 0. 并发解析缺失的 Zendesk ID (使用信号量进行并发控制)
+        concurrency_sem = asyncio.Semaphore(5)
+        m = load_advisor_zendesk_map()
+        missing_advisors = [adv for adv in target_advisors if adv not in m]
+        if missing_advisors:
+            print(f"\n================== 正在并发解析 {len(missing_advisors)} 个缺失的 Zendesk ID ==================")
+            
+            async def resolve_advisor_id(adv_id):
+                current_map = load_advisor_zendesk_map()
+                if adv_id in current_map:
+                    return True
+                    
+                async with concurrency_sem:
+                    item_page = await client._new_page(context)
+                    try:
+                        print(f"正在并发搜索顾问: {adv_id} 的 Zendesk ID...")
+                        search_links = await search_forum_posts_custom(item_page, adv_id, max_results=5)
+                        
+                        # 检查在加载搜索页时是否有 sniff 成功
+                        current_map = load_advisor_zendesk_map()
+                        if adv_id in current_map:
+                            return True
+                            
+                        if not search_links:
+                            return False
+                            
+                        # 遍历前 3 个帖子以嗅探 ID
+                        adv_dir = output_base_dir / adv_id
+                        adv_dir.mkdir(parents=True, exist_ok=True)
+                        for s_url in search_links[:3]:
+                            await read_full_forum_post_custom(
+                                item_page, s_url, adv_dir, include_comments=True, max_comment_pages=1, download_images=False
+                            )
+                            current_map = load_advisor_zendesk_map()
+                            if adv_id in current_map:
+                                return True
+                    except Exception as e:
+                        print(f"Error resolving ID for {adv_id}: {e}")
+                    finally:
+                        await item_page.close()
+                return False
+                
+            await asyncio.gather(*(resolve_advisor_id(adv) for adv in missing_advisors))
+            print("Zendesk ID 并发解析完成！当前映射表已更新。\n")
+        
         for adv_id in target_advisors:
             print(f"\n>>>>>>> 正在检索顾问: {adv_id} <<<<<<<")
             adv_dir = output_base_dir / adv_id
             adv_dir.mkdir(parents=True, exist_ok=True)
             
             results = []
+            expected_posts = 0
+            expected_comments = 0
             
-            # 1. 尝试从本地已累积的 zendesk 映射文件中查找，实现直爬个人主页
+            # 1. 从已有的 map 中获取 User ID 爬取个人主页
             m = load_advisor_zendesk_map()
-            has_profile = False
             if adv_id in m:
                 user_id = m[adv_id]
                 print(f"Found Zendesk User ID: {user_id} for {adv_id}. Fetching directly from personal profile page...")
-                profile_links = await fetch_links_from_profile_page(page, user_id, adv_id)
+                profile_links, expected_posts, expected_comments = await fetch_links_from_profile_page(page, user_id, adv_id)
                 results.extend(profile_links)
                 print(f"Found {len(profile_links)} links from profile page.")
-                has_profile = True
-            
-            # 2. 如果没有在映射表中，则使用关键字全局搜索来寻找该顾问的个人主页 ID
-            if not has_profile:
-                search_query = adv_id
-                print(f"Searching forum for keyword: '{search_query}'...")
+            else:
+                # 兜底：如果实在没搜到 ID，则通过搜索关键字兜底
+                print(f"Warning: Could not resolve Zendesk ID for {adv_id}. Falling back to search results...")
                 try:
-                    search_links = await search_forum_posts_custom(page, search_query, max_results=30)
-                    print(f"Found {len(search_links)} search results for {adv_id}.")
-                    
-                    # 遍历搜索结果，直到嗅探到该顾问的 Zendesk ID
-                    for s_url in search_links:
-                        # 仅加载第一页以嗅探 ID，用 temp_ 前缀写入以避免冲突，并将 max_comment_pages 设为 1
-                        success, title, _, _, _ = await fetch_post_with_cache(
-                            page, email, password, s_url, adv_dir, prefix="temp_", global_local_posts=global_local_posts, max_comment_pages=1, download_images=False
-                        )
-                        # 清理临时文件
-                        if success:
-                            clean_title = "".join(c for c in title if c.isalnum() or c in " -_[]【】").strip()
-                            for f_temp in [adv_dir / f"temp_{clean_title}.md", adv_dir / f"[Commented] temp_{clean_title}.md"]:
-                                if f_temp.exists():
-                                    f_temp.unlink()
-                                
-                        # 检查是否成功嗅探到了 ID
-                        m = load_advisor_zendesk_map()
-                        if adv_id in m:
-                            user_id = m[adv_id]
-                            print(f"[成功激活] 嗅探到 {adv_id} 的 Zendesk ID: {user_id}。立即切换到个人主页抓取！")
-                            profile_links = await fetch_links_from_profile_page(page, user_id, adv_id)
-                            results.extend(profile_links)
-                            has_profile = True
-                            break
-                            
-                    # 如果仍未嗅探到 ID，则使用原有的搜索结果兜底
-                    if not has_profile:
-                        print(f"Warning: Could not sniff Zendesk ID for {adv_id}. Using search results as fallback.")
-                        results.extend(search_links)
+                    search_links = await search_forum_posts_custom(page, adv_id, max_results=30)
+                    results.extend(search_links)
                 except Exception as e:
-                    print(f"Search failed for {adv_id}: {e}")
+                    print(f"Search fallback failed for {adv_id}: {e}")
                 
             # 去重
             unique_results = []
@@ -886,11 +1009,14 @@ async def main():
             level2_links_queue = []
             l1_success_count = 0
             
-            # Level 1: 拉取并根据作者过滤
-            for idx, url in enumerate(unique_results, 1):
+            # 并发控制信号量，限制最大同时打开5个页面 (即相当于5线程)
+            concurrency_sem = asyncio.Semaphore(5)
+            
+            # Level 1: 并发下载任务定义
+            async def process_l1_item(url, idx):
                 post_id = extract_post_id(url)
-                print(f"[Level 1] Checking result {idx}/{len(unique_results)}: {url}")
                 
+                # 1. 检查本地是否已存在
                 target_exists = False
                 for p_file in adv_dir.glob("*.md"):
                     if post_id in p_file.name:
@@ -898,82 +1024,278 @@ async def main():
                         try:
                             file_content = p_file.read_text(encoding="utf-8")
                             l2_links = extract_forum_links(file_content)
-                            level2_links_queue.extend(l2_links)
-                            l1_success_count += 1
+                            return True, (p_file.name, p_file.name, {"author": "Local"}, []), l2_links, "local"
                         except Exception:
                             pass
                         break
                 
                 if target_exists:
-                    print(f"Already processed locally for advisor {adv_id}. Skipping.")
+                    return False, None, [], "skipped"
+                
+                # 2. 从缓存或网络下载 (使用信号量进行流量控制)
+                async with concurrency_sem:
+                    item_page = await client._new_page(context)
+                    try:
+                        print(f"[Level 1] Concurrently fetching {idx}/{len(unique_results)}: {url}")
+                        success, title, l2_links, post_data, comments, resolved_post_id = await fetch_post_with_cache(
+                            item_page, email, password, url, adv_dir, prefix="", global_local_posts=global_local_posts
+                        )
+                        if success:
+                            return True, (title, resolved_post_id, post_data, comments), l2_links, "downloaded"
+                        return False, None, [], "failed"
+                    except Exception as e:
+                        print(f"Error fetching {url}: {e}")
+                        return False, None, [], "error"
+                    finally:
+                        await item_page.close()
+
+            # 并发执行 Level 1
+            tasks_l1 = [process_l1_item(url, idx) for idx, url in enumerate(unique_results, 1)]
+            l1_results = await asyncio.gather(*tasks_l1)
+            
+            # 下载完毕后，回到单线程环境下进行重命名、筛选以及主贴身份校验 (线程安全)
+            level2_links_queue = []
+            l1_success_count = 0
+            for idx, (success, payload, l2_links, status) in enumerate(l1_results, 1):
+                url = unique_results[idx - 1]
+                post_id = extract_post_id(url)
+                if not success:
                     continue
-                
-                # 调用带缓存的拉取函数 (传入复用的 page 避免反复初始化浏览器)
-                success, title, l2_links, post_data, comments = await fetch_post_with_cache(
-                    page, email, password, url, adv_dir, prefix="", global_local_posts=global_local_posts
-                )
-                
-                if success:
-                    is_author = False
-                    is_commenter = False
                     
-                    clean_title = "".join(c for c in title if c.isalnum() or c in " -_[]【】").strip()
-                    written_file = adv_dir / f"{clean_title}.md"
+                if status == "local":
+                    level2_links_queue.extend(l2_links)
+                    l1_success_count += 1
+                    continue
                     
-                    if written_file.exists():
+                title, resolved_post_id, post_data, comments = payload
+                is_author = False
+                is_commenter = False
+                
+                # 寻找磁盘上已下载的以 _{resolved_post_id}.md 结尾的所有文件
+                matched_files = list(adv_dir.glob(f"*_{resolved_post_id}.md"))
+                file_content = ""
+                if matched_files:
+                    for f in matched_files:
                         try:
-                            file_content = written_file.read_text(encoding="utf-8")
-                            author_match = re.search(r'- \*\*作者\*\*: ([^\n]+)', file_content)
-                            if author_match:
-                                author_name = author_match.group(1).strip()
-                                if author_name == adv_id:
-                                    is_author = True
-                                    
-                            comment_author_pattern = rf'### 评论 #\d+ \(作者:\s*{adv_id}\b'
-                            if re.search(comment_author_pattern, file_content):
-                                is_commenter = True
-                        except Exception as e:
-                            print(f"Error checking author identity: {e}")
-                    else:
-                        if post_data and post_data.get("author") == adv_id:
+                            file_content = f.read_text(encoding="utf-8")
+                            break
+                        except Exception:
+                            pass
+                            
+                if file_content:
+                    try:
+                        author_match = re.search(r'- \*\*作者\*\*: ([^\n]+)', file_content)
+                        if author_match and author_match.group(1).strip() == adv_id:
                             is_author = True
-                        if comments:
-                            for c in comments:
-                                if c.get("author") == adv_id:
-                                    is_commenter = True
-                                    break
-                                    
-                    # 校验：是否是该顾问本人的帖子或发言？
-                    if is_author or is_commenter:
-                        l1_success_count += 1
-                        level2_links_queue.extend(l2_links)
+                                
+                        comment_author_pattern = rf'### 评论 #\d+ \(作者:\s*{adv_id}\b'
+                        if re.search(comment_author_pattern, file_content):
+                            is_commenter = True
+                    except Exception as e:
+                        print(f"Error checking author identity: {e}")
+                else:
+                    if post_data and post_data.get("author") == adv_id:
+                        is_author = True
+                    if comments:
+                        for c in comments:
+                            if c.get("author") == adv_id:
+                                is_commenter = True
+                                break
+                                
+                if is_author or is_commenter:
+                    l1_success_count += 1
+                    level2_links_queue.extend(l2_links)
+                    
+                    prefix = "" if is_author else "[Commented] "
+                    clean_title = "".join(c for c in title if c.isalnum() or c in " -_[]【】").strip()
+                    target_file = adv_dir / f"{prefix}{clean_title}_{resolved_post_id}.md"
+                    
+                    # 合并与去重磁盘文件，确保仅保留 target_file
+                    target_exists = target_file.exists()
+                    for f in matched_files:
+                        if f.resolve() == target_file.resolve():
+                            continue
+                        if target_exists:
+                            try:
+                                f.unlink()
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                f.rename(target_file)
+                                target_exists = True
+                            except Exception as e:
+                                print(f"Rename failed: {e}")
+                                
+                    if not target_file.exists() and post_data:
+                        save_post_content_to_file(url, title, post_data.get('body', ''), comments, post_data, adv_dir, prefix)
                         
-                        prefix = "" if is_author else "[Commented] "
-                        current_file = adv_dir / f"{clean_title}.md"
-                        target_file = adv_dir / f"{prefix}{clean_title}.md"
+                    print(f"Match: Post belongs to advisor {adv_id} (IsAuthor: {is_author}, IsCommenter: {is_commenter})")
+                else:
+                    # 丢弃非本顾问活动帖子
+                    for f in matched_files:
+                        try:
+                            f.unlink()
+                        except Exception:
+                            pass
+                    print(f"Filtered: Post does not belong to {adv_id} (just mentioned). Deleted from advisor folder.")
+            
+            print(f"[Level 1 Done] Concurrently processed Level 1. Successfully matched {l1_success_count} valid posts for {adv_id}.")
+            
+            # ====== 数据校验与自愈逻辑 (Verification & Self-healing) ======
+            if expected_posts > 0 or expected_comments > 0:
+                local_posts, local_comments = count_local_activity(adv_dir, adv_id)
+                print(f"[首次校验] 本地帖子数: {local_posts} (期望: {expected_posts}), 本地评论数: {local_comments} (期望: {expected_comments})")
+                
+                # 1. 补齐缺失的主帖 (并发拉取)
+                if local_posts < expected_posts:
+                    print(f"[自愈触发] 主帖数不足，开始强制补拉缺失主帖...")
+                    
+                    missing_urls = []
+                    for url in results:
+                        p_id = extract_post_id(url)
+                        found = False
+                        for f in adv_dir.glob("*.md"):
+                            if f"_{p_id}.md" in f.name and not f.name.startswith("[Commented]") and not f.name.startswith("[L2]"):
+                                found = True
+                                break
+                        if not found:
+                            missing_urls.append(url)
+                            
+                    async def fetch_missing_post(url):
+                        async with concurrency_sem:
+                            item_page = await client._new_page(context)
+                            try:
+                                print(f"强制重新拉取可能的主帖: {url} ...")
+                                await fetch_post_with_cache(
+                                    item_page, email, password, url, adv_dir, prefix="", global_local_posts=global_local_posts, force=True
+                                )
+                            except Exception as e:
+                                print(f"Error self-healing missing post {url}: {e}")
+                            finally:
+                                await item_page.close()
+                                
+                    if missing_urls:
+                        await asyncio.gather(*(fetch_missing_post(url) for url in missing_urls))
                         
-                        if current_file.exists() and prefix != "":
-                            if target_file.exists():
-                                current_file.unlink()
+                    # 重新评估 author 状态并改名 (主帖)
+                    for f in adv_dir.glob("*.md"):
+                        if not f.name.startswith("[L2]") and "_" in f.name:
+                            try:
+                                content = f.read_text(encoding="utf-8")
+                                author_match = re.search(r'- \*\*作者\*\*: ([^\n]+)', content)
+                                if author_match and author_match.group(1).strip() == adv_id:
+                                    if f.name.startswith("[Commented]"):
+                                        new_name = f.name.replace("[Commented] ", "")
+                                        target_p = f.parent / new_name
+                                        if target_p.exists():
+                                            f.unlink()
+                                        else:
+                                            f.rename(target_p)
+                            except Exception:
+                                pass
+                                
+                    local_posts, local_comments = count_local_activity(adv_dir, adv_id)
+                    
+                # 2. 补齐缺失的评论 (并发拉取)
+                if local_comments < expected_comments:
+                    print(f"[自愈触发] 评论数不足，开始强制拉取/更新所有相关帖子的评论分页...")
+                    urls_to_refresh = []
+                    for f in adv_dir.glob("*.md"):
+                        if not f.name.startswith("[L2]"):
+                            try:
+                                content = f.read_text(encoding="utf-8")
+                                url_match = re.search(r'- \*\*链接\*\*: (https://[^\s\n]+)', content)
+                                if url_match:
+                                    urls_to_refresh.append(url_match.group(1))
+                            except Exception:
+                                pass
+                                
+                    async def refresh_comment_post(url):
+                        async with concurrency_sem:
+                            item_page = await client._new_page(context)
+                            try:
+                                print(f"强制更新帖子评论: {url} ...")
+                                await fetch_post_with_cache(
+                                    item_page, email, password, url, adv_dir, prefix="", global_local_posts=global_local_posts, force=True
+                                )
+                            except Exception as e:
+                                print(f"Error self-healing comments on {url}: {e}")
+                            finally:
+                                await item_page.close()
+                                
+                    if urls_to_refresh:
+                        await asyncio.gather(*(refresh_comment_post(url) for url in urls_to_refresh))
+                        
+                    # 重新判定是否属于 is_author / is_commenter (顺序重命名)
+                    for url in urls_to_refresh:
+                        p_id = extract_post_id(url)
+                        matched_files = list(adv_dir.glob(f"*_{p_id}.md"))
+                        if not matched_files:
+                            continue
+                            
+                        content = ""
+                        for f in matched_files:
+                            try:
+                                content = f.read_text(encoding="utf-8")
+                                break
+                            except Exception:
+                                pass
+                                
+                        if not content:
+                            continue
+                            
+                        try:
+                            is_author = False
+                            is_commenter = False
+                            author_match = re.search(r'- \*\*作者\*\*: ([^\n]+)', content)
+                            if author_match and author_match.group(1).strip() == adv_id:
+                                is_author = True
+                            comment_author_pattern = rf'### 评论 #\d+ \(作者:\s*{adv_id}\b'
+                            if re.search(comment_author_pattern, content):
+                                is_commenter = True
+                                
+                            if is_author or is_commenter:
+                                prefix = "" if is_author else "[Commented] "
+                                title_match = re.match(r'# (.*)', content)
+                                title = title_match.group(1) if title_match else matched_files[0].stem
+                                clean_title = "".join(c for c in title if c.isalnum() or c in " -_[]【】").strip()
+                                
+                                target_name = f"{prefix}{clean_title}_{p_id}.md"
+                                target_path = adv_dir / target_name
+                                
+                                target_exists = target_path.exists()
+                                for f in matched_files:
+                                    if f.resolve() == target_path.resolve():
+                                        continue
+                                    if target_exists:
+                                        try:
+                                            f.unlink()
+                                        except Exception:
+                                            pass
+                                    else:
+                                        try:
+                                            f.rename(target_path)
+                                            target_exists = True
+                                        except Exception as e:
+                                            print(f"Rename in heal failed: {e}")
                             else:
-                                current_file.rename(target_file)
-                        print(f"Match: Post belongs to advisor {adv_id} (IsAuthor: {is_author}, IsCommenter: {is_commenter})")
-                    else:
-                        # 丢弃非本顾问活动帖子
-                        clean_title = "".join(c for c in title if c.isalnum() or c in " -_[]【】").strip()
-                        for f_del in [adv_dir / f"{clean_title}.md", adv_dir / f"[Commented] {clean_title}.md"]:
-                            if f_del.exists():
-                                f_del.unlink()
-                        print(f"Filtered: Post does not belong to {adv_id} (just mentioned). Deleted from advisor folder.")
+                                for f in matched_files:
+                                    try:
+                                        f.unlink()
+                                    except Exception:
+                                        pass
+                        except Exception as e:
+                            print(f"Error in self-healing check for post {p_id}: {e}")
+                                
+                    local_posts, local_comments = count_local_activity(adv_dir, adv_id)
+                    print(f"[最终校验] 本地帖子数: {local_posts} (期望: {expected_posts}), 本地评论数: {local_comments} (期望: {expected_comments})")
             
-            print(f"[Level 1 Done] Successfully fetched {l1_success_count} valid posts for {adv_id}.")
-            
-            # Level 2: 抓取二级链接
+            # Level 2: 抓取二级链接 (并发拉取)
             level2_links_queue = list(set(level2_links_queue))
             print(f"Found {len(level2_links_queue)} unique potential Level 2 links for {adv_id}.")
             
-            l2_success_count = 0
-            for idx, l2_url in enumerate(level2_links_queue, 1):
+            async def process_l2_item(l2_url, l2_idx):
                 l2_id = extract_post_id(l2_url)
                 l1_exists = False
                 for p_file in adv_dir.glob("*.md"):
@@ -981,15 +1303,26 @@ async def main():
                         l1_exists = True
                         break
                 if l1_exists:
-                    continue
+                    return False
                     
-                print(f"[Level 2] Fetching {idx}/{len(level2_links_queue)}: {l2_url}...")
-                success, _, _, _, _ = await fetch_post_with_cache(
-                    page, email, password, l2_url, adv_dir, prefix="[L2] ", global_local_posts=global_local_posts
-                )
-                if success:
-                    l2_success_count += 1
-            print(f"[Level 2 Done] Successfully fetched {l2_success_count} Level 2 posts for {adv_id}.")
+                async with concurrency_sem:
+                    item_page = await client._new_page(context)
+                    try:
+                        print(f"[Level 2] Concurrently fetching {l2_idx}/{len(level2_links_queue)}: {l2_url}...")
+                        success, _, _, _, _, _ = await fetch_post_with_cache(
+                            item_page, email, password, l2_url, adv_dir, prefix="[L2] ", global_local_posts=global_local_posts
+                        )
+                        return success
+                    except Exception as e:
+                        print(f"Error fetching Level 2 post {l2_url}: {e}")
+                        return False
+                    finally:
+                        await item_page.close()
+            
+            tasks_l2 = [process_l2_item(l2_url, l2_idx) for l2_idx, l2_url in enumerate(level2_links_queue, 1)]
+            l2_results = await asyncio.gather(*tasks_l2)
+            l2_success_count = sum(1 for r in l2_results if r)
+            print(f"[Level 2 Done] Concurrently fetched {l2_success_count} Level 2 posts for {adv_id}.")
             
         await browser.close()
         
@@ -1037,6 +1370,12 @@ def build_local_relationships(output_base_dir: Path):
                     rel_pattern = r'/hc/[a-zA-Z-]+/community/posts/(\d+)(?:-[a-zA-Z0-9%-]+)?'
                     
                     def replacer(match):
+                        # Avoid replacing the main link line
+                        start_idx = match.start()
+                        context_before = content[max(0, start_idx - 25):start_idx]
+                        if "- **链接**:" in context_before:
+                            return match.group(0)
+
                         post_id = match.group(1)
                         if post_id in post_id_to_paths:
                             paths = post_id_to_paths[post_id]

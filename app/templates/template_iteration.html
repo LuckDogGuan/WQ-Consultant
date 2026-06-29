@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}模板迭代 - WorldQuant Consultant GUI{% endblock %}
+{% block header_title %}模板迭代{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <div class="panel-header">
+        <h2>模板输入</h2>
+        <span class="panel-subtitle">只预览候选，不提交。</span>
+    </div>
+    <div class="form-grid">
+        <label class="form-field">
+            <span>地区</span>
+            <span class="inline-options">
+                <label><input type="checkbox" name="region" value="USA" checked> USA</label>
+                <label><input type="checkbox" name="region" value="ASI" checked> ASI</label>
+                <label><input type="checkbox" name="region" value="EUR" checked> EUR</label>
+            </span>
+        </label>
+        <label class="form-field">
+            <span>字段质量</span>
+            <select id="template-quality-mode">
+                <option value="GOOD_ONLY" selected>只显示 GOOD</option>
+                <option value="GOOD_AND_REVIEW">GOOD + REVIEW</option>
+            </select>
+        </label>
+        <label class="form-field">
+            <span>最大候选</span>
+            <input id="template-max-candidates" type="number" min="1" max="5000" value="100">
+        </label>
+        <label class="form-field">
+            <span>Days sweep</span>
+            <input id="template-days" type="text" value="20,60">
+        </label>
+        <label class="form-field">
+            <span>Decay sweep</span>
+            <input id="template-decays" type="text" value="0,1,3,5,10,20">
+        </label>
+        <label class="form-field">
+            <span>Neutralization sweep</span>
+            <input id="template-neutralizations" type="text" value="MARKET,SECTOR,INDUSTRY,SUBINDUSTRY,STATISTICAL">
+        </label>
+        <label class="form-field">
+            <span>Group sweep</span>
+            <input id="template-groups" type="text" value="sector,industry,subindustry">
+        </label>
+    </div>
+    <label class="form-field">
+        <span>表达式模板</span>
+        <textarea id="template-input" rows="6" spellcheck="false">rank({field})</textarea>
+    </label>
+    <label class="form-field">
+        <span>字段 JSON</span>
+        <textarea id="template-fields" rows="6" spellcheck="false">[{"id":"close","quality":"GOOD","region":"USA"}]</textarea>
+    </label>
+    <div class="action-row">
+        <button class="btn btn-primary" type="button" onclick="previewTemplateIteration()">预览候选</button>
+        <button class="btn btn-secondary" type="button" onclick="startTemplateIterationJob()">启动选中回测</button>
+        <button class="btn btn-secondary" type="button" onclick="copySelectedTemplateCandidates()">复制选中表达式</button>
+        <button class="btn btn-secondary" type="button" onclick="exportTemplateCandidatesCsv()">导出 CSV</button>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-header">
+        <h2>候选报表</h2>
+        <span class="panel-subtitle" id="template-summary">等待预览</span>
+    </div>
+    <div class="table-responsive">
+        <table class="data-table" id="template-candidate-table">
+            <thead>
+                <tr>
+                    <th>选择</th>
+                    <th>模板</th>
+                    <th>地区</th>
+                    <th>字段</th>
+                    <th>表达式</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    <div class="log-output" id="hidden-reason-list">hidden reasons: none</div>
+    <pre class="log-output" id="template-result">{}</pre>
+</div>
+
+<script>
+let templateIterationData = {visible: [], hidden: [], summary: {}};
+
+async function previewTemplateIteration() {
+    const regions = Array.from(document.querySelectorAll('input[name="region"]:checked')).map(item => item.value);
+    const payload = {
+        templates: document.getElementById("template-input").value,
+        fields: JSON.parse(document.getElementById("template-fields").value || "[]"),
+        regions,
+        field_quality_mode: document.getElementById("template-quality-mode").value,
+        max_candidates: Number(document.getElementById("template-max-candidates").value || 100),
+        day_values: splitTemplateValues("template-days"),
+        decay_values: splitTemplateValues("template-decays"),
+        neutralization_values: splitTemplateValues("template-neutralizations"),
+        group_values: splitTemplateValues("template-groups")
+    };
+    const response = await fetch("/api/template-iteration/preview", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    templateIterationData = data;
+    document.getElementById("template-summary").textContent =
+        `visible=${data.summary.visible_count}, hidden=${data.summary.hidden_count}, truncated=${data.summary.truncated_count}`;
+    renderTemplateCandidateTable(data.visible || []);
+    renderHiddenReasons(data.summary.hidden_reason_counts || {});
+    document.getElementById("template-result").textContent = JSON.stringify(data, null, 2);
+}
+
+function splitTemplateValues(id) {
+    return document.getElementById(id).value.split(",").map(item => item.trim()).filter(Boolean);
+}
+
+function renderTemplateCandidateTable(items) {
+    const body = document.querySelector("#template-candidate-table tbody");
+    body.innerHTML = "";
+    for (const item of items) {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+            <td><input type="checkbox" class="template-candidate-select" checked data-expression="${escapeHtml(item.expression)}"></td>
+            <td>${escapeHtml(item.template_name)}</td>
+            <td>${escapeHtml(item.region)}</td>
+            <td>${escapeHtml(item.field_id)}</td>
+            <td><code>${escapeHtml(item.expression)}</code></td>
+        `;
+        body.appendChild(row);
+    }
+}
+
+function copySelectedTemplateCandidates() {
+    const expressions = Array.from(document.querySelectorAll(".template-candidate-select:checked"))
+        .map(item => item.dataset.expression);
+    navigator.clipboard.writeText(expressions.join("\n"));
+}
+
+async function startTemplateIterationJob() {
+    const selected = new Set(Array.from(document.querySelectorAll(".template-candidate-select:checked"))
+        .map(item => item.dataset.expression));
+    const candidates = (templateIterationData.visible || [])
+        .filter(item => selected.has(item.expression));
+    if (!candidates.length) {
+        document.getElementById("template-summary").textContent = "no selected candidates";
+        return;
+    }
+    const response = await fetch("/api/jobs/template_iteration", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            candidates,
+            universe: "TOP3000",
+            delay: 1
+        })
+    });
+    const data = await response.json();
+    document.getElementById("template-summary").textContent = response.ok
+        ? `template_iteration job=${data.job_id}`
+        : `job failed: ${data.detail || data.error || response.status}`;
+}
+
+function renderHiddenReasons(counts) {
+    const items = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    document.getElementById("hidden-reason-list").textContent = items.length
+        ? items.map(([reason, count]) => `${reason}: ${count}`).join(" | ")
+        : "hidden reasons: none";
+}
+
+function exportTemplateCandidatesCsv() {
+    const rows = [["status", "reason_code", "template_name", "region", "field_id", "dataset_id", "expression"]];
+    for (const status of ["visible", "hidden"]) {
+        for (const item of templateIterationData[status] || []) {
+            rows.push([
+                status,
+                item.reason_code || "",
+                item.template_name || "",
+                item.region || "",
+                item.field_id || "",
+                item.dataset_id || "",
+                item.expression || ""
+            ]);
+        }
+    }
+    const csv = rows.map(row => row.map(csvCell).join(",")).join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], {type: "text/csv;charset=utf-8"}));
+    link.download = "template_candidates.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
+function csvCell(value) {
+    return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+function escapeHtml(value) {
+    return String(value || "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    }[char]));
+}
+</script>
+{% endblock %}
