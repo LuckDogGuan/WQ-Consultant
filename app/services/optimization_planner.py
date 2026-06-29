@@ -110,6 +110,51 @@ def extract_alpha_neutralization(payload: dict[str, Any] | str | None, default: 
     return default
 
 
+def is_high_risk_garbage_alpha(alpha_record: dict[str, Any], check_result: str = "") -> bool:
+    """判定因子是否属于负夏普、厂字（SKIP）或已失败的垃圾高危因子"""
+    # 1. 负夏普
+    sharpe = alpha_record.get("sharpe")
+    if sharpe is not None:
+        try:
+            if float(sharpe) < 0:
+                return True
+        except (ValueError, TypeError):
+            pass
+            
+    # 2. 厂字 / 跳过
+    alpha_type = str(alpha_record.get("alpha_type") or "").upper()
+    status = str(alpha_record.get("status") or "").upper()
+    if alpha_type == "SKIP" or status == "SKIP":
+        return True
+        
+    # 3. 失败 / 错误
+    result_upper = str(check_result or "").upper()
+    if result_upper in {"FAIL", "FAILED", "ERROR"}:
+        return True
+    if any(s in status for s in {"FAIL", "ERROR"}):
+        return True
+        
+    # 4. 厂字 / 停牌死因子 (检测年化收益与换手率是否在任意年份出现归零情况)
+    payload = _loads_payload(alpha_record.get("payload"))
+    if not payload:
+        payload = _loads_payload(alpha_record.get("alpha_payload"))
+    
+    if payload:
+        years = payload.get("is", {}).get("year", [])
+        if isinstance(years, list) and len(years) > 0:
+            for yr in years:
+                try:
+                    yr_returns = float(yr.get("returns", 1.0))
+                    yr_turnover = float(yr.get("turnover", 1.0))
+                    # 如果某年换手率几乎为 0（小于 1e-4）且收益几乎为 0（小于 1e-5），判定为停牌死因子
+                    if abs(yr_turnover) < 0.0001 and abs(yr_returns) < 0.00001:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+                    
+    return False
+
+
 def build_optimization_plan(
     alpha_record: dict[str, Any],
     check_payload: dict[str, Any] | str | None = None,
@@ -130,6 +175,20 @@ def build_optimization_plan(
         return _skip(alpha_id, name, source_neutralization, expression, level, failed_checks, "missing_expression")
 
     expression_validation = validate_expression(expression)
+    
+    # 垃圾因子/高危因子直接跳过并且屏蔽优化
+    if is_high_risk_garbage_alpha(alpha_record, check_result):
+        return _skip(
+            alpha_id,
+            name,
+            source_neutralization,
+            expression,
+            level,
+            failed_checks,
+            "high_risk_garbage_alpha",
+            expression_warnings=expression_validation.warnings,
+        )
+
     if not expression_validation.is_valid:
         return _skip(
             alpha_id,

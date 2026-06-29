@@ -72,3 +72,15 @@ def get_current_daily_limit_count(session: requests.Session) -> int:
     except Exception as e:
         logger.error(f"Failed to fetch daily alpha count: {e}")
         raise
+
+
+def retire_wq_alpha(session: requests.Session, alpha_id: str) -> bool:
+    """DELETE the simulation/alpha on the WQ platform to hide/retire it."""
+    url = f"https://api.worldquantbrain.com/simulations/{alpha_id}"
+    try:
+        resp = session.delete(url, timeout=30)
+        logger.info(f"Retire simulation {alpha_id} on WQ platform: status={resp.status_code}")
+        return resp.status_code in (200, 204, 404)  # 200/204 means deleted, 404 means already gone
+    except Exception as e:
+        logger.error(f"Failed to retire simulation {alpha_id} on WQ: {e}")
+        return False

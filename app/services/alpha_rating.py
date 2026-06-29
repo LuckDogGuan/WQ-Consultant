@@ -127,6 +127,33 @@ def build_alpha_rating(
         f"{'latest_check' if extract_checks(check_payload) else 'alpha_payload'}"
     )
 
+    # 引入 S/A/B/C/D 评级诊断模型
+    from .template_iteration import grade_candidate_result
+    sharpe = extract_metric(alpha_record, alpha_payload, "sharpe")
+    turnover = extract_metric(alpha_record, alpha_payload, "turnover") or to_float(alpha_payload.get("is", {}).get("turnover"))
+    self_corr = to_float(alpha_record.get("self_corr")) or 0.0
+    prod_corr = to_float(alpha_record.get("prod_corr")) or to_float(latest_check_result.get("prod_corr")) or 0.0
+    
+    grading = grade_candidate_result({
+        "sharpe": sharpe,
+        "fitness": fitness,
+        "margin": margin,
+        "turnover": turnover,
+        "self_corr": self_corr,
+        "prod_corr": prod_corr,
+        "failed_checks": failed_count,
+        "status": check_result,
+        "alpha_type": raw_type,
+    })
+    grade = grading.get("grade", "C")
+    grade_labels = {
+        "S": "S级: 直接提交",
+        "A": "A级: 标准候选",
+        "B": "B级: 需要审核",
+        "C": "C级: 需要优化",
+        "D": "D级: 垃圾隐藏",
+    }
+
     return {
         "fitness": fitness,
         "margin": margin,
@@ -145,4 +172,6 @@ def build_alpha_rating(
         "rating_reason": reason,
         "alpha_level": METRIC_LABELS[submission_class],
         "level_class": submission_class,
+        "grade": grade,
+        "grade_label": grade_labels.get(grade, "C级: 需要优化"),
     }

@@ -205,6 +205,24 @@ def save_children_alphas(s: requests.Session, progress_url: str, region: str, un
                     }
                     upsert_alpha(record)
                     saved_ids.append(alpha_id)
+                    
+                    # 因子评级诊断：若为 Grade D，触发 WQ 平台上的模拟退休/隐藏
+                    try:
+                        from .template_iteration import grade_candidate_result
+                        grading = grade_candidate_result({
+                            "sharpe": metrics.get("sharpe"),
+                            "fitness": metrics.get("fitness"),
+                            "margin": metrics.get("margin"),
+                            "turnover": metrics.get("turnover"),
+                            "self_corr": 0.0,
+                            "prod_corr": 0.0,
+                            "failed_checks": 0,
+                        })
+                        if grading.get("grade") == "D":
+                            from .wq_client import retire_wq_alpha
+                            retire_wq_alpha(s, alpha_id)
+                    except Exception as ge:
+                        logger.error(f"Error grading and retiring child alpha {alpha_id}: {ge}")
     except Exception as e:
         logger.error(f"Failed to fetch child alpha details for {progress_url}: {e}")
     return saved_ids
@@ -565,7 +583,7 @@ def run_simulation_pool_with_control(
             pass
 
 
-def derive_prune_prefix(fields: list[dict[str, Any]]) -> str | None:
+def derive_prune_prefix(fields: list[dict[str, Any]], params: dict[str, Any] | None = None) -> str | None:
     """自动推导字段前缀（例如 mcr38, anl4 等）。
     前缀最多次数占比 >= PRUNE_PREFIX_MIN_SHARE（默认 60%）时生效。
     """
@@ -580,7 +598,10 @@ def derive_prune_prefix(fields: list[dict[str, Any]]) -> str | None:
     counter = Counter(prefixes)
     most_common, count = counter.most_common(1)[0]
     share = count / len(fields)
-    min_share = float(get_setting("prune_prefix_min_share", "0.6"))
+    if params is not None:
+        min_share = get_float_param(params, "prune_prefix_min_share", 0.6)
+    else:
+        min_share = float(get_setting("prune_prefix_min_share", "0.6"))
     if share >= min_share:
         return most_common
     return None
@@ -770,6 +791,42 @@ def should_emit_stage_progress_event(
             emitted_milestones.add(milestone)
             return True
     return False
+
+
+def get_bool_param(params: dict[str, Any], key: str, default_val: bool) -> bool:
+    val = params.get(key)
+    if val is not None:
+        if isinstance(val, bool):
+            return val
+        return str(val).lower() in ("true", "1", "yes")
+    return get_setting(key, "1" if default_val else "0") == "1"
+
+
+def get_int_param(params: dict[str, Any], key: str, default_val: int) -> int:
+    val = params.get(key)
+    if val is not None:
+        try:
+            return int(val)
+        except ValueError:
+            pass
+    return int(get_setting(key, str(default_val)))
+
+
+def get_float_param(params: dict[str, Any], key: str, default_val: float) -> float:
+    val = params.get(key)
+    if val is not None:
+        try:
+            return float(val)
+        except ValueError:
+            pass
+    return float(get_setting(key, str(default_val)))
+
+
+def get_str_param(params: dict[str, Any], key: str, default_val: str) -> str:
+    val = params.get(key)
+    if val is not None:
+        return str(val)
+    return get_setting(key, default_val)
 
 
 def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
@@ -1053,7 +1110,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 )
                 if saved_ids:
                     # ── 负夏普垃圾因子过滤（厂字识别）──
-                    if get_setting("fo_filter_negative_sharpe", "1") == "1":
+                    if get_bool_param(params, "fo_filter_negative_sharpe", True):
                         neg_ids = []
                         placeholders_ns = ",".join(["?"] * len(saved_ids))
                         with connect() as conn:
@@ -1073,7 +1130,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                             saved_ids = [aid for aid in saved_ids if aid not in neg_ids]
 
                     # ── FO 穿插相关性检查（可配置开关）──
-                    if saved_ids and get_setting("fo_corr_enable", "1") == "1":
+                    if saved_ids and get_bool_param(params, "fo_corr_enable", True):
                         msg = f"[{dataset_id}] FO Group {neut_name}: Running inline correlation checks for {len(saved_ids)} alphas..."
                         logger.info(msg)
                         update_job(job_id, message=msg)
@@ -1099,10 +1156,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 mark_stage("SO", idx + 1, "started")
                 
                 # 获取 SO 参数
-                fo_track_lookback = int(get_setting("fo_track_lookback_days", "90"))
-                fo_track_sharpe = float(get_setting("fo_track_sharpe", "1.0"))
-                fo_track_fitness = float(get_setting("fo_track_fitness", "0.7"))
-                fo_track_num = int(get_setting("fo_track_alpha_num", "100"))
+                fo_track_lookback = get_int_param(params, "fo_track_lookback_days", 90)
+                fo_track_sharpe = get_float_param(params, "fo_track_sharpe", 1.0)
+                fo_track_fitness = get_float_param(params, "fo_track_fitness", 0.7)
+                fo_track_num = get_int_param(params, "fo_track_alpha_num", 100)
                 
                 # 拉取一阶追踪候选
                 session = login_with_rate_limit_wait(job_id, username, password, context="FO tracker")
@@ -1157,8 +1214,8 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                     mark_stage("SO", idx + 1, "skipped")
                 else:
                     # 剪枝与 Fallback 策略
-                    prefix = derive_prune_prefix(fields)
-                    keep_num = int(get_setting("prune_keep_num", "5"))
+                    prefix = derive_prune_prefix(fields, params)
+                    keep_num = get_int_param(params, "prune_keep_num", 5)
                     
                     pruned_candidates = []
                     if prefix:
@@ -1169,13 +1226,13 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                             logger.warning(f"Prune failed: {e}. Fallback to sorting.")
                             
                     if not pruned_candidates:
-                        fallback_keep = int(get_setting("track_fallback_keep_num", "50"))
+                        fallback_keep = get_int_param(params, "track_fallback_keep_num", 50)
                         # 已经默认按 Sharpe 排序，截取前 N 项并组合
                         pruned_candidates = [[rec[1], rec[-1]] for rec in fo_tracker[:fallback_keep]]
                         logger.info(f"[{dataset_id}] Prune failed/skipped. Used global fallback selection: {len(pruned_candidates)} candidates.")
                         
                     # 生成二阶算子表达式
-                    group_ops = get_setting("group_ops", "group_neutralize,group_rank,group_zscore").split(",")
+                    group_ops = get_str_param(params, "group_ops", "group_neutralize,group_rank,group_zscore").split(",")
                     # pruned_candidates 是 [[expr, decay]] 结构。需要只传递其中的 expr 列表
                     expr_list = [c[0] for c in pruned_candidates]
                     so_alphas = get_group_second_order_factory(expr_list, group_ops, region)
@@ -1207,7 +1264,7 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                     )
 
                     # ── SO 穿插相关性检查（可配置开关）──
-                    if so_saved_ids and get_setting("so_corr_enable", "0") == "1":
+                    if so_saved_ids and get_bool_param(params, "so_corr_enable", False):
                         msg = f"[{dataset_id}] SO: Running inline correlation checks for {len(so_saved_ids)} alphas..."
                         logger.info(msg)
                         update_job(job_id, message=msg)
@@ -1234,10 +1291,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                 mark_stage("TH", idx + 1, "started")
                 
                 # 获取 TH 参数
-                so_track_lookback = int(get_setting("so_track_lookback_days", "90"))
-                so_track_sharpe = float(get_setting("so_track_sharpe", "1.3"))
-                so_track_fitness = float(get_setting("so_track_fitness", "0.8"))
-                so_track_num = int(get_setting("so_track_alpha_num", "100"))
+                so_track_lookback = get_int_param(params, "so_track_lookback_days", 90)
+                so_track_sharpe = get_float_param(params, "so_track_sharpe", 1.3)
+                so_track_fitness = get_float_param(params, "so_track_fitness", 0.8)
+                so_track_num = get_int_param(params, "so_track_alpha_num", 100)
                 
                 # 拉取二阶追踪候选
                 session = login_with_rate_limit_wait(job_id, username, password, context="SO tracker")

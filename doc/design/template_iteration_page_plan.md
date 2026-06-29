@@ -1,14 +1,80 @@
+# WQ 模板输入迭代页面设计与实施方案
+
 # WQ 模板输入迭代页面可执行文档
 
 更新时间：2026-06-29
 
-状态：本地基础版完成，远程 expression job 待接入。本文是后续实现“模板输入模式”的唯一执行依据；后续代码只按本文的边界、页面结构、服务接口和测试清单推进。
+状态：本地基础版完成，template_iteration job 基础 adapter 已接入；独立 expression runner、结构化 job 结果导出和 RA-only 提交收口待实现。本文是后续实现“模板输入模式”的执行依据；后续代码按本文修正后的边界、页面结构、服务接口和测试清单推进。
+
+
+## 0. 2026-06-29 冲突审计与 Goal 执行版
+
+本节覆盖本文旧状态和 TODO 中的过期项。后续 goal 模式执行以本节为准。
+
+### 0.1 当前真实进度
+
+已在 D 盘项目中确认：
+- 已有 `app/services/template_iteration.py`。
+- 已有 `GET /template-iteration`。
+- 已有 `POST /api/template-iteration/preview`。
+- 已有 `POST /api/jobs/template_iteration`。
+- 已有 JobRunner 对 `template_iteration` 的分发。
+- 已有 `run_template_iteration_job`，当前通过 `custom_alphas` 复用 `run_backtest_job` 基础路径。
+- 已有 `tests/test_template_iteration.py`、`tests/test_template_iteration_page.py`、`tests/test_template_iteration_job.py`。
+
+因此，旧文档里“远程 expression job 待接入”应细分为：基础 job adapter 已接入；独立 expression candidate runner 尚未实现；结构化 job 结果导出和按 reason_code 过滤仍待实现。
+
+### 0.2 与候选提交流程的冲突修正
+
+| 冲突点 | 原表述 | 修正执行口径 |
+| --- | --- | --- |
+| “送入已有回测/优化/日志体系” | 容易被理解为直接复用 dataset 三阶段任务 | 过渡期可复用 `custom_alphas` 回测 adapter；最终应新增 expression runner，不吃 dataset_id 三阶段输入模型 |
+| “self-corr > 0.70 默认隐藏” | 预览阶段没有真实 PnL 证据 | 预览阶段只做静态风险；回测/相关性结果返回后再按 0.70 硬隐藏 |
+| “当前只 RA” | 页面候选是 RA，但项目里仍有 PPA/ATOM 展示和提交候选代码 | 模板迭代只生成 Regular/RA；正式提交默认 RA-only；PPA/ATOM 不从模板页进入提交 |
+| “所有方式默认可勾选” | 容易造成候选爆炸 | 默认只开字段替换、常见窗口、常见中性化、group、标准化、复杂度限制；双字段、稳定化包装、trade_when 保持关闭 |
+
+### 0.3 Goal 模式执行文档
+
+Goal：把模板迭代从“能预览、能启动基础 job”推进到“能稳定执行 expression 候选回测，并把结果接入候选分档，但不自动提交”。
+
+Done 标准：
+- 用户从 `/template-iteration` 预览候选。
+- 用户手动选择候选并创建 `template_iteration` job。
+- job 使用 expression candidate runner 或明确的 `custom_alphas` adapter，且不携带 PPA/SA/submit 字段。
+- job 结果能生成 S/A/B/C/D 建议。
+- D 档和坏数据默认隐藏但保留原因。
+- 用户手动决定是否 check / submit。
+- **与回测三阶段参数联动**：任务运行中关于 FO/SO/TH 的各小阶段控制（如相关性过滤启用、Sharpe/Fitness 阈值设置、Prune 保留参数等）支持作业层面的定制化 `params` 传入，运行时优先使用作业特有配置而非全局配置，实现完全的优先级重载。
+
+非目标：PPA、SA、自然语言模板生成、自动提交、原生网络请求重写 WQ client。
+
+### 0.4 更新 TODO
+
+| 优先级 | 任务 | 当前状态 | 下一步 |
+| --- | --- | --- | --- |
+| P0 | `POST /api/jobs/template_iteration` | 已完成 | 保持测试覆盖 |
+| P0 | JobRunner `template_iteration` 分发 | 已完成 | 保持测试覆盖 |
+| P0 | 基础 expression adapter | 已完成过渡版 | 明确其只走 `custom_alphas`，不吃 dataset_id 三阶段参数 |
+| P0 | RA-only 边界 | 文档明确，代码提交队列待收口 | 修正 submit/check 默认候选，PPA/ATOM 只读或人工显式模式 |
+| P1 | `run_expression_candidate_job` | 待实现 | 新增独立 runner，dry-run/fake WQ client 测试 |
+| P1 | job 结构化事件 | 待实现 | 写入 `TEMPLATE_JOB_STARTED/RESULT_RECEIVED/CANDIDATE_HIDDEN` |
+| P1 | JSONL/Markdown 结果导出 | 待实现 | 按 `job_id/template_id/reason_code` 过滤导出 |
+| P1 | 动态分档接真实结果 | 部分完成：`grade_candidate_result` 本地函数 | 接入真实回测/check/corr 结果 |
+| P2 | settings 可用性剔除 | 待实现 | 基于平台 settings 列表产生 `SETTING_UNAVAILABLE` |
+
+### 0.5 最短实现顺序
+
+1. 不动 UI 大结构，先补 RA-only 提交边界。
+2. 保留当前 `custom_alphas` adapter，给它补清晰日志和结果结构。
+3. 再抽 `run_expression_candidate_job`；只有当 adapter 参数开始污染时才替换。
+4. 最后补 JSONL/Markdown 导出和 settings 可用性过滤。
 
 ## 1. 目标
 
 新增一个独立 GUI 页面：用户输入一个或多个 Alpha 模板，系统按已勾选地区、字段 catalog、可勾选优化方式和开放参数生成迭代候选，并把候选送入已有回测/优化/日志体系。
 
 本页面不替用户提交 Alpha，不提交 PPA，不处理 SA 主流程。当前候选类型仍然只面向 `Regular Alpha / RA`。
+
 
 ## 2. 依据与冲突处理
 
@@ -22,6 +88,7 @@
 - 如果黄金顾问经验之间冲突，只执行共同部分。
 - 如果 `wq-top-advisors-skill` 与 `worldquant-brain-cyber-game-king` 冲突，以 `worldquant-brain-cyber-game-king` 为准。
 - 如果论坛经验给出激进阈值，除非 skill 主体或现有代码能确认，否则只作为可配置参数，不写死。
+
 
 ## 3. 当前代码基线
 
@@ -46,6 +113,7 @@
 - 新页面不应塞进 `/optimization`。现有页面处理“已有 Alpha 的优化候选”；新页面处理“模板输入生成候选”。
 - 新服务不要改写 `alpha_enhancement.py` 的既有行为；新建模板模式服务，再复用其表达式验证和少量 variant 生成思想。
 
+
 ## 4. 页面入口
 
 新页面名称：模板迭代
@@ -63,6 +131,7 @@
 页面两层深度：
 - 第一层：`template_iteration.html` 展示和交互。
 - 第二层：`TemplateIterationService` 统一处理模板解析、参数展开、字段绑定、变体生成、预览和任务参数归一化。
+
 
 ## 5. 页面布局
 
@@ -101,6 +170,7 @@
 - 重复/高风险候选隐藏原因。
 - 最近任务和日志。
 
+
 ## 6. 模板语法
 
 第一版只支持显式占位符，不做自然语言模板解析。
@@ -130,6 +200,7 @@ rank(divide({field_a}, {field_b}))
 - 无边界全字段笛卡尔积。
 - 为降低相关性而盲目堆复杂算子。
 
+
 ## 7. 可勾选优化方式与开放参数
 
 所有方式默认可勾选，不勾选则不参与候选生成。
@@ -149,6 +220,7 @@ rank(divide({field_a}, {field_b}))
 | 表达式复杂度限制 | 开 | `operator_count_max=8`、`field_count_max=3` | 防止过拟合 | 超限隐藏 |
 
 注：`prod_corr`、`self_corr`、平台 check 的硬结果以平台/本地 PnL 数据为准，预览阶段只能做风险标记。
+
 
 ## 8. 数据流
 
@@ -173,6 +245,7 @@ flowchart TD
     M --> P["LogService<br/>events/export"]
 ```
 
+
 ## 9. 候选生成顺序
 
 执行顺序固定，避免随机拼装：
@@ -190,6 +263,7 @@ flowchart TD
 11. 本地相关性剪枝。
 12. 生成 preview。
 13. 用户手动启动任务。
+
 
 ## 10. 评分与隐藏规则
 
@@ -214,15 +288,20 @@ Preview 阶段只做静态评分：
 - sub-universe。
 - checks。
 
-默认隐藏：
+默认隐藏与优化屏蔽规则：
 - 表达式语法错误。
 - 字段不可用。
-- 坏字段。
+- 坏字段（质量为 BAD）。
 - operator 无权限。
 - operator_count > 8。
 - field_count > 3。
 - 生成自同模板且静态结构重复。
 - self-corr > 0.70。
+- **负夏普因子**：在本地/平台已记录 `sharpe < 0` 的因子（标记为 `negative_sharpe` / `high_risk_garbage_alpha`）。
+- **厂字因子 / 跳过因子**：`alpha_type == "SKIP"` 或 `status == "SKIP"`（标记为 `skipped_status` / `high_risk_garbage_alpha`）。
+- **失败检测因子**：检查结果为 `FAIL`、`FAILED`、`ERROR` 的因子。
+- 任何上述垃圾因子直接标记为不可优化，且不出现在迭代生成候选列表中，不消耗回测资源。
+
 
 ## 11. 错误处理
 
@@ -235,6 +314,7 @@ Preview 阶段只做静态评分：
 | `EXPRESSION_INVALID` | 表达式校验失败 | 隐藏该候选 |
 | `SETTING_UNAVAILABLE` | 平台不支持某 settings | 自动剔除该 settings，记录日志 |
 | `PLATFORM_LIMIT` | 并发/每日上限/网络限制 | 使用现有 JobRunner 等待/暂停逻辑 |
+
 
 ## 12. 日志事件
 
@@ -251,6 +331,7 @@ Preview 阶段只做静态评分：
 - `TEMPLATE_REPORT_EXPORTED`
 
 日志必须能按 `job_id`、`template_id`、`region`、`reason_code` 过滤。
+
 
 ## 13. 最小实现边界
 
@@ -273,6 +354,7 @@ Preview 阶段只做静态评分：
 - 复杂 AI agent 自主改写模板。
 - 远程修改 alpha 属性。
 - 新增原生网络请求重写已有 WQ 客户端。
+
 
 ## 14. 实施任务清单
 
@@ -313,7 +395,7 @@ Preview 阶段只做静态评分：
 步骤：
 - [x] 添加 `GET /template-iteration`。
 - [x] 添加 `POST /api/template-iteration/preview`。
-- [ ] 添加 `POST /api/jobs/template_iteration`。
+- [x] 添加 `POST /api/jobs/template_iteration`。
 - [x] 左侧导航新增“模板迭代”。
 - [x] 页面包含模板输入、地区勾选、参数区、preview 表格。
 
@@ -325,11 +407,11 @@ Preview 阶段只做静态评分：
 - Test: `tests/test_template_iteration_job.py`
 
 步骤：
-- [ ] 新增 job kind `template_iteration`。
+- [x] 新增 job kind `template_iteration`。
 - [x] job 参数构造使用 normalized payload，不从页面散读。
-- [ ] 任务执行时逐候选提交到已有 simulation 流程。
+- [x] 任务执行时通过 `custom_alphas` 基础 adapter 进入已有回测路径；独立 expression runner 仍待实现。
 - [ ] job log 写入新增事件。
-- [ ] 支持暂停/恢复已有机制。
+- [x] 基础 adapter 复用现有 JobRunner / backtest 路径；独立 runner 的暂停/恢复仍需回归。
 
 ### Task 5: 报表与日志导出
 
@@ -357,6 +439,7 @@ Preview 阶段只做静态评分：
 - [x] 运行 `python -m pytest tests/test_template_iteration.py tests/test_template_iteration_page.py -q`。
 - [x] 运行 `python -m pytest tests/test_alpha_enhancement.py tests/test_optimization_planner.py -q`，确认旧优化流不被破坏。
 
+
 ## 15. 验收标准
 
 功能验收：
@@ -381,6 +464,7 @@ Preview 阶段只做静态评分：
 - 新增模板解析、展开、页面、job 测试。
 - 旧的 alpha enhancement 和 optimization planner 测试仍通过。
 
+
 ## 16. 当前默认决策
 
 默认地区：沿用用户勾选，页面默认 `USA / ASI / EUR` 全选。
@@ -394,6 +478,7 @@ Preview 阶段只做静态评分：
 默认运行：先 preview，再由用户手动启动 job。
 
 默认结果：只进入候选报表，不自动提交。
+
 
 ## 17. 函数职责与测试矩阵
 
@@ -458,7 +543,7 @@ Preview 阶段只做静态评分：
 4. 已完成：补 `count_expression_complexity`。
 5. 已完成：补 `NO_MATCHED_FIELDS` 和 `CANDIDATE_EXPLOSION` 的 reason_code。
 6. 已完成：页面显示隐藏原因排行榜。
-7. 再设计 expression candidate job，不复用 dataset 三阶段 job。
+7. 已完成过渡版：`template_iteration` job 通过 `custom_alphas` adapter 复用回测路径；下一步再设计独立 `run_expression_candidate_job`，避免复用 dataset_id 三阶段输入模型。
 
 ### 17.6 当前验收命令
 

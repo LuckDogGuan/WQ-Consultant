@@ -269,16 +269,23 @@ def create_template_iteration_job_params(
     candidates: list[dict[str, Any]],
     settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    selected = [
-        {
-            "expression": str(item.get("expression") or ""),
+    selected = []
+    for item in candidates:
+        expr = str(item.get("expression") or "")
+        if not expr:
+            continue
+        # 本地表达式校验，防止非法表达式提交至后台回测任务
+        validation = validate_expression(expr)
+        if not validation.is_valid:
+            errors_str = "; ".join(err.get("message", "") for err in validation.errors)
+            raise ValueError(f"候选表达式存在语法错误: {expr}. 错误信息: {errors_str}")
+        selected.append({
+            "expression": expr,
             "region": str(item.get("region") or ""),
             "field_id": str(item.get("field_id") or ""),
             "dataset_id": str(item.get("dataset_id") or ""),
-        }
-        for item in candidates
-        if item.get("expression")
-    ]
+        })
+
     if not selected:
         raise ValueError("template_iteration job needs at least one selected candidate")
 
@@ -320,20 +327,42 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     self_corr = _float(metrics.get("self_corr"))
     prod_corr = _float(metrics.get("prod_corr"))
     failed_checks = int(_float(metrics.get("failed_checks")) or 0)
+    status = str(metrics.get("status") or "").upper()
+    alpha_type = str(metrics.get("alpha_type") or "").upper()
 
     reasons: list[str] = []
     if self_corr > 0.70:
         reasons.append("SC_RISK")
     if prod_corr >= 0.70:
         reasons.append("PC_RISK")
-    if failed_checks:
+    if failed_checks or "FAIL" in status or "ERROR" in status:
         reasons.append("CHECK_FAIL")
+    if sharpe is not None and sharpe < 0:
+        reasons.append("NEGATIVE_SHARPE")
+    if "SKIP" in status or "SKIP" in alpha_type:
+        reasons.append("SKIP_STATUS")
+        
+    # 检测年化收益与换手率是否在任意年份出现归零情况 (厂字/停牌死因子)
+    payload = metrics.get("payload") or {}
+    if isinstance(payload, dict):
+        years = payload.get("is", {}).get("year", [])
+        if isinstance(years, list) and len(years) > 0:
+            for yr in years:
+                try:
+                    yr_returns = float(yr.get("returns", 1.0))
+                    yr_turnover = float(yr.get("turnover", 1.0))
+                    if abs(yr_turnover) < 0.0001 and abs(yr_returns) < 0.00001:
+                        reasons.append("DEAD_ALPHA_RISK")
+                        break
+                except (ValueError, TypeError):
+                    pass
+
     if turnover and (turnover < 0.01 or turnover > 0.70):
         reasons.append("TURNOVER_RISK")
-    if sharpe < 1.25 or fitness < 1.0 or margin <= 0:
+    if sharpe is None or sharpe < 1.25 or fitness < 1.0 or margin <= 0:
         reasons.append("METRIC_WEAK")
 
-    if any(reason in reasons for reason in {"SC_RISK", "PC_RISK", "CHECK_FAIL"}):
+    if any(reason in reasons for reason in {"SC_RISK", "PC_RISK", "CHECK_FAIL", "NEGATIVE_SHARPE", "SKIP_STATUS", "DEAD_ALPHA_RISK"}):
         grade = "D"
         action = "discard"
     elif reasons:

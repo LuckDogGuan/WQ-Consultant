@@ -134,5 +134,45 @@ class BacktestProgressTests(unittest.TestCase):
         self.assertEqual(emitted, {25, 50, 100})
 
 
+class BacktestParameterResolutionTests(unittest.TestCase):
+    def test_get_bool_param_prioritizes_params(self):
+        from app.services.simulation_service import get_bool_param
+        params = {"test_key_bool": False}
+        self.assertFalse(get_bool_param(params, "test_key_bool", True))
+        
+        params = {"test_key_bool": "true"}
+        self.assertTrue(get_bool_param(params, "test_key_bool", False))
+        
+        self.assertTrue(get_bool_param({}, "missing_bool_key", True))
+        self.assertFalse(get_bool_param({}, "missing_bool_key2", False))
+
+    def test_get_int_param_prioritizes_params(self):
+        from app.services.simulation_service import get_int_param
+        params = {"test_key_int": 42}
+        self.assertEqual(get_int_param(params, "test_key_int", 10), 42)
+        
+        params = {"test_key_int": "123"}
+        self.assertEqual(get_int_param(params, "test_key_int", 10), 123)
+        
+        self.assertEqual(get_int_param({}, "missing_int_key", 10), 10)
+
+    def test_get_float_param_prioritizes_params(self):
+        from app.services.simulation_service import get_float_param
+        params = {"test_key_float": 3.14}
+        self.assertEqual(get_float_param(params, "test_key_float", 1.0), 3.14)
+        
+        params = {"test_key_float": "2.718"}
+        self.assertEqual(get_float_param(params, "test_key_float", 1.0), 2.718)
+        
+        self.assertEqual(get_float_param({}, "missing_float_key", 1.0), 1.0)
+
+    def test_get_str_param_prioritizes_params(self):
+        from app.services.simulation_service import get_str_param
+        params = {"test_key_str": "hello"}
+        self.assertEqual(get_str_param(params, "test_key_str", "default"), "hello")
+        
+        self.assertEqual(get_str_param({}, "missing_str_key", "default"), "default")
+
+
 if __name__ == "__main__":
     unittest.main()

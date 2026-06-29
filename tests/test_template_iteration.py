@@ -247,6 +247,13 @@ class TemplateIterationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_template_iteration_job_params([], {})
 
+    def test_create_template_iteration_job_params_rejects_invalid_expression(self):
+        with self.assertRaises(ValueError):
+            create_template_iteration_job_params(
+                [{"expression": "rank(close", "region": "USA", "field_id": "close"}],
+                {}
+            )
+
     def test_grade_candidate_result_marks_safe_strong_candidate(self):
         grade = grade_candidate_result(
             {"sharpe": 1.7, "fitness": 1.2, "margin": 0.001, "turnover": 0.2, "self_corr": 0.5, "prod_corr": 0.4}
@@ -257,9 +264,18 @@ class TemplateIterationTests(unittest.TestCase):
 
     def test_grade_candidate_result_rejects_high_self_corr(self):
         grade = grade_candidate_result({"sharpe": 2.0, "fitness": 2.0, "self_corr": 0.72})
-
         self.assertEqual(grade["grade"], "D")
         self.assertIn("SC_RISK", grade["reasons"])
+
+    def test_grade_candidate_result_rejects_negative_sharpe(self):
+        grade = grade_candidate_result({"sharpe": -0.5, "fitness": 1.0, "margin": 0.002, "self_corr": 0.3})
+        self.assertEqual(grade["grade"], "D")
+        self.assertIn("NEGATIVE_SHARPE", grade["reasons"])
+
+    def test_grade_candidate_result_rejects_skip_status(self):
+        grade = grade_candidate_result({"sharpe": 1.5, "fitness": 1.0, "status": "SKIP", "self_corr": 0.3})
+        self.assertEqual(grade["grade"], "D")
+        self.assertIn("SKIP_STATUS", grade["reasons"])
 
 
 if __name__ == "__main__":

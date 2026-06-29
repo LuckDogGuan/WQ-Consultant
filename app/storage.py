@@ -104,13 +104,22 @@ def init_db() -> None:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(alpha_records)")
         existing_cols = {col[1] for col in cursor.fetchall()}
-        for col_name, col_type in [("margin", "REAL"), ("returns", "REAL"), ("drawdown", "REAL")]:
+        new_columns = [
+            ("margin", "REAL"),
+            ("returns", "REAL"),
+            ("drawdown", "REAL"),
+            ("is_garbage", "INTEGER NOT NULL DEFAULT 0"),
+            ("skip_reason", "TEXT NOT NULL DEFAULT ''"),
+            ("remote_validation_note", "TEXT NOT NULL DEFAULT ''"),
+        ]
+        for col_name, col_type in new_columns:
             if col_name not in existing_cols:
                 try:
                     conn.execute(f"ALTER TABLE alpha_records ADD COLUMN {col_name} {col_type}")
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).error(f"Failed to add column {col_name} to alpha_records: {e}")
+
                     
         seed_defaults(conn)
 

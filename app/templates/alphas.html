@@ -86,6 +86,9 @@
                             </td>
                             <td>
                                 {% if a.alpha_level %}
+                                <span class="badge grade-{{ a.grade }}" style="font-weight: bold; font-size: 11px; padding: 2px 6px; border-radius: 4px; color: #fff; background: {% if a.grade == 'S' %}#ef4444{% elif a.grade == 'A' %}#10b981{% elif a.grade == 'B' %}#3b82f6{% elif a.grade == 'C' %}#f59e0b{% else %}#6b7280{% endif %}; margin-right: 4px; display: inline-block;">
+                                    {{ a.grade_label }}
+                                </span>
                                 <span class="badge status-{{ a.submission_class }}">提交: {{ a.submission_label }}</span>
                                 <span class="badge status-{{ a.metric_class }}">指标: {{ a.metric_label }}</span>
                                 {% else %}

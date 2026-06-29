@@ -4,11 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}WorldQuant Consultant GUI{% endblock %}</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260614_mobile1">
+    <link rel="stylesheet" href="/static/style.css?v=20260629_theme1">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        // Apple style light/dark theme flash-free preload
+        (function() {
+            const savedTheme = localStorage.getItem("theme") || "dark";
+            if (savedTheme === "light") {
+                document.documentElement.classList.add("light-theme");
+            } else {
+                document.documentElement.classList.remove("light-theme");
+            }
+        })();
+    </script>
 </head>
 <body>
     <div class="app-container">
@@ -61,10 +72,22 @@
         <!-- Main Content Area -->
         <main class="main-content">
             <header class="top-bar">
-                <div class="top-bar-title">
-                    <h1>{% block header_title %}仪表盘{% endblock %}</h1>
+                <div class="top-bar-left" style="display: flex; align-items: center; gap: 14px;">
+                    <!-- Hamburger Menu Toggle (Mobile only) -->
+                    <button id="mobile-sidebar-toggle" class="mobile-sidebar-toggle" style="display: none; background: none; border: none; color: var(--text-main); font-size: 20px; cursor: pointer; padding: 6px;" title="打开侧边栏">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
+                    <div class="top-bar-title">
+                        <h1>{% block header_title %}仪表盘{% endblock %}</h1>
+                    </div>
                 </div>
-                <div class="top-bar-status">
+                
+                <div class="top-bar-status" style="display: flex; align-items: center; gap: 16px;">
+                    <!-- Apple style Theme Toggle Button -->
+                    <button id="theme-toggle-btn" class="theme-toggle-btn" style="background: none; border: none; color: var(--text-main); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; transition: background-color 0.2s;" title="切换亮色/暗色主题">
+                        <i class="fa-solid fa-moon"></i>
+                    </button>
+                    
                     <div class="status-indicator" id="system-status-indicator">
                         <span class="status-dot" id="system-status-dot"></span>
                         <span class="status-text" id="system-status-text">系统状态正常</span>
@@ -106,7 +129,59 @@
 
     <script>
         window.NEED_CONFIRM_ON_MODIFY = "{{ need_confirm_on_modify or '0' }}";
+        
+        // 苹果风格亮/暗主题切换与手机自适应交互
+        document.addEventListener("DOMContentLoaded", function() {
+            // Theme Toggle Logic
+            const themeBtn = document.getElementById("theme-toggle-btn");
+            if (themeBtn) {
+                const icon = themeBtn.querySelector("i");
+                
+                // Initialize toggle button icon
+                const currentTheme = localStorage.getItem("theme") || "dark";
+                if (currentTheme === "light") {
+                    icon.className = "fa-solid fa-sun";
+                } else {
+                    icon.className = "fa-solid fa-moon";
+                }
+                
+                themeBtn.addEventListener("click", function() {
+                    const isLight = document.documentElement.classList.toggle("light-theme");
+                    localStorage.setItem("theme", isLight ? "light" : "dark");
+                    
+                    if (isLight) {
+                        icon.className = "fa-solid fa-sun";
+                    } else {
+                        icon.className = "fa-solid fa-moon";
+                    }
+                });
+            }
+            
+            // Mobile Sidebar Menu Logic
+            const sidebarToggle = document.getElementById("mobile-sidebar-toggle");
+            if (sidebarToggle) {
+                // Create backdrop dynamic overlay
+                const backdrop = document.createElement("div");
+                backdrop.className = "mobile-sidebar-backdrop";
+                document.body.appendChild(backdrop);
+                
+                sidebarToggle.addEventListener("click", function() {
+                    document.body.classList.toggle("sidebar-open");
+                });
+                
+                backdrop.addEventListener("click", function() {
+                    document.body.classList.remove("sidebar-open");
+                });
+                
+                // Close sidebar when clicking links
+                document.querySelectorAll(".menu-item").forEach(function(item) {
+                    item.addEventListener("click", function() {
+                        document.body.classList.remove("sidebar-open");
+                    });
+                });
+            }
+        });
     </script>
-    <script src="/static/app.js?v=20260614_mobile1"></script>
+    <script src="/static/app.js?v=20260629_theme1"></script>
 </body>
 </html>

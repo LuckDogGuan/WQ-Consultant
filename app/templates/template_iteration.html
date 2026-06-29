@@ -1,135 +1,797 @@
 {% extends "base.html" %}
 
 {% block title %}模板迭代 - WorldQuant Consultant GUI{% endblock %}
-{% block header_title %}模板迭代{% endblock %}
+{% block header_title %}模板迭代与多维特征搜索{% endblock %}
 
 {% block content %}
-<div class="panel">
-    <div class="panel-header">
-        <h2>模板输入</h2>
-        <span class="panel-subtitle">只预览候选，不提交。</span>
-    </div>
-    <div class="form-grid">
-        <label class="form-field">
-            <span>地区</span>
-            <span class="inline-options">
-                <label><input type="checkbox" name="region" value="USA" checked> USA</label>
-                <label><input type="checkbox" name="region" value="ASI" checked> ASI</label>
-                <label><input type="checkbox" name="region" value="EUR" checked> EUR</label>
-            </span>
-        </label>
-        <label class="form-field">
-            <span>字段质量</span>
-            <select id="template-quality-mode">
-                <option value="GOOD_ONLY" selected>只显示 GOOD</option>
-                <option value="GOOD_AND_REVIEW">GOOD + REVIEW</option>
-            </select>
-        </label>
-        <label class="form-field">
-            <span>最大候选</span>
-            <input id="template-max-candidates" type="number" min="1" max="5000" value="100">
-        </label>
-        <label class="form-field">
-            <span>Days sweep</span>
-            <input id="template-days" type="text" value="20,60">
-        </label>
-        <label class="form-field">
-            <span>Decay sweep</span>
-            <input id="template-decays" type="text" value="0,1,3,5,10,20">
-        </label>
-        <label class="form-field">
-            <span>Neutralization sweep</span>
-            <input id="template-neutralizations" type="text" value="MARKET,SECTOR,INDUSTRY,SUBINDUSTRY,STATISTICAL">
-        </label>
-        <label class="form-field">
-            <span>Group sweep</span>
-            <input id="template-groups" type="text" value="sector,industry,subindustry">
-        </label>
-    </div>
-    <label class="form-field">
-        <span>表达式模板</span>
-        <textarea id="template-input" rows="6" spellcheck="false">rank({field})</textarea>
-    </label>
-    <label class="form-field">
-        <span>字段 JSON</span>
-        <textarea id="template-fields" rows="6" spellcheck="false">[{"id":"close","quality":"GOOD","region":"USA"}]</textarea>
-    </label>
-    <div class="action-row">
-        <button class="btn btn-primary" type="button" onclick="previewTemplateIteration()">预览候选</button>
-        <button class="btn btn-secondary" type="button" onclick="startTemplateIterationJob()">启动选中回测</button>
-        <button class="btn btn-secondary" type="button" onclick="copySelectedTemplateCandidates()">复制选中表达式</button>
-        <button class="btn btn-secondary" type="button" onclick="exportTemplateCandidatesCsv()">导出 CSV</button>
-    </div>
-</div>
+<style>
+    .split-layout {
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+    }
+    .main-col {
+        flex: 3;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+    .side-col {
+        flex: 2;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        position: sticky;
+        top: 20px;
+    }
+    .preset-item {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 10px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .preset-item:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--primary-color, #4f46e5);
+        transform: translateY(-1px);
+    }
+    .preset-name {
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-bottom: 4px;
+        color: #e2e8f0;
+    }
+    .preset-expr {
+        font-family: Consolas, Monaco, monospace;
+        font-size: 0.8rem;
+        color: #94a3b8;
+    }
+    .badge-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 6px;
+    }
+    .badge-toggle {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #94a3b8;
+        padding: 6px 12px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        user-select: none;
+    }
+    .badge-toggle.active {
+        background: rgba(79, 70, 229, 0.15);
+        border-color: var(--primary-color, #4f46e5);
+        color: #a5b4fc;
+    }
+    .badge-toggle:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+    .field-tag-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-height: 40px;
+        background: rgba(0, 0, 0, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        padding: 10px;
+        margin-top: 6px;
+    }
+    .field-tag {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 0.8rem;
+        color: #e2e8f0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .field-tag .remove-btn {
+        cursor: pointer;
+        font-weight: bold;
+        color: #ef4444;
+        transition: color 0.2s;
+    }
+    .field-tag .remove-btn:hover {
+        color: #f87171;
+    }
+    .field-selector-box {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .search-input-group {
+        display: flex;
+        gap: 8px;
+    }
+    .search-input-group input {
+        flex: 1;
+    }
+    .catalog-fields-list {
+        max-height: 280px;
+        overflow-y: auto;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.2);
+    }
+    .catalog-item-row {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .catalog-item-row:hover {
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .catalog-item-row input[type="checkbox"] {
+        margin-right: 10px;
+    }
+    .field-badge-good {
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        margin-left: 6px;
+    }
+    .field-badge-review {
+        background: rgba(245, 158, 11, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        margin-left: 6px;
+    }
+    .field-badge-bad {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        margin-left: 6px;
+    }
+</style>
 
-<div class="panel">
-    <div class="panel-header">
-        <h2>候选报表</h2>
-        <span class="panel-subtitle" id="template-summary">等待预览</span>
+<div class="split-layout">
+    <div class="main-col">
+        <div class="panel">
+            <div class="panel-header">
+                <h2>模板与扫描超参数配置</h2>
+                <span class="panel-subtitle">自由组合超参数与算子，预览候选方案而不触发回测资源。</span>
+            </div>
+            
+            <div class="form-grid">
+                <label class="form-field">
+                    <span>回测地区</span>
+                    <span class="inline-options">
+                        <label><input type="checkbox" name="region" value="USA" checked onchange="onScopeChanged()"> USA</label>
+                        <label><input type="checkbox" name="region" value="ASI" checked onchange="onScopeChanged()"> ASI</label>
+                        <label><input type="checkbox" name="region" value="EUR" checked onchange="onScopeChanged()"> EUR</label>
+                    </span>
+                </label>
+                <label class="form-field">
+                    <span>股票池与延迟</span>
+                    <div style="display: flex; gap: 10px;">
+                        <select id="universe-select" onchange="onScopeChanged()">
+                            <option value="TOP3000">TOP3000</option>
+                            <option value="TOP2000">TOP2000</option>
+                            <option value="TOP1000">TOP1000</option>
+                            <option value="MINVOL1M">MINVOL1M</option>
+                        </select>
+                        <select id="delay-select" onchange="onScopeChanged()">
+                            <option value="1">Delay 1 (默认)</option>
+                            <option value="0">Delay 0 (超频)</option>
+                        </select>
+                    </div>
+                </label>
+            </div>
+
+            <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 12px;">
+                <div>
+                    <span style="font-size: 0.85rem; font-weight: 500; color: #94a3b8;">Days 扫频 (回看天数)</span>
+                    <div class="badge-container" id="days-badges">
+                        <div class="badge-toggle active" data-val="20">20</div>
+                        <div class="badge-toggle active" data-val="60">60</div>
+                        <div class="badge-toggle" data-val="120">120</div>
+                        <div class="badge-toggle" data-val="250">250</div>
+                    </div>
+                </div>
+
+                <div>
+                    <span style="font-size: 0.85rem; font-weight: 500; color: #94a3b8;">Decay 扫频 (衰减因子)</span>
+                    <div class="badge-container" id="decay-badges">
+                        <div class="badge-toggle active" data-val="0">0</div>
+                        <div class="badge-toggle active" data-val="1">1</div>
+                        <div class="badge-toggle active" data-val="3">3</div>
+                        <div class="badge-toggle active" data-val="5">5</div>
+                        <div class="badge-toggle active" data-val="10">10</div>
+                        <div class="badge-toggle active" data-val="20">20</div>
+                    </div>
+                </div>
+
+                <div>
+                    <span style="font-size: 0.85rem; font-weight: 500; color: #94a3b8;">中性化配置扫频 (Neutralization Sweep)</span>
+                    <div class="badge-container" id="neutralization-badges">
+                        <div class="badge-toggle" data-val="MARKET">MARKET</div>
+                        <div class="badge-toggle active" data-val="INDUSTRY">INDUSTRY</div>
+                        <div class="badge-toggle active" data-val="SUBINDUSTRY">SUBINDUSTRY</div>
+                        <div class="badge-toggle" data-val="SECTOR">SECTOR</div>
+                        <div class="badge-toggle" data-val="STATISTICAL">STATISTICAL</div>
+                    </div>
+                </div>
+
+                <div>
+                    <span style="font-size: 0.85rem; font-weight: 500; color: #94a3b8;">分组板块归一化 (Group Sweep)</span>
+                    <div class="badge-container" id="group-badges">
+                        <div class="badge-toggle active" data-val="sector">sector</div>
+                        <div class="badge-toggle active" data-val="industry">industry</div>
+                        <div class="badge-toggle active" data-val="subindustry">subindustry</div>
+                    </div>
+                </div>
+            </div>
+
+            <label class="form-field" style="margin-top: 15px;">
+                <span>表达式模板 ({field}, {field_a}, {field_b} 将被选择的字段替换)</span>
+                <textarea id="template-input" rows="5" spellcheck="false" style="font-family: Consolas, Monaco, monospace;">rank({field})</textarea>
+            </label>
+
+            <div class="form-field" style="margin-top: 15px;">
+                <span>已选择的特征字段 (<span id="selected-fields-count">0</span> 个)</span>
+                <div class="field-tag-list" id="selected-fields-list">
+                    <span style="color: #64748b; font-size: 0.8rem; align-self: center;">尚未选择字段。请在右侧搜索或加载数据集并勾选。</span>
+                </div>
+                <textarea id="template-fields" style="display: none;">[]</textarea>
+            </div>
+
+            <div class="action-row" style="margin-top: 20px;">
+                <button class="btn btn-primary" type="button" onclick="previewTemplateIteration()">预览候选</button>
+                <button class="btn btn-secondary" type="button" onclick="startTemplateIterationJob()">启动选中回测</button>
+                <button class="btn btn-secondary" type="button" onclick="copySelectedTemplateCandidates()">复制选中表达式</button>
+                <button class="btn btn-secondary" type="button" onclick="exportTemplateCandidatesCsv()">导出 CSV</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h2>候选报表</h2>
+                <span class="panel-subtitle" id="template-summary">等待预览</span>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table" id="template-candidate-table">
+                    <thead>
+                        <tr>
+                            <th width="60">选择</th>
+                            <th>模板</th>
+                            <th>地区</th>
+                            <th>字段</th>
+                            <th>生成的表达式</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="log-output" id="hidden-reason-list">hidden reasons: none</div>
+            <pre class="log-output" id="template-result" style="display: none;">{}</pre>
+        </div>
     </div>
-    <div class="table-responsive">
-        <table class="data-table" id="template-candidate-table">
-            <thead>
-                <tr>
-                    <th>选择</th>
-                    <th>模板</th>
-                    <th>地区</th>
-                    <th>字段</th>
-                    <th>表达式</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+
+    <div class="side-col">
+        <div class="panel">
+            <div class="panel-header">
+                <h2>ATLAS 推荐模板库 (L1 - L6 架构)</h2>
+                <span class="panel-subtitle">点击直接载入编辑器</span>
+            </div>
+            
+            <!-- Tabs Header for Presets -->
+            <div class="tabs-header" style="display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); margin-bottom: 12px; padding-bottom: 4px;">
+                <div class="preset-tab-btn active" onclick="switchPresetTab(event, 'preset-l1-l2')" style="padding: 6px 8px; cursor: pointer; border-bottom: 2px solid var(--primary-color, #4f46e5); font-size: 11px; font-weight: bold; color: var(--primary-color, #60a5fa); transition: all 0.2s;">L1-L2 时序</div>
+                <div class="preset-tab-btn" onclick="switchPresetTab(event, 'preset-l3-l4')" style="padding: 6px 8px; cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8; transition: all 0.2s;">L3-L4 截面</div>
+                <div class="preset-tab-btn" onclick="switchPresetTab(event, 'preset-l5')" style="padding: 6px 8px; cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8; transition: all 0.2s;">L5 中性化</div>
+                <div class="preset-tab-btn" onclick="switchPresetTab(event, 'preset-l6')" style="padding: 6px 8px; cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8; transition: all 0.2s;">L6 控制</div>
+            </div>
+
+            <!-- Tab Panels for Presets -->
+            <div class="preset-tab-contents" style="max-height: 250px; overflow-y: auto; padding-right: 4px;">
+                <!-- L1-L2 Panel -->
+                <div class="preset-tab-content-panel" id="preset-l1-l2" style="display: block;">
+                    <div class="preset-item" onclick="loadPreset('close')">
+                        <div class="preset-name">收盘价 (L1)</div>
+                        <div class="preset-expr">close</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('returns')">
+                        <div class="preset-name">每日收益率 (L1)</div>
+                        <div class="preset-expr">returns</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('vwap')">
+                        <div class="preset-name">成交量加权平均价 (L1)</div>
+                        <div class="preset-expr">vwap</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('ts_delta({field}, 10)')">
+                        <div class="preset-name">10天时序差分 (L2)</div>
+                        <div class="preset-expr">ts_delta({field}, 10)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('ts_mean({field}, 20)')">
+                        <div class="preset-name">20天时序移动平均 (L2)</div>
+                        <div class="preset-expr">ts_mean({field}, 20)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('ts_decay_linear({field}, 10)')">
+                        <div class="preset-name">10天时序线性衰减 (L2)</div>
+                        <div class="preset-expr">ts_decay_linear({field}, 10)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('ts_rank({field}, 20)')">
+                        <div class="preset-name">20天时序分位数排序 (L2)</div>
+                        <div class="preset-expr">ts_rank({field}, 20)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('ts_std_dev({field}, 20)')">
+                        <div class="preset-name">20天时序波动率 (L2)</div>
+                        <div class="preset-expr">ts_std_dev({field}, 20)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('ts_arg_max({field}, 20)')">
+                        <div class="preset-name">20天时序最大值位置 (L2)</div>
+                        <div class="preset-expr">ts_arg_max({field}, 20)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('ts_arg_min({field}, 20)')">
+                        <div class="preset-name">20天时序最小值位置 (L2)</div>
+                        <div class="preset-expr">ts_arg_min({field}, 20)</div>
+                    </div>
+                </div>
+
+                <!-- L3-L4 Panel -->
+                <div class="preset-tab-content-panel" id="preset-l3-l4" style="display: none;">
+                    <div class="preset-item" onclick="loadPreset('rank({field})')">
+                        <div class="preset-name">横截面百分比排序 (L3)</div>
+                        <div class="preset-expr">rank({field})</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('zscore({field})')">
+                        <div class="preset-name">横截面 Z-Score (L3)</div>
+                        <div class="preset-expr">zscore({field})</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('scale({field})')">
+                        <div class="preset-name">横截面绝对值缩放 (L3)</div>
+                        <div class="preset-expr">scale({field})</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('if_else(greater({field}, 0), 1, -1)')">
+                        <div class="preset-name">简单方向过滤器 (L4)</div>
+                        <div class="preset-expr">if_else(greater({field}, 0), 1, -1)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('if_else(equal({field}, 0), 0, divide(1, {field}))')">
+                        <div class="preset-name">除零安全倒数 (L4)</div>
+                        <div class="preset-expr">if_else(equal({field}, 0), 0, divide(1, {field}))</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('if_else(greater(rank({field}), 0.8), {field}, 0)')">
+                        <div class="preset-name">头尾截断滤波器 (L4)</div>
+                        <div class="preset-expr">if_else(greater(rank({field}), 0.8), {field}, 0)</div>
+                    </div>
+                </div>
+
+                <!-- L5 Panel -->
+                <div class="preset-tab-content-panel" id="preset-l5" style="display: none;">
+                    <div class="preset-item" onclick="loadPreset('group_neutralize({field}, sector)')">
+                        <div class="preset-name">板块中性化消偏 (L5)</div>
+                        <div class="preset-expr">group_neutralize({field}, sector)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('group_zscore({field}, sector)')">
+                        <div class="preset-name">板块 Z-Score 归一化 (L5)</div>
+                        <div class="preset-expr">group_zscore({field}, sector)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('group_rank({field}, industry)')">
+                        <div class="preset-name">细分行业内排序 (L5)</div>
+                        <div class="preset-expr">group_rank({field}, industry)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('group_neutralize(rank({field}), subindustry)')">
+                        <div class="preset-name">子行业横截面中性化 (L5-L3)</div>
+                        <div class="preset-expr">group_neutralize(rank({field}), subindustry)</div>
+                    </div>
+                </div>
+
+                <!-- L6 Panel -->
+                <div class="preset-tab-content-panel" id="preset-l6" style="display: none;">
+                    <div class="preset-item" onclick="loadPreset('trade_when(greater(ts_std_dev({field}, 5), 0.01), {field}, 0)')">
+                        <div class="preset-name">波动率触发调仓 (L6)</div>
+                        <div class="preset-expr">trade_when(greater(ts_std_dev({field}, 5), 0.01), {field}, 0)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('trade_when(less(abs(ts_rank({field}, 20)), 0.8), {field}, 0)')">
+                        <div class="preset-name">极端分位数调仓控制 (L6)</div>
+                        <div class="preset-expr">trade_when(less(abs(ts_rank({field}, 20)), 0.8), {field}, 0)</div>
+                    </div>
+                    <div class="preset-item" onclick="loadPreset('trade_when(greater(volume, ts_mean(volume, 20)), {field}, 0)')">
+                        <div class="preset-name">高量能调仓控制 (L6)</div>
+                        <div class="preset-expr">trade_when(greater(volume, ts_mean(volume, 20)), {field}, 0)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h2>本地 Catalog 字段选择器</h2>
+                <span class="panel-subtitle">无需拷贝，一键搜索与勾选</span>
+            </div>
+            
+            <div class="field-selector-box">
+                <div class="form-grid" style="grid-template-columns: 1fr; gap: 8px;">
+                    <div class="form-field" style="margin-bottom: 0;">
+                        <span>选择数据集 (支持多选)</span>
+                        <div class="dataset-checkbox-list" id="dataset-checkbox-list" style="max-height: 140px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 6px; background: rgba(0,0,0,0.25); margin-top: 5px;">
+                            <div style="font-size: 11px; color:#64748b; padding: 4px; text-align:center;">正在载入数据集...</div>
+                        </div>
+                        <select id="template-quality-mode" style="display: none;">
+                            <option value="GOOD_AND_REVIEW" selected>GOOD + REVIEW</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="text-align: center; color: #64748b; font-size: 0.8rem; margin: 6px 0;">或使用关键字全库搜索</div>
+
+                <div class="search-input-group">
+                    <input type="text" id="field-search-input" placeholder="输入字段ID或描述..." onkeydown="if(event.key==='Enter') searchFields()">
+                    <button class="btn btn-secondary" onclick="searchFields()">搜索</button>
+                </div>
+
+                <div class="field-actions-toolbar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; margin-top: 10px;">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="selectAllGoodRenderedFields()" style="font-size:11px; padding:4px 8px; flex:1; border: 1px solid var(--border-color); background: rgba(255,255,255,0.02); color: #34d399; font-weight: bold; cursor: pointer;">全选 GOOD 字段</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="clearAllRenderedFields()" style="font-size:11px; padding:4px 8px; flex:1; border: 1px solid var(--border-color); background: rgba(255,255,255,0.02); color: #ef4444; font-weight: bold; cursor: pointer;">清除当前字段</button>
+                </div>
+
+                <div class="catalog-fields-list" id="catalog-fields-container" style="max-height: 300px; overflow-y: auto;">
+                    <div style="padding: 20px; text-align: center; color: #64748b; font-size: 0.8rem;">
+                        请选择数据集或使用上方输入框进行模糊搜索。
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="log-output" id="hidden-reason-list">hidden reasons: none</div>
-    <pre class="log-output" id="template-result">{}</pre>
 </div>
 
 <script>
 let templateIterationData = {visible: [], hidden: [], summary: {}};
+let currentSelectedFields = [];
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".badge-toggle").forEach(badge => {
+        badge.addEventListener("click", () => {
+            badge.classList.toggle("active");
+        });
+    });
+    loadDatasetList();
+});
+
+function getBadgeValues(containerId) {
+    return Array.from(document.querySelectorAll(`#${containerId} .badge-toggle.active`))
+        .map(el => el.getAttribute("data-val"));
+}
+
+function switchPresetTab(event, tabId) {
+    document.querySelectorAll('.preset-tab-content-panel').forEach(p => {
+        p.style.display = 'none';
+    });
+    document.getElementById(tabId).style.display = 'block';
+    
+    document.querySelectorAll('.preset-tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+        btn.style.borderBottom = 'none';
+        btn.style.color = '#94a3b8';
+    });
+    const btn = event.currentTarget;
+    btn.classList.add('active');
+    btn.style.borderBottom = '2px solid var(--primary-color, #4f46e5)';
+    btn.style.color = 'var(--primary-color, #60a5fa)';
+}
+
+function loadPreset(expr) {
+    document.getElementById("template-input").value = expr;
+}
+
+function onScopeChanged() {
+    loadDatasetList();
+}
+
+async function loadDatasetList() {
+    const region = getSelectedRegion();
+    const universe = document.getElementById("universe-select").value;
+    const delay = document.getElementById("delay-select").value;
+
+    const listContainer = document.getElementById("dataset-checkbox-list");
+    listContainer.innerHTML = '<div style="font-size: 11px; color:#64748b; padding: 4px; text-align:center;">正在载入数据集...</div>';
+
+    try {
+        const response = await fetch(`/api/catalog/datasets?region=${region}&universe=${universe}&delay=${delay}`);
+        const data = await response.json();
+        listContainer.innerHTML = '';
+        if (data.datasets && data.datasets.length) {
+            data.datasets.forEach(ds => {
+                const dsId = ds.id || ds.dataset_id || "";
+                const dsName = ds.name || ds.id || "";
+                const dsCategory = ds.category || '未分类';
+                const fieldCount = ds.field_count || ds.fields || '';
+                const countBadge = fieldCount ? `<span style="font-size:10px; opacity:0.6; margin-left:6px;">(${fieldCount})</span>` : '';
+                
+                const div = document.createElement("div");
+                div.style.display = "flex";
+                div.style.alignItems = "center";
+                div.style.gap = "6px";
+                div.style.marginBottom = "6px";
+                div.innerHTML = `
+                    <input type="checkbox" class="dataset-chk" value="${dsId}" id="chk-ds-${dsId}" onchange="onDatasetSelectionChanged()">
+                    <label for="chk-ds-${dsId}" style="cursor:pointer; font-size:11px; color:var(--text-main); line-height: 1.2; display: flex; align-items: center; flex-wrap: wrap;">
+                        <strong style="color: #60a5fa; margin-right: 4px;">${dsId}</strong> - ${dsName} 
+                        <span style="font-size:9px; color:#94a3b8; background:rgba(255,255,255,0.05); padding:1px 4px; border-radius:3px; margin-left: 4px;">${dsCategory}</span> 
+                        ${countBadge}
+                    </label>
+                `;
+                listContainer.appendChild(div);
+            });
+        } else {
+            listContainer.innerHTML = '<div style="font-size: 11px; color:#64748b; padding: 4px; text-align:center;">无缓存数据集</div>';
+        }
+    } catch (e) {
+        listContainer.innerHTML = '<div style="font-size: 11px; color:#ef4444; padding: 4px; text-align:center;">载入数据集失败</div>';
+    }
+}
+
+function getSelectedRegion() {
+    const checked = Array.from(document.querySelectorAll('input[name="region"]:checked')).map(el => el.value);
+    return checked[0] || "USA";
+}
+
+async function onDatasetSelectionChanged() {
+    const checkedBoxes = Array.from(document.querySelectorAll('.dataset-chk:checked'));
+    const container = document.getElementById("catalog-fields-container");
+    
+    if (checkedBoxes.length === 0) {
+        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #64748b; font-size: 0.8rem;">请选择数据集或使用上方输入框进行模糊搜索。</div>';
+        return;
+    }
+    
+    container.innerHTML = '<div style="padding:20px; text-align:center; color:#64748b; font-size:0.8rem;">正在读取所有选中数据集的字段...</div>';
+    
+    const region = getSelectedRegion();
+    const universe = document.getElementById("universe-select").value;
+    const delay = document.getElementById("delay-select").value;
+    
+    let allFields = [];
+    
+    try {
+        const promises = checkedBoxes.map(async (chk) => {
+            const datasetId = chk.value;
+            const response = await fetch(`/api/catalog/fields?region=${region}&universe=${universe}&delay=${delay}&dataset_id=${datasetId}`);
+            const data = await response.json();
+            return { datasetId, fields: data.fields || [] };
+        });
+        
+        const results = await Promise.all(promises);
+        results.forEach(res => {
+            res.fields.forEach(f => {
+                f.dataset = f.dataset || res.datasetId;
+                allFields.push(f);
+            });
+        });
+        
+        renderCatalogFields(allFields, "");
+    } catch (e) {
+        container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444; font-size:0.8rem;">加载字段失败</div>';
+    }
+}
+
+function selectAllGoodRenderedFields() {
+    const checkboxes = Array.from(document.querySelectorAll('.catalog-item-row input[type="checkbox"]'));
+    checkboxes.forEach(chk => {
+        const quality = chk.getAttribute("data-quality");
+        if (quality === "GOOD") {
+            chk.checked = true;
+            toggleFieldSelection(chk);
+        }
+    });
+}
+
+function clearAllRenderedFields() {
+    const checkboxes = Array.from(document.querySelectorAll('.catalog-item-row input[type="checkbox"]'));
+    checkboxes.forEach(chk => {
+        chk.checked = false;
+        toggleFieldSelection(chk);
+    });
+}
+
+async function searchFields() {
+    const query = document.getElementById("field-search-input").value.trim();
+    if (!query) return;
+
+    const region = getSelectedRegion();
+    const universe = document.getElementById("universe-select").value;
+    const delay = document.getElementById("delay-select").value;
+
+    const container = document.getElementById("catalog-fields-container");
+    container.innerHTML = '<div style="padding:20px; text-align:center; color:#64748b; font-size:0.8rem;">全库搜索中...</div>';
+
+    try {
+        const response = await fetch(`/api/catalog/search-fields?region=${region}&universe=${universe}&delay=${delay}&query=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        renderCatalogFields(data.fields || [], "");
+    } catch (e) {
+        container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444; font-size:0.8rem;">搜索出错</div>';
+    }
+}
+
+function renderCatalogFields(fields, fallbackDataset) {
+    const container = document.getElementById("catalog-fields-container");
+    container.innerHTML = "";
+
+    if (!fields.length) {
+        container.innerHTML = '<div style="padding:20px; text-align:center; color:#64748b; font-size:0.8rem;">未找到匹配字段。</div>';
+        return;
+    }
+
+    fields.forEach(field => {
+        const fId = field.id || field.field_id || "";
+        const fDesc = field.description || "无描述";
+        const fQuality = (field.quality || field.quality_tag || "GOOD").toUpperCase();
+        const fRegion = field.region || getSelectedRegion();
+        const fDataset = field.dataset || field.dataset_id || fallbackDataset;
+
+        const row = document.createElement("div");
+        row.className = "catalog-item-row";
+        
+        const isChecked = currentSelectedFields.some(item => item.id === fId);
+
+        let qBadge = `<span class="field-badge-good">GOOD</span>`;
+        if (fQuality === "REVIEW") {
+            qBadge = `<span class="field-badge-review">REVIEW</span>`;
+        } else if (fQuality === "BAD") {
+            qBadge = `<span class="field-badge-bad">BAD</span>`;
+        }
+
+        row.innerHTML = `
+            <input type="checkbox" ${isChecked ? "checked" : ""} data-id="${fId}" data-quality="${fQuality}" data-region="${fRegion}" data-dataset="${fDataset}" onchange="toggleFieldSelection(this)">
+            <div style="flex:1;">
+                <div style="font-weight:600; color:#e2e8f0; display:flex; align-items:center;">
+                    ${fId} ${qBadge}
+                </div>
+                <div style="color:#94a3b8; font-size:0.75rem; margin-top:2px;">${fDesc}</div>
+            </div>
+        `;
+        row.addEventListener("click", (e) => {
+            if (e.target.tagName !== "INPUT") {
+                const chk = row.querySelector('input[type="checkbox"]');
+                chk.checked = !chk.checked;
+                toggleFieldSelection(chk);
+            }
+        });
+        container.appendChild(row);
+    });
+}
+
+function toggleFieldSelection(checkbox) {
+    const id = checkbox.getAttribute("data-id");
+    const quality = checkbox.getAttribute("data-quality");
+    const region = checkbox.getAttribute("data-region");
+    const dataset = checkbox.getAttribute("data-dataset");
+
+    if (checkbox.checked) {
+        if (!currentSelectedFields.some(item => item.id === id)) {
+            currentSelectedFields.push({ id, quality, region, dataset });
+        }
+    } else {
+        currentSelectedFields = currentSelectedFields.filter(item => item.id !== id);
+    }
+    updateSelectedFieldsUI();
+}
+
+function removeField(id) {
+    currentSelectedFields = currentSelectedFields.filter(item => item.id !== id);
+    const chk = document.querySelector(`.catalog-item-row input[data-id="${id}"]`);
+    if (chk) chk.checked = false;
+    updateSelectedFieldsUI();
+}
+
+function updateSelectedFieldsUI() {
+    const list = document.getElementById("selected-fields-list");
+    list.innerHTML = "";
+    document.getElementById("selected-fields-count").textContent = currentSelectedFields.length;
+
+    if (!currentSelectedFields.length) {
+        list.innerHTML = `<span style="color: #64748b; font-size: 0.8rem; align-self: center;">尚未选择字段。请在右侧搜索或加载数据集并勾选。</span>`;
+        document.getElementById("template-fields").value = "[]";
+        return;
+    }
+
+    currentSelectedFields.forEach(field => {
+        const tag = document.createElement("span");
+        tag.className = "field-tag";
+        tag.innerHTML = `
+            <span>${field.id}</span>
+            <span class="remove-btn" onclick="removeField('${field.id}')">&times;</span>
+        `;
+        list.appendChild(tag);
+    });
+
+    const jsonFields = currentSelectedFields.map(field => ({
+        id: field.id,
+        quality: field.quality,
+        region: field.region,
+        dataset: field.dataset
+    }));
+    document.getElementById("template-fields").value = JSON.stringify(jsonFields);
+}
 
 async function previewTemplateIteration() {
     const regions = Array.from(document.querySelectorAll('input[name="region"]:checked')).map(item => item.value);
+    const day_values = getBadgeValues("days-badges").map(Number);
+    const decay_values = getBadgeValues("decay-badges").map(Number);
+    const neutralization_values = getBadgeValues("neutralization-badges");
+    const group_values = getBadgeValues("group-badges");
+
+    if (!currentSelectedFields.length) {
+        document.getElementById("template-summary").textContent = "错误: 尚未选择特征字段";
+        return;
+    }
+
     const payload = {
         templates: document.getElementById("template-input").value,
         fields: JSON.parse(document.getElementById("template-fields").value || "[]"),
         regions,
-        field_quality_mode: document.getElementById("template-quality-mode").value,
-        max_candidates: Number(document.getElementById("template-max-candidates").value || 100),
-        day_values: splitTemplateValues("template-days"),
-        decay_values: splitTemplateValues("template-decays"),
-        neutralization_values: splitTemplateValues("template-neutralizations"),
-        group_values: splitTemplateValues("template-groups")
+        field_quality_mode: "GOOD_AND_REVIEW",
+        max_candidates: 200,
+        day_values,
+        decay_values,
+        neutralization_values,
+        group_values
     };
-    const response = await fetch("/api/template-iteration/preview", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(payload)
-    });
-    const data = await response.json();
-    templateIterationData = data;
-    document.getElementById("template-summary").textContent =
-        `visible=${data.summary.visible_count}, hidden=${data.summary.hidden_count}, truncated=${data.summary.truncated_count}`;
-    renderTemplateCandidateTable(data.visible || []);
-    renderHiddenReasons(data.summary.hidden_reason_counts || {});
-    document.getElementById("template-result").textContent = JSON.stringify(data, null, 2);
-}
 
-function splitTemplateValues(id) {
-    return document.getElementById(id).value.split(",").map(item => item.trim()).filter(Boolean);
+    const container = document.querySelector("#template-candidate-table tbody");
+    container.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#94a3b8;">正在分析迭代组合中，请稍候...</td></tr>';
+
+    try {
+        const response = await fetch("/api/template-iteration/preview", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        templateIterationData = data;
+        document.getElementById("template-summary").textContent =
+            `展示候选=${data.summary.visible_count}, 隐藏/过滤=${data.summary.hidden_count}, 超额截断=${data.summary.truncated_count}`;
+        renderTemplateCandidateTable(data.visible || []);
+        renderHiddenReasons(data.summary.hidden_reason_counts || {});
+        document.getElementById("template-result").textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+        container.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#ef4444;">预览请求失败。</td></tr>';
+    }
 }
 
 function renderTemplateCandidateTable(items) {
     const body = document.querySelector("#template-candidate-table tbody");
     body.innerHTML = "";
+
+    if (!items.length) {
+        body.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#64748b;">没有符合要求的候选表达式。</td></tr>';
+        return;
+    }
+
     for (const item of items) {
         const row = document.createElement("tr");
         row.innerHTML = `
             <td><input type="checkbox" class="template-candidate-select" checked data-expression="${escapeHtml(item.expression)}"></td>
-            <td>${escapeHtml(item.template_name)}</td>
-            <td>${escapeHtml(item.region)}</td>
-            <td>${escapeHtml(item.field_id)}</td>
-            <td><code>${escapeHtml(item.expression)}</code></td>
+            <td><span style="font-weight:600; color:#cbd5e1;">${escapeHtml(item.template_name)}</span></td>
+            <td><span class="badge badge-neutral">${escapeHtml(item.region)}</span></td>
+            <td><code>${escapeHtml(item.field_id)}</code></td>
+            <td><code style="color:var(--primary-color,#818cf8); font-weight:600;">${escapeHtml(item.expression)}</code></td>
         `;
         body.appendChild(row);
     }
@@ -147,22 +809,29 @@ async function startTemplateIterationJob() {
     const candidates = (templateIterationData.visible || [])
         .filter(item => selected.has(item.expression));
     if (!candidates.length) {
-        document.getElementById("template-summary").textContent = "no selected candidates";
+        document.getElementById("template-summary").textContent = "错误: 尚未选中任何候选表达式";
         return;
     }
-    const response = await fetch("/api/jobs/template_iteration", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            candidates,
-            universe: "TOP3000",
-            delay: 1
-        })
-    });
-    const data = await response.json();
-    document.getElementById("template-summary").textContent = response.ok
-        ? `template_iteration job=${data.job_id}`
-        : `job failed: ${data.detail || data.error || response.status}`;
+    const universe = document.getElementById("universe-select").value;
+    const delay = Number(document.getElementById("delay-select").value);
+    
+    try {
+        const response = await fetch("/api/jobs/template_iteration", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                candidates,
+                universe,
+                delay
+            })
+        });
+        const data = await response.json();
+        document.getElementById("template-summary").textContent = response.ok
+            ? `成功启动！模板迭代任务 ID = ${data.job_id}`
+            : `启动失败: ${data.detail || data.error || response.status}`;
+    } catch(e) {
+        document.getElementById("template-summary").textContent = "启动请求异常。";
+    }
 }
 
 function renderHiddenReasons(counts) {

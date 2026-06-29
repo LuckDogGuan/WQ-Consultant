@@ -239,6 +239,50 @@ def _load_template_iteration_fields(regions: list[str], universe: str, delay: in
     return fields
 
 
+@app.get("/api/catalog/datasets")
+def get_catalog_datasets(region: str = "USA", universe: str = "TOP3000", delay: int = 1, admin: str = Depends(get_current_admin)):
+    from .services.catalog_service import load_datasets_from_cache
+    datasets = load_datasets_from_cache(region, universe, delay)
+    return {"datasets": datasets}
+
+
+@app.get("/api/catalog/fields")
+def get_catalog_fields(region: str = "USA", universe: str = "TOP3000", delay: int = 1, dataset_id: str = "", admin: str = Depends(get_current_admin)):
+    from .services.catalog_service import load_fields_from_cache
+    fields = load_fields_from_cache(region, universe, delay, dataset_id)
+    return {"fields": fields}
+
+
+@app.get("/api/catalog/search-fields")
+def get_catalog_search_fields(region: str = "USA", universe: str = "TOP3000", delay: int = 1, query: str = "", admin: str = Depends(get_current_admin)):
+    from .services.catalog_service import load_datasets_from_cache, load_fields_from_cache
+    query_lower = query.lower().strip()
+    if not query_lower:
+        return {"fields": []}
+    
+    datasets = load_datasets_from_cache(region, universe, delay)
+    matched_fields = []
+    for ds in datasets[:15]:
+        ds_id = ds.get("id") or ds.get("dataset_id") or ""
+        if not ds_id:
+            continue
+        fields = load_fields_from_cache(region, universe, delay, ds_id)
+        for field in fields:
+            f_id = str(field.get("id") or field.get("field_id") or "").lower()
+            f_desc = str(field.get("description") or "").lower()
+            if query_lower in f_id or query_lower in f_desc:
+                item = dict(field)
+                item["dataset"] = ds_id
+                item["region"] = region
+                matched_fields.append(item)
+                if len(matched_fields) >= 100:
+                    break
+        if len(matched_fields) >= 100:
+            break
+            
+    return {"fields": matched_fields}
+
+
 @app.get("/api/optimization/variants/{alpha_id}")
 def get_optimization_variants(alpha_id: str, max_variants: int = 30, admin: str = Depends(get_current_admin)):
     from .services.alpha_enhancement import generate_variants_for_alpha_id
@@ -275,6 +319,8 @@ def get_optimization_page(
     with connect() as conn:
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'optimization_run' ORDER BY id DESC LIMIT 5").fetchall()
     plans = [plan.to_dict() for plan in list_optimization_plans(limit=limit)]
+    # 彻底过滤掉负夏普/厂字等垃圾/高危因子，不展示在优化页面上
+    plans = [plan for plan in plans if plan.get("skip_reason") != "high_risk_garbage_alpha"]
     if status_filter == "optimizable":
         plans = [plan for plan in plans if plan["should_optimize"]]
     elif status_filter == "skipped":
@@ -652,6 +698,7 @@ def get_alphas(
     type_filter: str = "",
     level_filter: str = "",
     date_filter: str = "",
+    show_hidden: str = "0",
     admin: str = Depends(get_current_admin)
 ):
     page_size = 12
@@ -708,6 +755,7 @@ def get_alphas(
             tuple(params)
         ).fetchall()
         
+    from .services.optimization_planner import is_high_risk_garbage_alpha
     alphas_all = []
     for r in rows:
         row_dict = dict(r)
@@ -716,6 +764,15 @@ def get_alphas(
             {"result": row_dict.get("latest_check_result"), "payload": row_dict.get("latest_check_payload")},
         )
         row_dict.update(rating)
+
+        # 垃圾/高危因子默认隐藏
+        is_garbage = is_high_risk_garbage_alpha(
+            row_dict,
+            row_dict.get("latest_check_result") or ""
+        )
+        row_dict["is_garbage"] = is_garbage
+        if show_hidden != "1" and is_garbage:
+            continue
 
         if level_filter and row_dict["submission_class"] != level_filter:
             continue
@@ -736,6 +793,7 @@ def get_alphas(
             "type_filter": type_filter,
             "level_filter": level_filter,
             "date_filter": date_filter,
+            "show_hidden": show_hidden,
             "total": total
         }
     )
@@ -1034,6 +1092,82 @@ def fetch_alpha_recordsets_endpoint(alpha_id: str, admin: str = Depends(get_curr
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/alphas/{alpha_id}/remote_validate")
+def remote_validate_alpha(
+    alpha_id: str,
+    check_pnl: bool = False,
+    admin: str = Depends(get_current_admin),
+):
+    """
+    远端二次验证 (A / S 级触发)：
+    - 拉取 WQ yearly-stats → 厂字 / OS 崩塌检测
+    - 可选拉取 PNL → 末端平坦检测
+    - 若 grade_adjustment == 'D' → 本地标记 is_garbage + WQ 平台 DELETE
+    """
+    from .services.alpha_remote_validator import run_remote_validation
+    from .services.wq_client import login_with_credentials, retire_wq_alpha
+
+    with connect() as conn:
+        alpha = conn.execute(
+            "SELECT alpha_id, sharpe, fitness, grade, is_garbage FROM alpha_records WHERE alpha_id = ?",
+            (alpha_id,),
+        ).fetchone()
+    if not alpha:
+        raise HTTPException(status_code=404, detail="Alpha not found in database.")
+
+    settings = get_settings()
+    username = settings.get("wq_username", "")
+    password = settings.get("wq_password", "")
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="WQ credentials not set in settings.")
+
+    try:
+        s = login_with_credentials(username.strip(), password.strip())
+        is_sharpe = float(alpha["sharpe"] or 0)
+        is_fitness = float(alpha["fitness"] or 0)
+
+        result = run_remote_validation(
+            session=s,
+            alpha_id=alpha_id,
+            is_sharpe=is_sharpe,
+            is_fitness=is_fitness,
+            check_pnl=check_pnl,
+        )
+
+        # 若判定为 D 级垃圾因子 → 本地隐藏 + 平台退休
+        if result.get("grade_adjustment") == "D":
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE alpha_records SET is_garbage = 1, skip_reason = ? WHERE alpha_id = ?",
+                    (
+                        "DEAD_ALPHA_RISK|" + "|".join(result.get("issues", [])),
+                        alpha_id,
+                    ),
+                )
+            # 尝试远端退休（DELETE simulation）
+            try:
+                retired = retire_wq_alpha(s, alpha_id)
+                result["wq_retired"] = retired
+            except Exception as ex:
+                logger.warning(f"[RemoteValidate] WQ retire failed for {alpha_id}: {ex}")
+                result["wq_retired"] = False
+        else:
+            # 若通过，更新本地 grade_note 字段（备注远端验证结果）
+            note = "remote_verified" if result.get("grade_adjustment") == "keep" else "os_decay_warning"
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE alpha_records SET remote_validation_note = ? WHERE alpha_id = ?",
+                    (note, alpha_id),
+                )
+
+        s.close()
+        return {"status": "ok", "alpha_id": alpha_id, **result}
+
+    except Exception as e:
+        logger.error(f"[RemoteValidate] Failed for {alpha_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/logs", response_class=HTMLResponse)
 def get_logs(request: Request, admin: str = Depends(get_current_admin)):
     # 读取系统错误
@@ -1083,24 +1217,56 @@ def post_catalog_refresh(
 
 
 @app.post("/api/jobs/backtest")
-def post_backtest_run(
-    dataset_ids: str = Form(...),
-    run_fo: bool = Form(True),
-    run_so: bool = Form(True),
-    run_th: bool = Form(True),
+async def post_backtest_run(
+    request: Request,
     admin: str = Depends(get_current_admin)
 ):
+    form_data = await request.form()
+    dataset_ids = form_data.get("dataset_ids", "")
+    run_fo = form_data.get("run_fo") == "true" or form_data.get("run_fo") == "on"
+    run_so = form_data.get("run_so") == "true" or form_data.get("run_so") == "on"
+    run_th = form_data.get("run_th") == "true" or form_data.get("run_th") == "on"
+
     ids_list = [i.strip() for i in dataset_ids.split("\n") if i.strip()]
     if not ids_list:
         raise HTTPException(status_code=400, detail="数据集 ID 列表不能为空。")
-        
+
+    # 保存所有回测阶段参数到全局设置中以供执行器读取
+    settings_keys = [
+        "fo_filter_negative_sharpe", "fo_corr_enable", "fo_corr_sharpe_th", "fo_max_prod_corr",
+        "so_corr_enable", "so_corr_sharpe_th", "so_max_prod_corr",
+        "fo_track_lookback_days", "fo_track_sharpe", "fo_track_fitness", "fo_track_alpha_num",
+        "th_corr_enable", "th_corr_sharpe_th", "th_max_prod_corr",
+        "so_track_lookback_days", "so_track_sharpe", "so_track_fitness", "so_track_alpha_num",
+        "prune_keep_num", "prune_prefix_min_share", "track_fallback_keep_num", "group_ops",
+        "fo_backtest_children", "fo_backtest_threads",
+        "so_backtest_children", "so_backtest_threads",
+        "th_backtest_children", "th_backtest_threads",
+        "alpha_fetch_limit_multiplier", "alpha_date_timezone"
+    ]
+    updates = {}
+    for key in settings_keys:
+        val = form_data.get(key)
+        if val is not None:
+            if val in ("true", "on"):
+                updates[key] = "1"
+            elif val in ("false", "off"):
+                updates[key] = "0"
+            else:
+                updates[key] = str(val)
+        else:
+            if "enable" in key or "filter" in key:
+                updates[key] = "0"
+    if updates:
+        update_settings(updates)
+
     params = {
         "dataset_ids": ids_list,
         "run_fo": run_fo,
         "run_so": run_so,
         "run_th": run_th
     }
-    
+
     job_id = create_job("backtest", f"回测三阶段任务 (共 {len(ids_list)} 个数据集)", params)
     JobRunner().start_job(job_id, "backtest", params)
     return RedirectResponse(url="/backtest", status_code=status.HTTP_303_SEE_OTHER)

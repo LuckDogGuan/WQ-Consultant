@@ -448,6 +448,25 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
                         "payload": detail_data
                     })
                     
+                    # 因子评级诊断：若为 Grade D，触发 WQ 平台上的模拟退休/隐藏
+                    try:
+                        from .template_iteration import grade_candidate_result
+                        grading = grade_candidate_result({
+                            "sharpe": is_metrics.get("sharpe"),
+                            "fitness": is_metrics.get("fitness"),
+                            "margin": is_metrics.get("margin"),
+                            "turnover": is_metrics.get("turnover"),
+                            "self_corr": existing_record.get("self_corr") if existing_record else 0.0,
+                            "prod_corr": prod_corr,
+                            "failed_checks": 1 if result == "FAIL" else 0,
+                            "status": result,
+                        })
+                        if grading.get("grade") == "D":
+                            from .wq_client import retire_wq_alpha
+                            retire_wq_alpha(current_session, alpha_id)
+                    except Exception as ge:
+                        logger.error(f"Error grading and retiring checked alpha {alpha_id}: {ge}")
+                    
                     # 适当延迟以平滑并发请求速率
                     time.sleep(0.5)
                     

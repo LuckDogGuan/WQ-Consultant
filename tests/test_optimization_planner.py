@@ -134,6 +134,45 @@ class OptimizationPlannerTests(unittest.TestCase):
         self.assertEqual(plan.skip_reason, "invalid_expression")
         self.assertFalse(plan.expression_valid)
 
+    def test_negative_sharpe_is_skipped_as_high_risk_garbage(self):
+        plan = build_optimization_plan(
+            {
+                "alpha_id": "abc123",
+                "fitness": 2.8,
+                "margin": 0.0035,
+                "sharpe": -0.5,
+                "payload": {"regular": {"code": "rank(close)"}},
+            }
+        )
+        self.assertFalse(plan.should_optimize)
+        self.assertEqual(plan.skip_reason, "high_risk_garbage_alpha")
+
+    def test_skip_status_is_skipped_as_high_risk_garbage(self):
+        plan = build_optimization_plan(
+            {
+                "alpha_id": "abc123",
+                "fitness": 2.8,
+                "margin": 0.0035,
+                "status": "SKIP",
+                "payload": {"regular": {"code": "rank(close)"}},
+            }
+        )
+        self.assertFalse(plan.should_optimize)
+        self.assertEqual(plan.skip_reason, "high_risk_garbage_alpha")
+
+    def test_check_result_fail_is_skipped_as_high_risk_garbage(self):
+        plan = build_optimization_plan(
+            {
+                "alpha_id": "abc123",
+                "fitness": 2.8,
+                "margin": 0.0035,
+                "payload": {"regular": {"code": "rank(close)"}},
+            },
+            check_result="FAIL"
+        )
+        self.assertFalse(plan.should_optimize)
+        self.assertEqual(plan.skip_reason, "high_risk_garbage_alpha")
+
 
 if __name__ == "__main__":
     unittest.main()

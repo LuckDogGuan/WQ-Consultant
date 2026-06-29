@@ -4,209 +4,7 @@
 {% block header_title %}回测任务管理器{% endblock %}
 
 {% block content %}
-<div class="card page-settings-card collapsed">
-    <div class="card-header collapsible">
-        <div class="card-header-title">
-            <i class="fa-solid fa-sliders"></i>
-            <h2>回测与 Prune 算法参数设置</h2>
-        </div>
-        <i class="fa-solid fa-chevron-down toggle-icon"></i>
-    </div>
-    <div class="card-body">
-        <form action="/api/settings/update" method="POST" class="settings-form">
-            <!-- Fallback hidden values -->
-            <input type="hidden" name="backtest_children" value="{{ settings.backtest_children or '5' }}">
-            <input type="hidden" name="backtest_threads" value="{{ settings.backtest_threads or '8' }}">
-            <input type="hidden" name="alpha_date_timezone" value="Asia/Shanghai">
 
-            <!-- 1. 三阶段回测并发控制（槽数与线程） -->
-            <div class="settings-section">
-                <h3 class="section-title"><i class="fa-solid fa-network-wired"></i> 1. 三阶段回测并发控制 (槽内大小与并发线程)</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="fo_backtest_children">一阶 FO 每个 Multi-Sim 的 Alpha 数量</label>
-                        <input type="number" id="fo_backtest_children" name="fo_backtest_children" value="{{ settings.fo_backtest_children or '6' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="fo_backtest_threads">一阶 FO 并发的 Multi-Sim 请求数 (线程数)</label>
-                        <input type="number" id="fo_backtest_threads" name="fo_backtest_threads" value="{{ settings.fo_backtest_threads or '10' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="so_backtest_children">二阶 SO 每个 Multi-Sim 的 Alpha 数量</label>
-                        <input type="number" id="so_backtest_children" name="so_backtest_children" value="{{ settings.so_backtest_children or '5' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="so_backtest_threads">二阶 SO 并发的 Multi-Sim 请求数 (线程数)</label>
-                        <input type="number" id="so_backtest_threads" name="so_backtest_threads" value="{{ settings.so_backtest_threads or '8' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="th_backtest_children">三阶 TH 每个 Multi-Sim 的 Alpha 数量</label>
-                        <input type="number" id="th_backtest_children" name="th_backtest_children" value="{{ settings.th_backtest_children or '5' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="th_backtest_threads">三阶 TH 并发的 Multi-Sim 请求数 (线程数)</label>
-                        <input type="number" id="th_backtest_threads" name="th_backtest_threads" value="{{ settings.th_backtest_threads or '8' }}">
-                    </div>
-                </div>
-            </div>
-
-            <!-- 2. Prune 剪枝与算子设置 -->
-            <div class="settings-section">
-                <h3 class="section-title"><i class="fa-solid fa-scissors"></i> 2. Prune 剪枝与组合算子设置</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="prune_keep_num">Prune 每个前缀保留数 (Keep Num)</label>
-                        <input type="number" id="prune_keep_num" name="prune_keep_num" value="{{ settings.prune_keep_num or '5' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="prune_prefix_min_share">前缀自动推导可信占比</label>
-                        <input type="text" id="prune_prefix_min_share" name="prune_prefix_min_share" value="{{ settings.prune_prefix_min_share or '0.6' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="track_fallback_keep_num">Prune 失败全局降序保留数</label>
-                        <input type="number" id="track_fallback_keep_num" name="track_fallback_keep_num" value="{{ settings.track_fallback_keep_num or '50' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="group_ops">二阶分组操作算子 (逗号分隔)</label>
-                        <input type="text" id="group_ops" name="group_ops" value="{{ settings.group_ops or 'group_neutralize,group_rank,group_zscore' }}">
-                    </div>
-                </div>
-            </div>
-
-            <!-- 3. 一阶历史追踪过滤 -->
-            <div class="settings-section">
-                <h3 class="section-title"><i class="fa-solid fa-magnifying-glass-chart"></i> 3. 一阶 FO 因子追踪与筛选过滤</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="fo_track_lookback_days">FO 一阶追踪回看天数</label>
-                        <input type="number" id="fo_track_lookback_days" name="fo_track_lookback_days" value="{{ settings.fo_track_lookback_days or '90' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="fo_track_sharpe">FO 一阶追踪 Sharpe 阈值</label>
-                        <input type="text" id="fo_track_sharpe" name="fo_track_sharpe" value="{{ settings.fo_track_sharpe or '1.0' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="fo_track_fitness">FO 一阶追踪 Fitness 阈值</label>
-                        <input type="text" id="fo_track_fitness" name="fo_track_fitness" value="{{ settings.fo_track_fitness or '0.7' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="fo_track_alpha_num">FO 一阶追踪候选上限数</label>
-                        <input type="number" id="fo_track_alpha_num" name="fo_track_alpha_num" value="{{ settings.fo_track_alpha_num or '100' }}">
-                    </div>
-                </div>
-            </div>
-
-            <!-- 4. 二阶历史追踪过滤 -->
-            <div class="settings-section">
-                <h3 class="section-title"><i class="fa-solid fa-chart-line"></i> 4. 二阶 SO 因子追踪与筛选过滤</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="so_track_lookback_days">SO 二阶追踪回看天数</label>
-                        <input type="number" id="so_track_lookback_days" name="so_track_lookback_days" value="{{ settings.so_track_lookback_days or '90' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="so_track_sharpe">SO 二阶追踪 Sharpe 阈值</label>
-                        <input type="text" id="so_track_sharpe" name="so_track_sharpe" value="{{ settings.so_track_sharpe or '1.3' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="so_track_fitness">SO 二阶追踪 Fitness 阈值</label>
-                        <input type="text" id="so_track_fitness" name="so_track_fitness" value="{{ settings.so_track_fitness or '0.8' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="so_track_alpha_num">SO 二阶追踪候选上限数</label>
-                        <input type="number" id="so_track_alpha_num" name="so_track_alpha_num" value="{{ settings.so_track_alpha_num or '100' }}">
-                    </div>
-                </div>
-            </div>
-
-            <!-- 5. 追踪高级辅助参数 -->
-            <div class="settings-section">
-                <h3 class="section-title"><i class="fa-solid fa-gears"></i> 5. 追踪高级辅助参数</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label>追踪 Alpha 拉取与限额计算时区</label>
-                        <div class="readonly-setting">北京时间 (Asia/Shanghai)，每日 12:00 刷新回测计数</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="alpha_fetch_limit_multiplier">候选预拉取倍数 (Multiplier)</label>
-                        <input type="number" id="alpha_fetch_limit_multiplier" name="alpha_fetch_limit_multiplier" value="{{ settings.alpha_fetch_limit_multiplier or '3' }}">
-                    </div>
-                </div>
-            </div>
-
-            <!-- 6. 各阶段穿插相关性检查设置 -->
-            <div class="settings-section">
-                <h3 class="section-title"><i class="fa-solid fa-code-branch"></i> 6. 各阶段穿插相关性检查与过滤设置</h3>
-                <div class="form-grid">
-                    <!-- FO Stage Correlation -->
-                    <div class="form-group">
-                        <label for="fo_corr_enable">一阶 FO 结束后相关性检查</label>
-                        <select id="fo_corr_enable" name="fo_corr_enable">
-                            <option value="1" {% if settings.fo_corr_enable == '1' %}selected{% endif %}>开启 (推荐)</option>
-                            <option value="0" {% if settings.fo_corr_enable == '0' %}selected{% endif %}>关闭</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="fo_corr_sharpe_th">一阶 FO 相关性 Sharpe 阈值</label>
-                        <input type="text" id="fo_corr_sharpe_th" name="fo_corr_sharpe_th" value="{{ settings.fo_corr_sharpe_th or '1.0' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="fo_max_prod_corr">一阶 FO 最大 Prod 相关性上限</label>
-                        <input type="text" id="fo_max_prod_corr" name="fo_max_prod_corr" value="{{ settings.fo_max_prod_corr or '0.7' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="fo_filter_negative_sharpe">一阶 FO 自动过滤负夏普垃圾因子</label>
-                        <select id="fo_filter_negative_sharpe" name="fo_filter_negative_sharpe">
-                            <option value="1" {% if settings.fo_filter_negative_sharpe == '1' %}selected{% endif %}>开启 (默认直接删除)</option>
-                            <option value="0" {% if settings.fo_filter_negative_sharpe == '0' %}selected{% endif %}>关闭</option>
-                        </select>
-                    </div>
-
-                    <!-- SO Stage Correlation -->
-                    <div class="form-group">
-                        <label for="so_corr_enable">二阶 SO 结束后相关性检查</label>
-                        <select id="so_corr_enable" name="so_corr_enable">
-                            <option value="1" {% if settings.so_corr_enable == '1' %}selected{% endif %}>开启</option>
-                            <option value="0" {% if settings.so_corr_enable == '0' or not settings.so_corr_enable %}selected{% endif %}>关闭 (默认)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="so_corr_sharpe_th">二阶 SO 相关性 Sharpe 阈值</label>
-                        <input type="text" id="so_corr_sharpe_th" name="so_corr_sharpe_th" value="{{ settings.so_corr_sharpe_th or '1.2' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="so_max_prod_corr">二阶 SO 最大 Prod 相关性上限</label>
-                        <input type="text" id="so_max_prod_corr" name="so_max_prod_corr" value="{{ settings.so_max_prod_corr or '0.7' }}">
-                    </div>
-                    <div class="form-group">
-                        <!-- Spacer to align grid -->
-                    </div>
-
-                    <!-- TH Stage Correlation -->
-                    <div class="form-group">
-                        <label for="th_corr_enable">三阶 TH 结束后相关性检查</label>
-                        <select id="th_corr_enable" name="th_corr_enable">
-                            <option value="1" {% if settings.th_corr_enable == '1' %}selected{% endif %}>开启</option>
-                            <option value="0" {% if settings.th_corr_enable == '0' or not settings.th_corr_enable %}selected{% endif %}>关闭 (默认)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="th_corr_sharpe_th">三阶 TH 相关性 Sharpe 阈值</label>
-                        <input type="text" id="th_corr_sharpe_th" name="th_corr_sharpe_th" value="{{ settings.th_corr_sharpe_th or '1.3' }}">
-                    </div>
-                    <div class="form-group">
-                        <label for="th_max_prod_corr">三阶 TH 最大 Prod 相关性上限</label>
-                        <input type="text" id="th_max_prod_corr" name="th_max_prod_corr" value="{{ settings.th_max_prod_corr or '0.7' }}">
-                    </div>
-                </div>
-            </div>
-            
-            <div class="form-actions">
-                <button type="submit" class="btn btn-primary">确认保存回测参数</button>
-            </div>
-        </form>
-    </div>
-</div>
 
 <div class="backtest-grid">
     <!-- Left Panel: Launch Form -->
@@ -237,6 +35,177 @@
                             <input type="checkbox" name="run_th" value="true" checked>
                             <span>三阶 TH (交易控制过滤)</span>
                         </label>
+                    </div>
+                </div>
+
+                <!-- 详细的阶段参数配置 (折叠面板) -->
+                <div class="launch-details-accordion" style="margin-top: 15px; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; background: rgba(0,0,0,0.15);">
+                    <div class="accordion-trigger" style="padding: 10px 15px; background: rgba(255,255,255,0.03); cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600;" onclick="toggleLaunchSettingsAccordion()">
+                        <span><i class="fa-solid fa-gears" style="margin-right: 6px;"></i> 配置各阶段筛选和参数 (可选)</span>
+                        <i class="fa-solid fa-chevron-right launch-accordion-icon" style="transition: transform 0.2s; font-size: 11px;"></i>
+                    </div>
+                    <div class="accordion-content" id="launch-settings-content" style="display: none; padding: 15px; border-top: 1px solid var(--border-color);">
+                        
+                        <!-- Tabs Header -->
+                        <div class="tabs-header" style="display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; padding-bottom: 4px;">
+                            <div class="backtest-tab-btn" onclick="switchBacktestTab(event, 'tab-fo')" data-color="#60a5fa" style="padding: 6px 12px; cursor: pointer; border-bottom: 2px solid var(--primary-color, #4f46e5); font-size: 11px; font-weight: bold; color: #60a5fa; transition: all 0.2s;">一阶 FO</div>
+                            <div class="backtest-tab-btn" onclick="switchBacktestTab(event, 'tab-so')" data-color="#34d399" style="padding: 6px 12px; cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8; transition: all 0.2s;">二阶 SO</div>
+                            <div class="backtest-tab-btn" onclick="switchBacktestTab(event, 'tab-th')" data-color="#fb7185" style="padding: 6px 12px; cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8; transition: all 0.2s;">三阶 TH</div>
+                            <div class="backtest-tab-btn" onclick="switchBacktestTab(event, 'tab-prune')" data-color="#e2e8f0" style="padding: 6px 12px; cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8; transition: all 0.2s;">剪枝与高级</div>
+                        </div>
+
+                        <!-- FO Tab Content -->
+                        <div class="backtest-tab-content" id="tab-fo" style="display: block;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 5px;">
+                                    <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" name="fo_filter_negative_sharpe" value="true" {% if settings.fo_filter_negative_sharpe == '1' or settings.fo_filter_negative_sharpe is not defined %}checked{% endif %}>
+                                        <span>启用负夏普过滤 (直接清除负收益因子)</span>
+                                    </label>
+                                </div>
+                                <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 8px;">
+                                    <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" name="fo_corr_enable" value="true" {% if settings.fo_corr_enable == '1' or settings.fo_corr_enable is not defined %}checked{% endif %}>
+                                        <span>启用一阶相关性检查 (Inline Correlation)</span>
+                                    </label>
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶相关性 Sharpe 阈值</label>
+                                    <input type="number" step="0.01" name="fo_corr_sharpe_th" value="{{ settings.fo_corr_sharpe_th or '1.0' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶最大 Prod 相关性上限</label>
+                                    <input type="number" step="0.01" name="fo_max_prod_corr" value="{{ settings.fo_max_prod_corr or '0.7' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶每个 Multi-Sim 包含 Alpha 数</label>
+                                    <input type="number" name="fo_backtest_children" value="{{ settings.fo_backtest_children or '6' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶并发 Multi-Sim 请求线程数</label>
+                                    <input type="number" name="fo_backtest_threads" value="{{ settings.fo_backtest_threads or '10' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SO Tab Content -->
+                        <div class="backtest-tab-content" id="tab-so" style="display: none;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 8px;">
+                                    <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" name="so_corr_enable" value="true" {% if settings.so_corr_enable == '1' %}checked{% endif %}>
+                                        <span>启用二阶相关性检查 (Inline Correlation)</span>
+                                    </label>
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶相关性 Sharpe 阈值</label>
+                                    <input type="number" step="0.01" name="so_corr_sharpe_th" value="{{ settings.so_corr_sharpe_th or '1.2' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶最大 Prod 相关性上限</label>
+                                    <input type="number" step="0.01" name="so_max_prod_corr" value="{{ settings.so_max_prod_corr or '0.7' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶追踪回看天数</label>
+                                    <input type="number" name="fo_track_lookback_days" value="{{ settings.fo_track_lookback_days or '90' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶追踪 Sharpe 阈值</label>
+                                    <input type="number" step="0.01" name="fo_track_sharpe" value="{{ settings.fo_track_sharpe or '1.0' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶追踪 Fitness 阈值</label>
+                                    <input type="number" step="0.01" name="fo_track_fitness" value="{{ settings.fo_track_fitness or '0.7' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶追踪候选上限数</label>
+                                    <input type="number" name="fo_track_alpha_num" value="{{ settings.fo_track_alpha_num or '100' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶每个 Multi-Sim 包含 Alpha 数</label>
+                                    <input type="number" name="so_backtest_children" value="{{ settings.so_backtest_children or '5' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶并发 Multi-Sim 请求线程数</label>
+                                    <input type="number" name="so_backtest_threads" value="{{ settings.so_backtest_threads or '8' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TH Tab Content -->
+                        <div class="backtest-tab-content" id="tab-th" style="display: none;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 8px;">
+                                    <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" name="th_corr_enable" value="true" {% if settings.th_corr_enable == '1' %}checked{% endif %}>
+                                        <span>启用三阶相关性检查 (Inline Correlation)</span>
+                                    </label>
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">三阶相关性 Sharpe 阈值</label>
+                                    <input type="number" step="0.01" name="th_corr_sharpe_th" value="{{ settings.th_corr_sharpe_th or '1.3' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">三阶最大 Prod 相关性上限</label>
+                                    <input type="number" step="0.01" name="th_max_prod_corr" value="{{ settings.th_max_prod_corr or '0.7' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶追踪回看天数</label>
+                                    <input type="number" name="so_track_lookback_days" value="{{ settings.so_track_lookback_days or '90' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶追踪 Sharpe 阈值</label>
+                                    <input type="number" step="0.01" name="so_track_sharpe" value="{{ settings.so_track_sharpe or '1.3' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶追踪 Fitness 阈值</label>
+                                    <input type="number" step="0.01" name="so_track_fitness" value="{{ settings.so_track_fitness or '0.8' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶追踪候选上限数</label>
+                                    <input type="number" name="so_track_alpha_num" value="{{ settings.so_track_alpha_num or '100' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">三阶每个 Multi-Sim 包含 Alpha 数</label>
+                                    <input type="number" name="th_backtest_children" value="{{ settings.th_backtest_children or '5' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">三阶并发 Multi-Sim 请求线程数</label>
+                                    <input type="number" name="th_backtest_threads" value="{{ settings.th_backtest_threads or '8' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Pruning & Advanced Tab Content -->
+                        <div class="backtest-tab-content" id="tab-prune" style="display: none;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">Prune 保留前缀数</label>
+                                    <input type="number" name="prune_keep_num" value="{{ settings.prune_keep_num or '5' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">前缀自动推导可信占比</label>
+                                    <input type="number" step="0.01" name="prune_prefix_min_share" value="{{ settings.prune_prefix_min_share or '0.6' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">Prune 失败全局降序保留数</label>
+                                    <input type="number" name="track_fallback_keep_num" value="{{ settings.track_fallback_keep_num or '50' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">候选预拉取倍数 (Multiplier)</label>
+                                    <input type="number" name="alpha_fetch_limit_multiplier" value="{{ settings.alpha_fetch_limit_multiplier or '3' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="grid-column: span 2; margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶分组操作算子 (逗号分隔)</label>
+                                    <input type="text" name="group_ops" value="{{ settings.group_ops or 'group_neutralize,group_rank,group_zscore' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                                <div class="form-group" style="grid-column: span 2; margin-bottom: 5px;">
+                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">追踪 Alpha 拉取与限额计算时区</label>
+                                    <input type="text" name="alpha_date_timezone" value="{{ settings.alpha_date_timezone or 'Asia/Shanghai' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 

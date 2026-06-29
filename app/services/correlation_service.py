@@ -561,10 +561,22 @@ def run_inline_correlation_check(
     # 只加载 Prod 相关性矩阵（不再使用 PPA）
     all_ids, all_rets = load_correlation_data(tag=None)
 
-    region = get_setting("region", "USA")
+    import json
+    job_params = {}
+    if job_id:
+        try:
+            with connect() as conn:
+                job_row = conn.execute("SELECT params FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                if job_row and job_row["params"]:
+                    job_params = json.loads(job_row["params"])
+        except Exception as e:
+            logger.error(f"[{stage}] Failed to load job params for correlation override: {e}")
+
+    from .simulation_service import get_float_param
+    region = job_params.get("region") or get_setting("region", "USA")
     # 读取该阶段对应的配置阈值
-    corr_sharpe_th = float(get_setting(f"{stage_prefix}_corr_sharpe_th", "1.0"))
-    max_prod_corr  = float(get_setting(f"{stage_prefix}_max_prod_corr",  "0.7"))
+    corr_sharpe_th = get_float_param(job_params, f"{stage_prefix}_corr_sharpe_th", 1.0)
+    max_prod_corr  = get_float_param(job_params, f"{stage_prefix}_max_prod_corr",  0.7)
 
     skipped_count = 0
     passed_count  = 0
