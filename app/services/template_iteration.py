@@ -319,6 +319,52 @@ def run_template_iteration_job(job_id: int, params: dict[str, Any]) -> None:
     )
 
 
+def _extract_yearly_stats(payload: Any) -> list[dict[str, Any]]:
+    if not payload:
+        return []
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            return []
+    if not isinstance(payload, dict):
+        return []
+        
+    # 1. 尝试 recordsets_data 中的 yearly-stats / yearly_stats
+    rs_data = payload.get("recordsets_data")
+    if isinstance(rs_data, dict):
+        for key in ["yearly-stats", "yearly_stats"]:
+            if key in rs_data and isinstance(rs_data[key], list):
+                return rs_data[key]
+                
+    # 2. 尝试 raw_payload 中的 yearly-stats / yearly_stats
+    raw = payload.get("raw_payload")
+    if isinstance(raw, dict):
+        for key in ["yearly-stats", "yearly_stats"]:
+            if key in raw and isinstance(raw[key], list):
+                return raw[key]
+        if "is" in raw and isinstance(raw["is"], dict):
+            if "year" in raw["is"] and isinstance(raw["is"]["year"], list):
+                return raw["is"]["year"]
+        rs_data_raw = raw.get("recordsets_data")
+        if isinstance(rs_data_raw, dict):
+            for key in ["yearly-stats", "yearly_stats"]:
+                if key in rs_data_raw and isinstance(rs_data_raw[key], list):
+                    return rs_data_raw[key]
+                
+    # 3. 尝试 top-level yearly-stats / yearly_stats
+    for key in ["yearly-stats", "yearly_stats"]:
+        if key in payload and isinstance(payload[key], list):
+            return payload[key]
+            
+    # 4. 尝试 top-level is.year
+    if "is" in payload and isinstance(payload["is"], dict):
+        if "year" in payload["is"] and isinstance(payload["is"]["year"], list):
+            return payload["is"]["year"]
+            
+    return []
+
+
 def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     sharpe = _float(metrics.get("sharpe"))
     fitness = _float(metrics.get("fitness"))
@@ -341,11 +387,32 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
         reasons.append("NEGATIVE_SHARPE")
     if "SKIP" in status or "SKIP" in alpha_type:
         reasons.append("SKIP_STATUS")
-        
+
     # 检测年化收益与换手率是否在任意年份出现归零情况 (厂字/停牌死因子)
     payload = metrics.get("payload") or {}
+    
+    # 3.5. 表达式未来函数泄漏检测 (如直接引用 \breturns\b)
+    expression = metrics.get("expression") or ""
+    if not expression and isinstance(payload, dict):
+        from .optimization_planner import extract_alpha_expression
+        expression = extract_alpha_expression(payload)
+        
+    if expression and re.search(r'\breturns\b', expression):
+        reasons.append("DEAD_ALPHA_RISK")
+        
+    # 3.6. 交易股票数量检测 (防范超低样本过拟合)
     if isinstance(payload, dict):
-        years = payload.get("is", {}).get("year", [])
+        raw_payload = payload.get("raw_payload", {}) if "raw_payload" in payload else payload
+        inst_count = raw_payload.get("instrumentCount") or raw_payload.get("instrument_count")
+        if inst_count is not None:
+            try:
+                if int(inst_count) < 30:
+                    reasons.append("DEAD_ALPHA_RISK")
+            except (ValueError, TypeError):
+                pass
+                
+    if isinstance(payload, dict):
+        years = _extract_yearly_stats(payload)
         if isinstance(years, list) and len(years) > 0:
             valid_years = []
             for yr in years:

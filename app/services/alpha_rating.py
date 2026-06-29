@@ -144,6 +144,7 @@ def build_alpha_rating(
         "failed_checks": failed_count,
         "status": check_result,
         "alpha_type": raw_type,
+        "payload": alpha_payload,
     })
     grade = grading.get("grade", "C")
     grade_labels = {
