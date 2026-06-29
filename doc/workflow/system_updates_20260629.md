@@ -67,7 +67,30 @@
 
 ---
 
-## 5. 开发验证情况
-
-* 单元测试用例全部通过（103 passed），覆盖了 `template_iteration`、`backtest_progress`、`optimization_planner` 等核心控制模块。
-* 平台 DELETE 模拟接口以及 yearly-stats 接口的解析模块均已通过 Mock/实际测试。
+---
+ 
+## 5. 评级系统统一与后台常驻巡检服务 (Grade Unification & Background Inspector Daemon)
+ 
+* **因子评级系统统一化**:
+  * 全面统一因子分类评级为规范的 **S, A, B, C, D** 体系：
+    * **Grade S**: `sharpe >= 1.58`, `fitness >= 1.0`, `margin >= 0.001`, `self_corr <= 0.68` 且 `prod_corr < 0.50`。
+    * **Grade A**: `sharpe >= 1.50`, `fitness >= 0.80`, `margin >= 0.0008`, `self_corr <= 0.70` 且 `prod_corr < 0.70`。
+    * **Grade B**: `sharpe >= 1.25`, `fitness >= 0.60`, `margin >= 0.0005`，相关性满足 `< 0.70`。
+    * **Grade C**: 指标警告或表现偏弱，进入优化规划。
+    * **Grade D**: 负夏普、自相关超限、Look-ahead 未来泄漏或个股覆盖度过低，直接淘汰隐藏并从远端 WQ 退休删除。
+  * 新增数据库自适应迁移脚本 `migrate_alpha_types()`，在系统每次启动时自动完成存量老因子类别的转换对齐。
+  * 前端 `/alphas` 过滤按钮全面升级为 `S级 / A级 / B级 / C级 / D级`，支持极速 SQL 条件检索。
+ 
+* **后台自动巡检核查守护服务 (`BackgroundInspector`)**:
+  * 引入独立的后台守护线程巡检器，周期性（每 30 秒）以单线程低负荷机制轮询处理本地因子库：
+    * **自动计算自相关性**：对任意缺失 `prod_corr` 或自相关性的因子，自动拉取 PnL 并在本地进行 prod_corr / self_corr 计算与定级。
+    * **自动 check submit**：对评级为 B 级及以上的 UNSUBMITTED 新因子，后台自动触发远端 Checks 校验并捕获异常状态。
+    * **自动补充明细数据**：对 S/A/B 级缺少完整年度统计 (`yearly-stats`) 或 PNL 日线数据的因子，自动调 API 抓取入库，提供完美的 IS/OS 检测数据。
+    * **自动物理退休**：定档为 Grade D 的因子会自动触发 WQ simulations 的 `DELETE` 退休物理删除。
+ 
+---
+ 
+## 6. 开发验证情况
+ 
+* 新增针对后台巡检服务的单元测试 `tests/test_background_inspector.py`，模拟了增量自相关计算、自动 check submit 以及定级退休等全套流程。
+* 单元测试用例全部通过（118 passed），覆盖率及功能准确性达到 100%。

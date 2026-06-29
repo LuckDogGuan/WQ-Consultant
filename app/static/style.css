@@ -564,6 +564,11 @@ body {
 .status-standard { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
 .status-marginal { background-color: rgba(249, 115, 22, 0.18); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.25); }
 .status-substandard { background-color: rgba(156, 163, 175, 0.15); color: #9ca3af; }
+.status-S { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); }
+.status-A { background-color: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); }
+.status-B { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); }
+.status-C { background-color: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+.status-D { background-color: rgba(156, 163, 175, 0.15); color: #9ca3af; }
 
 /* Job Status Badge */
 .job-status-badge {

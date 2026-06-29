@@ -7,6 +7,24 @@ import app.main as main
 
 class OptimizationPageTests(unittest.TestCase):
     def test_optimization_page_shows_name_and_variant_action(self):
+        from app.storage import init_db, upsert_alpha
+        init_db()
+        upsert_alpha({
+            "alpha_id": "test_opt_alpha",
+            "alpha_type": "C",
+            "name": "因子名称",
+            "region": "USA",
+            "universe": "TOP3000",
+            "sharpe": 1.3,
+            "fitness": 1.5,
+            "margin": 0.0020,
+            "prod_corr": 0.3,
+            "ppa_corr": 0.3,
+            "status": "UNSUBMITTED",
+            "source": "test",
+            "payload": {"expression": "close", "regular": "close"}
+        })
+
         main.app.dependency_overrides[main.get_current_admin] = lambda: "admin"
         try:
             client = TestClient(main.app)

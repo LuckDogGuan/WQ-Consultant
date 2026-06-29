@@ -384,6 +384,49 @@ def get_optimization_variants_page(
     )
 
 
+def migrate_alpha_types():
+    """将老数据库中的 alpha_type (PPA, RA, ATOM) 统一升级为规范的五档评级 S/A/B/C/D"""
+    logger.info("Starting database migration to unify alpha grades...")
+    try:
+        from .services.alpha_rating import build_alpha_rating
+        from .storage import connect
+        
+        with connect() as conn:
+            rows = conn.execute("SELECT * FROM alpha_records").fetchall()
+            
+        updated_count = 0
+        for r in rows:
+            row_dict = dict(r)
+            alpha_id = row_dict["alpha_id"]
+            current_type = row_dict.get("alpha_type") or ""
+            
+            # 如果已经是五档分类之一，并且不是空的，就跳过
+            if current_type in {"S", "A", "B", "C", "D"}:
+                continue
+                
+            # 读取最新核验记录以防缺失等级
+            with connect() as conn:
+                chk_row = conn.execute(
+                    "SELECT result FROM check_results WHERE alpha_id = ? ORDER BY id DESC LIMIT 1",
+                    (alpha_id,)
+                ).fetchone()
+            latest_check = {"result": chk_row["result"]} if chk_row else None
+            
+            rating = build_alpha_rating(row_dict, latest_check)
+            grade = rating.get("grade", "C")
+            
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE alpha_records SET alpha_type = ?, updated_at = datetime('now') WHERE alpha_id = ?",
+                    (grade, alpha_id)
+                )
+            updated_count += 1
+            
+        logger.info(f"Database rating unification complete. Migrated {updated_count} alpha records.")
+    except Exception as e:
+        logger.error(f"Failed to migrate alpha rating types: {e}")
+
+
 @app.on_event("startup")
 def on_startup():
     """Web 服务启动时初始化配置与数据克隆"""
@@ -393,6 +436,9 @@ def on_startup():
     handle_env_password_override()
     ensure_catalog_data()
     
+    # 统一规范因子评级归档
+    migrate_alpha_types()
+    
     # 启动网络监视器服务
     from .services.network_monitor import NetworkMonitor
     NetworkMonitor().start()
@@ -400,6 +446,10 @@ def on_startup():
     # 启动定时任务调度服务
     from .services.scheduler_service import SchedulerService
     SchedulerService().start()
+    
+    # 启动后台自动巡检核查服务
+    from .services.background_inspector import BackgroundInspector
+    BackgroundInspector().start()
     
     logger.info("WorldQuant Consultant GUI startup checklist complete.")
 
@@ -418,6 +468,12 @@ def on_shutdown():
         SchedulerService().stop()
     except Exception as e:
         logger.error(f"Error during shutdown scheduler: {e}")
+        
+    try:
+        from .services.background_inspector import BackgroundInspector
+        BackgroundInspector().stop()
+    except Exception as e:
+        logger.error(f"Error during shutdown background inspector: {e}")
         
     logger.info("WorldQuant Consultant GUI shutdown complete.")
 

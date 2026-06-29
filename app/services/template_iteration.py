@@ -475,12 +475,18 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     elif reasons:
         grade = "C"
         action = "optimize"
-    elif self_corr <= 0.68 and prod_corr < 0.50 and sharpe >= 1.58 and fitness >= 1.0:
+    elif self_corr <= 0.68 and prod_corr < 0.50 and sharpe >= 1.58 and fitness >= 1.0 and (margin is not None and margin >= 0.0010):
         grade = "S"
         action = "manual_submit_candidate"
-    else:
+    elif self_corr <= 0.70 and prod_corr < 0.70 and sharpe >= 1.50 and fitness >= 0.80 and (margin is not None and margin >= 0.0008):
+        grade = "A"
+        action = "manual_submit_candidate"
+    elif self_corr <= 0.70 and prod_corr < 0.70 and sharpe >= 1.25 and fitness >= 0.60 and (margin is not None and margin >= 0.0005):
         grade = "B"
         action = "manual_review"
+    else:
+        grade = "C"
+        action = "optimize"
     return {"grade": grade, "action": action, "reasons": reasons}
 
 
