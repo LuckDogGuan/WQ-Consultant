@@ -347,15 +347,55 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload, dict):
         years = payload.get("is", {}).get("year", [])
         if isinstance(years, list) and len(years) > 0:
+            valid_years = []
             for yr in years:
                 try:
-                    yr_returns = float(yr.get("returns", 1.0))
-                    yr_turnover = float(yr.get("turnover", 1.0))
-                    if abs(yr_turnover) < 0.0001 and abs(yr_returns) < 0.00001:
-                        reasons.append("DEAD_ALPHA_RISK")
-                        break
+                    year_val = int(yr.get("year", 0))
+                    yr_returns = float(yr.get("returns", 0.0))
+                    yr_turnover = float(yr.get("turnover", 0.0))
+                    yr_sharpe = float(yr.get("sharpe", 0.0))
+                    valid_years.append({
+                        "year": year_val,
+                        "returns": yr_returns,
+                        "turnover": yr_turnover,
+                        "sharpe": yr_sharpe
+                    })
                 except (ValueError, TypeError):
                     pass
+            
+            if valid_years:
+                valid_years = sorted(valid_years, key=lambda y: y["year"], reverse=True)
+                total_years = len(valid_years)
+                
+                # A. 基础检测：年份数量不足 3 年
+                if total_years < 3:
+                    reasons.append("DEAD_ALPHA_RISK")
+                else:
+                    # B. 单年零换手 + 零收益检测
+                    has_dead_year = False
+                    zero_years_count = 0
+                    for yr in valid_years:
+                        if abs(yr["turnover"]) < 0.0001 and abs(yr["returns"]) < 0.00001:
+                            has_dead_year = True
+                            zero_years_count += 1
+                    
+                    if has_dead_year:
+                        reasons.append("DEAD_ALPHA_RISK")
+                    # C. 零值年份占比过多 (超过 40%)
+                    elif zero_years_count / total_years > 0.40:
+                        reasons.append("DEAD_ALPHA_RISK")
+                    else:
+                        # D. 近两年平均 Sharpe 极低 (< 0.10) 或包含 0.0
+                        recent_years = valid_years[:2]
+                        recent_sharpes = [yr["sharpe"] for yr in recent_years]
+                        l2y_sharpe = sum(recent_sharpes) / len(recent_sharpes) if recent_sharpes else 0.0
+                        if any(abs(s) < 1e-9 for s in recent_sharpes) or l2y_sharpe < 0.10:
+                            reasons.append("DEAD_ALPHA_RISK")
+                        # E. 正收益年份占比不足 50%
+                        else:
+                            pos_years = sum(1 for yr in valid_years if yr["returns"] > 0)
+                            if pos_years / total_years < 0.50:
+                                reasons.append("DEAD_ALPHA_RISK")
 
     if turnover and (turnover < 0.01 or turnover > 0.70):
         reasons.append("TURNOVER_RISK")

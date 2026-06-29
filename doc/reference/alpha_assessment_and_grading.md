@@ -55,8 +55,8 @@ graph TD
 
 | 因子类别 (档位) | 核心指标定义 | 诊断与成因分析 | 处置动作 (Action) |
 | :--- | :--- | :--- | :--- |
-| **高危垃圾因子**<br/>**(Grade D)** | - 负夏普: `sharpe < 0`<br/>- 厂字因子 (Flat PnL): 连续 200 个交易日出现相同非零收益值，或单列收益全为 0<br/>- 极致相关: `self_corr > 0.70`<br/>- 检查失败: `FAIL/FAILED/ERROR` | - 厂字因子本质上是由于数据漏洞或代码除 0/极值常数引发的“假因子”，线上提交必挂。<br/>- 负夏普说明没有任何经济学预测价值。<br/>- 撞车因子说明过拟合或缺乏独特信号。 | **直接丢弃，界面隐藏**。<br/>- 不在优化中心展示。<br/>- 彻底屏蔽自动或人工重回测，避免浪费平台配额。 |
-| **可优化因子**<br/>**(Grade B / C)** | - 临界表现: `1.25 <= sharpe < 1.58`<br/>- 或收益率偏低: `0 < margin < 0.001`<br/>- 单项指标存在硬伤（如 `self_corr` 处于 0.68-0.70 临界线，近年表现衰退或换手率偏高） | - 因子蕴含了有效的预测特征，但由于算子堆砌或未中性化，导致风格/行业暴露过重。<br/>- 衰减系数 Decay 不匹配或调仓过于频繁，侵蚀了 Margin。 | **送入优化规划 (Go to Optimization)**。<br/>- 执行参数扫频测试。<br/>- 采用下方多维优化动作进行“改色”或“提纯”。 |
+| **高危垃圾因子**<br/>**(Grade D)** | - 负夏普: `sharpe < 0`<br/>- 厂字因子 (Flat PnL): 满足以下任一特征的因子：<br/>  1. 全零 PNL<br/>  2. 历史跨度不足 5年 (1260天)<br/>  3. 末端连续 250天等值<br/>  4. 中途包含连续 250天相同值<br/>  5. 存在连续 756天 (3年) 零值<br/>- 极致相关: `self_corr > 0.70`<br/>- 检查失败: `FAIL/FAILED/ERROR` | - 厂字因子本质上是由于数据漏洞或代码除 0/极值常数引发的“假因子”，线上提交必挂。<br/>- 负夏普说明没有任何经济学预测价值。<br/>- 撞车因子说明过拟合或缺乏独特信号。 | **直接丢弃，界面隐藏**。<br/>- 不在优化中心展示。<br/>- 彻底屏蔽自动或人工重回测，避免浪费平台配额。 |
+| **可优化因子**<br/>**(Grade B / C)** | - 临界表现: `1.25 <= sharpe < 1.58`<br/>- 或收益率偏低: `0 < margin < 0.001`<br/>- 单项指标存在硬伤（如 `self_corr` 处于 0.68-0.70 临界线，近年表现衰退或换手率偏高） | - 因子蕴含了有效的预测特征，但由于算子堆砌或未中性化，导致风格/行业暴露过重。<br/>- 衰减系数 Decay 阻碍或调仓过于频繁，侵蚀了 Margin。 | **送入优化规划 (Go to Optimization)**。<br/>- 执行参数扫频测试。<br/>- 采用下方多维优化动作进行“改色”或“提纯”。 |
 | **黄金优秀因子**<br/>**(Grade S)** | - 高表现: `sharpe >= 1.58`<br/>- 高适配: `fitness >= 1.0`<br/>- 高收益: `margin >= 0.001`<br/>- 强正交: `self_corr <= 0.68` 且 `prod_corr < 0.50` | - 代码逻辑极其精简，未产生过度拟合。<br/>- 蕴含独特的阿尔法源，与已提交的 OS 资产库相关度低。 | **直接提交 (Direct Submit)**。<br/>- 严禁进行大范围参数重写或增加算子层级（防止画蛇添足引入过拟合）。<br/>- 立即进入平台 Check 队列。 |
 
 ### 22.2 多维指标针对性优化动作 (ATLAS-based Optimization Tactics)
@@ -143,10 +143,10 @@ graph TD
     A --> F["5. ATLAS 横截面后置准则 (ATLAS L4/L5 Constraint)"]
 
     B --> B1["- 算子总数 <= 8，嵌套阶数 <= 3<br/>- 拒绝数学算子无脑叠加，以 L3 逻辑条件过滤代替数学变形"]
-    C --> C1["- 横向扫频 [0, 1, 3, 5, 10, 20]<br/>- 曲线必须平缓下滑，出现 Sharpe 断崖跳水则直接判定为短频过拟合"]
-    D --> D1["- 遍历 MARKET/INDUSTRY/SUBINDUSTRY/STATISTICAL<br/>- 在最严格的细分中性化下必须保持 Sharpe > 1.0 且 Margin > 0"]
-    E --> E1["- 在主要大区 USA/EUR/ASI 以及不同 Universe 间做同步回测<br/>- 仅在单一超小池表现好而其他区域全灭的因子一律判定为过拟合并丢弃"]
-    F --> F1["- rank/zscore/scale 标准化算子必须放在 L4/L5 最外层<br/>- 绝对禁止在前置计算中使用，防止扭曲原始经济特征并掩盖过拟合"]
+    C --> C1["- 横向扫频 [0, 1, 3, 5, 10, 20]<br/>- 曲线必须平缓下滑，出现 Sharpe 极度跳水则判定为过拟合"]
+    D --> D1["- 遍历 MARKET/INDUSTRY/SUBINDUSTRY/STATISTICAL<br/>- 在子行业中性化下必须保持 Sharpe > 1.0 且 Margin > 0"]
+    E --> E1["- 在主要大区 USA/EUR/ASI 以及不同 Universe 间做同步回测<br/>- 仅在单一超小池表现好而其他区域全灭的因子一律判定为过拟合"]
+    F --> F1["- rank/zscore/scale 必须放在信号最外层<br/>- 绝对禁止在前置计算中使用，防止扭曲原始经济特征并掩盖过拟合"]
 ```
 
 #### 1. 算子数量与嵌套深度硬上限
@@ -199,102 +199,47 @@ fitness = sharpe × √( |returns| / max(turnover, 0.125) )
 | 检查项 | 不合格条件 | 判定动作 |
 |--------|-----------|---------|
 | 有效数据年份总数 | `< 3` 年 | 降级 D，标注 `insufficient_years` |
-| 近 2 年 Sharpe | 任意 1 年 `sharpe == 0` | 降级 D，标注 `DEAD_ALPHA_RISK` |
-| 零收益年份占比 | `zero_years / total_years > 50%` | 降级 D，标注 `DEAD_ALPHA_RISK` |
-| 负收益年份占比 | `> 30%` | 降级 D；`> 10%` 则扣分降至 C |
-| 正收益年份占比 | `< 60%` | 降级 C，标注 `unstable_returns` |
-| L2Y Sharpe（近 2 年均值） | `< IS_Sharpe × 0.6` | 降级 C，标注 `os_decay_warning` |
-| 年度 Turnover | 某年 `< 0.0001` | 降级 D，标注 `DEAD_ALPHA_RISK` |
+| 近 2 年 Sharpe | 任意 1 年 `sharpe == 0` 或 L2Y均值 `< 0.1` | 降级 D，标注 `DEAD_ALPHA_RISK_RECENT` |
+| 零收益/零换手年份占比 | `zero_years / total_years > 40%` | 降级 D，标注 `DEAD_ALPHA_RISK` |
+| 负收益年份占比 | `> 35%` | 降级 D；`> 10%` 则扣分降至 C |
+| 正收益年份占比 | `< 50%` | 降级 D，标注 `unstable_returns` |
+| L2Y Sharpe（近 2 年均值） | `< IS_Sharpe × 0.5` | 降级 C，标注 `os_decay_warning` |
+| 年度 Turnover | 某年 `< 0.0001` 且 Returns `< 0.00001` | 降级 D，标注 `DEAD_ALPHA_RISK` |
 | 最大回撤 | `> 15%` | 扣分，加注 `high_drawdown` |
 
 #### 厂字 PNL 端点检测（逐日 PNL 接口补充验证）
 
 **接口**：`GET https://api.worldquantbrain.com/alphas/{alpha_id}/recordsets/pnl`
 
-- 若 PNL 序列末端连续 **≥ 200 个交易日** 的值**完全相同**（如固定在某一水平线不动） → 厂字
-- 若序列某段连续 ≥ 200 天重复相同**非零值** → 厂字（数据截断类厂字）
+日度 PNL 逐日分析通过以下五重检测全面过滤无效因子：
+- **全局全零**：如果 PNL 序列的所有非 None 值均为 0 → 判定为 DEAD_ALPHA_RISK
+- **历史跨度**：PNL 数据总交易日数量少于 3 年 (756天) → 判定为 DEAD_ALPHA_RISK
+- **末端等值**：最近连续 250 天（约 1 年）PNL 完全等值不变（包括 None 以外的任何相同值） → 判定为 DEAD_ALPHA_RISK
+- **中途冻结**：序列的任意段包含连续 250 天及以上的相同非零值 → 判定为 DEAD_ALPHA_RISK
+- **零值断带**：序列包含连续 756 天（约 3 年）的零值 → 判定为 DEAD_ALPHA_RISK
 
 ### 22.3 综合 IS/OS 得分计算（远端验证综合评分）
 
 ```python
-def compute_remote_validation_score(yearly_stats: list[dict]) -> dict:
+def compute_remote_validation_score(yearly_stats: list[dict], is_sharpe: float = 0.0, is_fitness: float = 0.0) -> dict:
     """
     yearly_stats: 已解析后的年度统计列表，每项含 year/sharpe/returns/turnover/drawdown
-    返回: {
-        'is_valid': bool,
-        'confidence': float (0~1),
-        'issues': list[str],
-        'grade_adjustment': 'D' | 'C' | 'keep'
-    }
     """
-    total_years = len(yearly_stats)
-    if total_years < 3:
-        return {'is_valid': False, 'confidence': 0.0,
-                'issues': ['insufficient_years'], 'grade_adjustment': 'D'}
-
-    neg_years = sum(1 for r in yearly_stats if r.get('returns', 0) < 0)
-    pos_years = sum(1 for r in yearly_stats if r.get('returns', 0) > 0)
-    zero_years = sum(1 for r in yearly_stats
-                     if abs(r.get('turnover', 1)) < 0.0001
-                     and abs(r.get('returns', 1)) < 0.0001)
-    sharpe_values = [r.get('sharpe', 0) for r in sorted(yearly_stats,
-                     key=lambda x: x.get('year', 0), reverse=True)]
-    l2y_sharpe = sum(sharpe_values[:2]) / 2 if len(sharpe_values) >= 2 else 0
-
-    issues = []
-    score = 100.0
-
-    if zero_years / total_years > 0.5:
-        issues.append('DEAD_ALPHA_RISK')
-        score -= 40
-    if any(v == 0 for v in sharpe_values[:2]):
-        issues.append('DEAD_ALPHA_RISK_RECENT')
-        score -= 30
-    if neg_years / total_years > 0.3:
-        issues.append('high_negative_years')
-        score -= 25
-    elif neg_years / total_years > 0.1:
-        issues.append('moderate_negative_years')
-        score -= 10
-    if pos_years / total_years < 0.6:
-        issues.append('unstable_returns')
-        score -= 20
-    if l2y_sharpe < 0.5:
-        issues.append('l2y_sharpe_too_low')
-        score -= 15
-    elif l2y_sharpe < 1.0:
-        issues.append('l2y_sharpe_weak')
-        score -= 5
-
-    confidence = max(0.0, min(1.0, score / 100.0))
-    if confidence < 0.5 or 'DEAD_ALPHA_RISK' in issues or 'DEAD_ALPHA_RISK_RECENT' in issues:
-        grade_adjustment = 'D'
-    elif confidence < 0.7:
-        grade_adjustment = 'C'
-    else:
-        grade_adjustment = 'keep'
-
-    return {
-        'is_valid': grade_adjustment == 'keep',
-        'confidence': confidence,
-        'issues': issues,
-        'grade_adjustment': grade_adjustment,
-        'l2y_sharpe': l2y_sharpe,
-    }
+    # 详见 app/services/alpha_remote_validator.py 中的实现
 ```
 
 ### 22.4 远端验证流程图
 
 ```mermaid
-graph TD
+flowchart TD
     A["Alpha 评级结果"] --> B{Grade = S 或 A?}
     B -->|否 B/C/D| Z[跳过远端验证，维持原评级]
     B -->|是| C["拉取 yearly-stats\n GET /alphas/id/recordsets/yearly-stats"]
     C --> D{有效年份 < 3?}
     D -->|是| DEAD["降级 D\ninsufficient_years"]
-    D -->|否| E{零换手/零收益年份\n占比 > 50%?}
+    D -->|否| E{零换手/零收益年份\n占比 > 40%?}
     E -->|是| DEAD
-    E -->|否| F{近2年任意1年\nSharpe = 0?}
+    E -->|否| F{近2年 Sharpe 均值 < 0.1\n 或任意 1 年 Sharpe = 0?}
     F -->|是| DEAD
     F -->|否| G["计算综合得分\nconfidence = score / 100"]
     G --> H{confidence < 0.5?}
@@ -303,7 +248,7 @@ graph TD
     I -->|是| C2[降级 C\nos_decay_warning]
     I -->|否| J["保持 S/A\n标注 remote_verified ✓"]
 
-    DEAD --> K["本地标记 DEAD_ALPHA_RISK\n触发 WQ 平台 DELETE 退休"]
+    DEAD --> K["本地标记 is_garbage = 1\n触发 WQ 平台 DELETE 退休"]
     C2 --> L["标注 os_decay_warning\n进入优化队列"]
 ```
 

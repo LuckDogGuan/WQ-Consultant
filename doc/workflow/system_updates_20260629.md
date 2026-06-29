@@ -18,9 +18,14 @@
 
 ## 2. 垃圾与死因子检测 (DEAD_ALPHA_RISK)
 
-* **本地 DEAD_ALPHA_RISK 判别**:
-  * 算法优化器在遍历年度统计数据时，如果发现某年 `turnover < 0.0001` 且 `returns ≈ 0`（即 PnL 曲线在该年进入完全平坦的"厂字"状态），判定为 `DEAD_ALPHA_RISK`。
-  * 被判定的因子会自动打上 `DEAD_ALPHA_RISK` 标签，评级直接降为 Grade D，在因子目录默认隐藏，并且不会进入后续阶段 of 优化。
+* **优化的 DEAD_ALPHA_RISK 判别**:
+  * 我们将厂字/死因子判定升级为针对 **年度统计 (yearly-stats)** 的 5 项标准筛选：
+    1. **历史跨度不足**：有效数据年份少于 3 年直接降级。
+    2. **单年死因子判定**：某年 `turnover < 0.0001` 且 `returns < 0.00001` 触发剔除。
+    3. **零收益/零换手年份占比**：`zero_years / total_years > 40%`（由 50% 缩紧）。
+    4. **近两年无夏普表现**：近两年平均 Sharpe < 0.10，或其中有任意一年 Sharpe == 0。
+    5. **正收益年份占比不足**：`positive_years / total_years < 50%`。
+  * 这一新检测逻辑已同步应用于**本地决策规划器**（`optimization_planner.py` 的 `is_high_risk_garbage_alpha`）、**因子分档诊断系统**（`template_iteration.py` 的 `grade_candidate_result`）以及**远端二次校验服务**。
 * **WQ 平台物理隐藏**:
   * 对于 Grade D (D档) 的死因子或负夏普垃圾因子，在回测或检查完成后，系统会自动调用 `DELETE https://api.worldquantbrain.com/simulations/{alpha_id}`，从远端平台物理删除/隐藏，保持云端整洁。
   * 本地数据库中以灰色 `is_garbage = 1` 状态保留记录和 `skip_reason`，用于历史审计，防止重复回测。
@@ -35,9 +40,14 @@
   * 接入 WQ 平台 `/alphas/{alpha_id}/recordsets/yearly-stats` 年度数据。
   * 接入 WQ 平台 `/alphas/{alpha_id}/recordsets/pnl` 逐日 PNL 数据。
 * **三维校验算法**:
-  1. **IS/OS 衰减判定**: 计算近两年（L2Y）的平均 Sharpe。如果 `L2Y_Sharpe < IS_Sharpe * 0.6`，判定为 OS 表现衰减，降级至 Grade C 并提示风险。
-  2. **过拟合预警**: 如果本地 `fitness > 2 * sharpe`，说明收益率畸高且可能伴随超高换手，提示 `overfitting_warning` 并扣分。
-  3. **末端平坦度 (厂字) 检测**: 读取最近 200 个交易日的 PNL 值。如果末端连续 200 天 PNL 完全相同或零换手，直接降为 Grade D。
+  1. **IS/OS 衰减判定**: 计算近两年（L2Y）的平均 Sharpe。如果 `L2Y_Sharpe < IS_Sharpe * 0.5`（由 0.6 调整），判定为 OS 表现衰减，降级至 Grade C 并提示风险。
+  2. **过拟合预警**: 如果本地 `fitness > 2 * sharpe`，说明收益率极高且可能伴随超高换手，提示 `overfitting_warning` 并扣分。
+  3. **日度 PNL 逐日 5 重厂字检测**：
+     * *全局全零*：所有非 None 值为 0。
+     * *历史跨度*：总交易日数不足 3 年 (756天)。
+     * *末端等值*：最近连续 250 天（约 1 年）PNL 完全等值不变（由 200 天调整）。
+     * *中途冻结*：序列任意处包含连续 250 天的相同非零值。
+     * *零值断带*：包含连续 756 天的零值。
 * **交互流程**:
   * 用户可在 `/alphas` 列表中点击特定 A/S 级因子行的 `[🔍 远端验证]` 按钮。
   * 验证通过的因子显示绿色的 `remote_verified` 徽章，有衰减风险的显示黄色的 `os_decay_warning` 徽章，死因子被直接隐藏。
