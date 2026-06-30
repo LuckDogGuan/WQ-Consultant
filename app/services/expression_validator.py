@@ -61,7 +61,13 @@ class ValidationResult:
         return asdict(self)
 
 
-def validate_expression(expression: str, operator_signatures: dict[str, tuple[int, int]] | None = None) -> ValidationResult:
+from functools import lru_cache
+
+@lru_cache(maxsize=8192)
+def _validate_expression_cached(expression: str) -> ValidationResult:
+    return _validate_expression_impl(expression)
+
+def _validate_expression_impl(expression: str, operator_signatures: dict[str, tuple[int, int]] | None = None) -> ValidationResult:
     signatures = operator_signatures or OPERATOR_SIGNATURES
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
@@ -95,6 +101,12 @@ def validate_expression(expression: str, operator_signatures: dict[str, tuple[in
             )
 
     return ValidationResult(not errors, errors, warnings)
+
+
+def validate_expression(expression: str, operator_signatures: dict[str, tuple[int, int]] | None = None) -> ValidationResult:
+    if operator_signatures is None:
+        return _validate_expression_cached(expression)
+    return _validate_expression_impl(expression, operator_signatures)
 
 
 def split_top_level_args(args_text: str) -> list[str]:

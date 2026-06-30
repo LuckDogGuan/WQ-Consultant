@@ -97,6 +97,11 @@ def init_db() -> None:
                 payload TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_check_results_alpha_id ON check_results(alpha_id);
+            CREATE INDEX IF NOT EXISTS idx_check_results_latest ON check_results(alpha_id, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_alpha_records_updated_at ON alpha_records(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id);
             """
         )
         
