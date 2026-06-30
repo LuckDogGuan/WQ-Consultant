@@ -95,6 +95,15 @@ def generate_variants_for_alpha_id(alpha_id: str, max_variants: int = 30) -> tup
 
 def _expressions_for_mode(expression: str, mode: str) -> list[tuple[str, str]]:
     exp = expression.strip()
+    if mode == "decorrelate":
+        return [
+            (f"group_neutralize({exp}, subindustry)", "decorrelate:neutralize_subindustry"),
+            (f"group_neutralize({exp}, industry)", "decorrelate:neutralize_industry"),
+            (f"group_zscore({exp}, subindustry)", "decorrelate:zscore_subindustry"),
+            (f"ts_decay_linear({exp}, 10)", "decorrelate:decay_linear_10"),
+            (f"ts_decay_linear({exp}, 5)", "decorrelate:decay_linear_5"),
+            (f"trade_when(greater(ts_std_dev({exp}, 5), 0.01), {exp}, -1)", "decorrelate:vol_std_gate"),
+        ]
     if mode == "stable":
         return [
             (f"winsorize({exp}, std=4)", "stable:winsorize_std_4"),

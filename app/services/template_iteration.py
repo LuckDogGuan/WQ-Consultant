@@ -391,6 +391,16 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     # 检测年化收益与换手率是否在任意年份出现归零情况 (厂字/停牌死因子)
     payload = metrics.get("payload") or {}
     
+    # 检测 PnL 收益率交易日覆盖率 (低于 60% 判定为厂字死因子)
+    if isinstance(payload, dict):
+        pnl_cov = payload.get("pnl_coverage_rate")
+        if pnl_cov is not None:
+            try:
+                if float(pnl_cov) < 0.60:
+                    reasons.append("DEAD_ALPHA_RISK")
+            except (ValueError, TypeError):
+                pass
+    
     # 3.5. 表达式未来函数泄漏检测 (如直接引用 \breturns\b)
     expression = metrics.get("expression") or ""
     if not expression and isinstance(payload, dict):
@@ -486,7 +496,7 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     if sharpe is None or sharpe < 1.25 or fitness < 1.0 or margin <= 0:
         reasons.append("METRIC_WEAK")
 
-    if any(reason in reasons for reason in {"SC_RISK", "PC_RISK", "CHECK_FAIL", "NEGATIVE_SHARPE", "SKIP_STATUS", "DEAD_ALPHA_RISK"}):
+    if any(reason in reasons for reason in {"CHECK_FAIL", "NEGATIVE_SHARPE", "SKIP_STATUS", "DEAD_ALPHA_RISK"}):
         grade = "D"
         action = "discard"
     elif reasons:

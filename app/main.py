@@ -325,6 +325,10 @@ def get_optimization_page(
         plans = [plan for plan in plans if plan["should_optimize"]]
     elif status_filter == "skipped":
         plans = [plan for plan in plans if not plan["should_optimize"]]
+    elif status_filter == "corr_fail":
+        plans = [plan for plan in plans if plan["strategy"] == "decorrelate" or any("CORRELATION" in str(chk.get("name")).upper() for chk in plan.get("failed_checks", []))]
+    elif status_filter == "other_opt":
+        plans = [plan for plan in plans if plan["should_optimize"] and plan["strategy"] != "decorrelate" and not any("CORRELATION" in str(chk.get("name")).upper() for chk in plan.get("failed_checks", []))]
 
     if level_filter:
         plans = [plan for plan in plans if plan["level"] == level_filter]
@@ -1775,6 +1779,40 @@ def sync_local_alphas_endpoint(admin: str = Depends(get_current_admin)):
     except Exception as e:
         logger.error(f"Failed to start sync local alphas job: {e}")
         raise HTTPException(status_code=500, detail=f"启动同步任务失败: {e}")
+
+
+@app.post("/api/alphas/retire")
+def post_retire_alpha(alpha_id: str = Form(...), admin: str = Depends(get_current_admin)):
+    from .services.wq_client import login_with_credentials, retire_wq_alpha
+    from .services.sync_service import load_credentials
+    from .storage import connect
+    import requests
+    
+    logger.info(f"Manual retire request received for {alpha_id}")
+    try:
+        creds = load_credentials()
+        with requests.Session() as s:
+            login_with_credentials(s, creds)
+            retire_wq_alpha(s, alpha_id)
+            
+        with connect() as conn:
+            conn.execute(
+                "UPDATE alpha_records SET is_garbage = 1, alpha_type = 'D', updated_at = datetime('now') WHERE alpha_id = ?",
+                (alpha_id,)
+            )
+        return {"status": "ok", "message": f"Successfully retired and marked {alpha_id} as garbage."}
+    except Exception as e:
+        logger.error(f"Failed manual retire for {alpha_id}: {e}")
+        # Even if WQ retire fails (e.g. 404), we still want to mark it as garbage locally so it is removed from UI
+        try:
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE alpha_records SET is_garbage = 1, alpha_type = 'D', updated_at = datetime('now') WHERE alpha_id = ?",
+                    (alpha_id,)
+                )
+            return {"status": "ok", "message": f"Failed WQ retire but successfully marked as garbage locally: {e}"}
+        except Exception as db_err:
+            raise HTTPException(status_code=500, detail=str(db_err))
 
 
 @app.post("/api/alphas/{alpha_id}/local_correlation_check")

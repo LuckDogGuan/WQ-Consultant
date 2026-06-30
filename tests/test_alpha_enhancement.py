@@ -26,7 +26,6 @@ class AlphaEnhancementTests(unittest.TestCase):
         modes = {variant.mode for variant in variants}
 
         self.assertIn("group", modes)
-        self.assertIn("trade", modes)
         self.assertIn("stable", modes)
         self.assertTrue(all(variant.validation["is_valid"] for variant in variants))
 

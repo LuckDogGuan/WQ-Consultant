@@ -273,13 +273,26 @@ class BackgroundInspector:
             target_pnl_series = target_pnl_df.set_index('Date')[alpha_id]
             alpha_rets_series = target_pnl_series - target_pnl_series.ffill().shift(1)
             
+            # 计算 PnL 覆盖率 (非零收益率天数比例)
+            total_days = len(alpha_rets_series)
+            non_zero_days = (alpha_rets_series != 0).sum()
+            pnl_coverage_rate = non_zero_days / total_days if total_days > 0 else 1.0
+            
+            # 5. 更新 payload 并传递
+            payload_str = row_dict.get("payload") or "{}"
+            try:
+                detail_payload = json.loads(payload_str)
+            except Exception:
+                detail_payload = {}
+            detail_payload["pnl_coverage_rate"] = pnl_coverage_rate
+            
             # 3. 本地计算相关性
             region = row_dict.get("region") or "USA"
             prod_corr_val = calc_self_corr_local(alpha_rets_series, all_rets, all_ids, region)
             ppa_corr_val = calc_self_corr_local(alpha_rets_series, ppa_rets, ppa_ids, region)
             
             # 4. 重新进行定档定级
-            self._update_alpha_grade_and_status(session, alpha_id, row_dict, prod_corr_val, ppa_corr_val)
+            self._update_alpha_grade_and_status(session, alpha_id, row_dict, prod_corr_val, ppa_corr_val, detail_payload)
             
         except Exception as e:
             logger.error(f"[BackgroundInspector] Autocorrelation calculation failed for {alpha_id}: {e}")
@@ -303,9 +316,20 @@ class BackgroundInspector:
             pnl_records = []
             url_pnl = f"https://api.worldquantbrain.com/alphas/{alpha_id}/recordsets/pnl"
             resp_pnl = session.get(url_pnl, timeout=30)
+            pnl_coverage_rate = 1.0
             if resp_pnl.status_code == 200:
                 try:
-                    pnl_records = resp_pnl.json().get('records', [])
+                    pnl_json = resp_pnl.json()
+                    pnl_records = pnl_json.get('records', [])
+                    if pnl_records:
+                        import pandas as pd
+                        pnl_df = pd.DataFrame(pnl_records)
+                        if not pnl_df.empty and "pnl" in pnl_df.columns:
+                            pnl_series = pnl_df["pnl"]
+                            rets = pnl_series - pnl_series.ffill().shift(1)
+                            total_days = len(rets)
+                            non_zero_days = (rets != 0).sum()
+                            pnl_coverage_rate = non_zero_days / total_days if total_days > 0 else 1.0
                 except Exception as e:
                     logger.warning(f"[BackgroundInspector] Failed to parse PNL JSON for {alpha_id}: {e}")
                 
@@ -335,6 +359,7 @@ class BackgroundInspector:
                     detail_data["recordsets_data"]["yearly-stats"] = yearly_stats
                 if pnl_records:
                     detail_data["recordsets_data"]["pnl"] = pnl_records
+                detail_data["pnl_coverage_rate"] = pnl_coverage_rate
             
             # 4. 计算相关性并最终定级
             prod_corr_val = row_dict.get("prod_corr") or 0.0
@@ -417,13 +442,24 @@ class BackgroundInspector:
         # 决定更新入库的数据包
         logger.info(f"[BackgroundInspector] Alpha {alpha_id} re-graded to {new_grade} (prod_corr={prod_corr:.4f}, ppa_corr={ppa_corr:.4f})")
         
-        # 物理退休 D 级垃圾因子
+        # 物理退休 D 级垃圾因子并设置 is_garbage = 1
         if new_grade == "D":
             try:
                 retire_wq_alpha(session, alpha_id)
                 logger.info(f"[BackgroundInspector] Successfully retired Grade D alpha {alpha_id} on WQ platform.")
             except Exception as re_err:
                 logger.error(f"[BackgroundInspector] Failed to retire Grade D alpha {alpha_id}: {re_err}")
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE alpha_records SET is_garbage = 1, updated_at = datetime('now') WHERE alpha_id = ?",
+                    (alpha_id,)
+                )
+        else:
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE alpha_records SET is_garbage = 0, updated_at = datetime('now') WHERE alpha_id = ?",
+                    (alpha_id,)
+                )
 
         # C级及以上因子：若未改名，则自动触发符合平台格式规范的 Scheme A 远程重命名
         target_name = detail_payload.get("name") or row_dict.get("name") or ""

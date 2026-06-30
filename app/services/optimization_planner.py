@@ -173,12 +173,26 @@ def is_high_risk_garbage_alpha(alpha_record: dict[str, Any], check_result: str =
     if alpha_type == "SKIP" or status == "SKIP":
         return True
         
-    # 3. 失败 / 错误
+    # 3. 失败 / 错误 (相关性超标 CORR_FAIL 除外)
     result_upper = str(check_result or "").upper()
-    if result_upper in {"FAIL", "FAILED", "ERROR"}:
-        return True
-    if any(s in status for s in {"FAIL", "ERROR"}):
-        return True
+    if status == "CORR_FAIL":
+        pass
+    else:
+        if result_upper in {"FAIL", "FAILED", "ERROR"}:
+            return True
+        if any(s in status for s in {"FAIL", "ERROR"}):
+            return True
+            
+    # 3.2. PnL 交易覆盖率检测 (低于 60% 判定为厂字垃圾)
+    payload_check = _loads_payload(alpha_record.get("payload")) or _loads_payload(alpha_record.get("alpha_payload"))
+    if isinstance(payload_check, dict):
+        pnl_cov = payload_check.get("pnl_coverage_rate")
+        if pnl_cov is not None:
+            try:
+                if float(pnl_cov) < 0.60:
+                    return True
+            except (ValueError, TypeError):
+                pass
         
     # 3.5. 表达式未来函数泄漏检测 (如直接引用 \breturns\b)
     payload = _loads_payload(alpha_record.get("payload"))
@@ -285,7 +299,7 @@ def build_optimization_plan(
     alpha_id = str(alpha_record.get("alpha_id") or "")
     name = str(alpha_record.get("name") or payload.get("name") or "")
     source_neutralization = extract_alpha_neutralization(payload)
-    expression = extract_alpha_expression(payload)
+    expression = extract_alpha_expression(payload) or str(alpha_record.get("expression") or "")
     level = alpha_record.get("alpha_type") or "C"
     failed_checks = extract_failed_checks(check_payload, check_message)
     error_count = len(failed_checks)
@@ -347,7 +361,33 @@ def build_optimization_plan(
             expression_warnings=expression_validation.warnings,
         )
 
-    strategy, modes, reason = choose_strategy(failed_checks, level, check_result)
+    status_val = str(alpha_record.get("status") or "").upper()
+    has_group = any(op in expression for op in ["group_neutralize", "group_zscore", "group_rank", "group_normalize", "group_scale"])
+    has_trade = "trade_when" in expression
+    
+    alpha_class = "Class A"
+    if has_group and has_trade:
+        alpha_class = "Class C"
+    elif has_group:
+        alpha_class = "Class B"
+        
+    is_corr_fail = (status_val == "CORR_FAIL") or any(str(chk.get("name")).upper() in ["SELF_CORRELATION", "PROD_CORRELATION"] for chk in failed_checks)
+    
+    if is_corr_fail:
+        strategy = "decorrelate"
+        if alpha_class == "Class A":
+            modes = ["decorrelate", "group", "stable"]
+            reason = "Class A: 未消偏特征因子，自相关性过高"
+        elif alpha_class == "Class B":
+            modes = ["decorrelate", "trade", "stable"]
+            reason = "Class B: 中性化风控因子，自相关性过高"
+        else:
+            strategy = "settings_only"
+            modes = []
+            reason = "Class C: 满载完成因子，不建议添加算子优化"
+    else:
+        strategy, modes, raw_reason = choose_strategy(failed_checks, level, check_result)
+        reason = f"{alpha_class}: {raw_reason}"
     return OptimizationPlan(
         alpha_id=alpha_id,
         name=name,

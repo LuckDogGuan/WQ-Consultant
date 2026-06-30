@@ -264,7 +264,7 @@ class TemplateIterationTests(unittest.TestCase):
 
     def test_grade_candidate_result_rejects_high_self_corr(self):
         grade = grade_candidate_result({"sharpe": 2.0, "fitness": 2.0, "self_corr": 0.72})
-        self.assertEqual(grade["grade"], "D")
+        self.assertEqual(grade["grade"], "C")
         self.assertIn("SC_RISK", grade["reasons"])
 
     def test_grade_candidate_result_rejects_negative_sharpe(self):

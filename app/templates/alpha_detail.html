@@ -116,6 +116,26 @@
         </div>
     </div>
 
+    {% if alpha.status == 'CORR_FAIL' %}
+    <div class="card" style="border-left: 5px solid #f59e0b; background: rgba(245, 158, 11, 0.05); padding: 20px; border-radius: 8px; margin-bottom: 24px;">
+        <h3 style="color: #f59e0b; margin-top: 0; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-triangle-exclamation"></i> 黄金顾问风控警示：自相关性超标
+        </h3>
+        <p style="margin: 8px 0; font-size: 14px; line-height: 1.5; color: var(--text-muted);">
+            当前因子在云端或本地自相关检测中显示自相关系数超标 (超过平台红线限额 0.70)，无法直接进行生产提交。
+            系统建议将其作为 <strong style="color: var(--text-main);">Class A/B</strong> 进行拯救。可以使用行业中性化降维或时序平滑来洗净相关性。
+        </p>
+        <div style="margin-top: 12px; display: flex; gap: 12px;">
+            <a href="/optimization/{{ alpha.alpha_id }}/variants" class="btn btn-sm btn-warning">
+                <i class="fa-solid fa-prescription-bottle-medical"></i> 立即优化并拯救 (生成变体)
+            </a>
+            <button class="btn btn-sm btn-danger" onclick="discardAlpha('{{ alpha.alpha_id }}')">
+                <i class="fa-solid fa-trash-can"></i> 确认无价值并物理退休
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Header Card -->
     <div class="card" style="padding: 24px;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
@@ -564,6 +584,30 @@
             alert("自相关性检测失败: " + error.message);
             btn.disabled = false;
             btn.innerHTML = originalText;
+        });
+    }
+
+    function discardAlpha(alphaId) {
+        if (!confirm("确定要对该因子进行丢弃并物理退休吗？这会从本地隐藏并在 WQ 平台退役删除。")) {
+            return;
+        }
+        const formData = new FormData();
+        formData.append("alpha_id", alphaId);
+        fetch("/api/alphas/retire", {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                alert("因子已成功退休并从本地隐藏。");
+                window.location.href = "/optimization";
+            } else {
+                alert("退休失败: " + data.detail);
+            }
+        })
+        .catch(err => {
+            alert("提交出错: " + err.message);
         });
     }
 </script>

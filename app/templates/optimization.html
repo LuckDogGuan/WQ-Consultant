@@ -88,9 +88,11 @@
         </details>
 
         <div class="filter-bar" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 18px;">
-            <div style="display: flex; gap: 8px;">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <a href="/optimization?page=1&status_filter=&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
-                <a href="/optimization?page=1&status_filter=optimizable&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'optimizable' %}btn-primary{% else %}btn-secondary{% endif %}">可优化</a>
+                <a href="/optimization?page=1&status_filter=optimizable&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'optimizable' %}btn-primary{% else %}btn-secondary{% endif %}">全部待优化</a>
+                <a href="/optimization?page=1&status_filter=corr_fail&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'corr_fail' %}btn-primary{% else %}btn-secondary{% endif %}"><i class="fa-solid fa-triangle-exclamation text-danger"></i> 自相关性超标</a>
+                <a href="/optimization?page=1&status_filter=other_opt&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'other_opt' %}btn-primary{% else %}btn-secondary{% endif %}"><i class="fa-solid fa-chart-line text-info"></i> 其他性能优化</a>
                 <a href="/optimization?page=1&status_filter=skipped&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'skipped' %}btn-primary{% else %}btn-secondary{% endif %}">已跳过</a>
             </div>
 
@@ -122,14 +124,13 @@
                 <thead>
                     <tr>
                         <th>Alpha ID</th>
-                        <th>因子名称</th>
                         <th>状态</th>
                         <th>等级</th>
-                        <th>策略</th>
-                        <th>建议模式</th>
+                        <th>自相关系数</th>
+                        <th>缺陷与诊断</th>
+                        <th>推荐模式</th>
                         <th>表达式检查</th>
                         <th>失败检查</th>
-                        <th>原因</th>
                         <th>表达式</th>
                         <th>操作</th>
                     </tr>
@@ -141,11 +142,9 @@
                             <a href="/alphas/{{ plan.alpha_id }}" class="platform-link-code">
                                 <i class="fa-solid fa-circle-info"></i> {{ plan.alpha_id }}
                             </a>
-                        </td>
-                        <td>
-                            <div class="text-xs" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ plan.name }}">
-                                {{ plan.name or '-' }}
-                            </div>
+                            {% if plan.name %}
+                            <div class="text-xs text-muted" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ plan.name }}">{{ plan.name }}</div>
+                            {% endif %}
                         </td>
                         <td>
                             {% if plan.should_optimize %}
@@ -156,11 +155,15 @@
                         </td>
                         <td><span class="badge status-{{ plan.level }}">{{ plan.level }}</span></td>
                         <td>
-                            {% if plan.strategy %}
-                            <span class="stat-tag">{{ plan.strategy }}</span>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
+                            <div class="text-xs">
+                                <div>Prod: <span class="font-bold {% if plan.prod_corr and plan.prod_corr >= 0.70 %}text-danger{% endif %}">{{ plan.prod_corr or '-' }}</span></div>
+                                <div>PPA: <span>{{ plan.ppa_corr or '-' }}</span></div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="text-xs text-muted" title="{{ plan.reason or plan.skip_reason }}">
+                                <span class="font-bold text-light">{{ plan.reason or plan.skip_reason }}</span>
+                            </div>
                         </td>
                         <td>
                             {% for mode in plan.suggested_modes %}
@@ -175,12 +178,6 @@
                             {% else %}
                             <span class="badge status-FAIL">错误</span>
                             {% endif %}
-                            {% if plan.expression_warnings %}
-                            <div class="text-xs text-muted">警告 {{ plan.expression_warnings|length }}</div>
-                            {% endif %}
-                            {% if plan.expression_errors %}
-                            <div class="text-xs text-danger">错误 {{ plan.expression_errors|length }}</div>
-                            {% endif %}
                         </td>
                         <td>
                             {% for check in plan.failed_checks %}
@@ -190,18 +187,17 @@
                             {% endfor %}
                         </td>
                         <td>
-                            <div class="text-xs text-muted" title="{{ plan.reason or plan.skip_reason }}">
-                                {{ plan.reason or plan.skip_reason }}
-                            </div>
-                        </td>
-                        <td>
                             <div class="text-xs text-muted" style="max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ plan.expression }}">
                                 {{ plan.expression }}
                             </div>
                         </td>
                         <td>
                             {% if plan.should_optimize %}
-                            <a href="/optimization/{{ plan.alpha_id }}/variants" class="btn btn-sm btn-primary" onclick="event.stopPropagation();">生成变体</a>
+                                {% if plan.strategy == 'decorrelate' %}
+                                <a href="/optimization/{{ plan.alpha_id }}/variants" class="btn btn-sm btn-warning" onclick="event.stopPropagation();"><i class="fa-solid fa-prescription-bottle-medical"></i> 拯救变体</a>
+                                {% else %}
+                                <a href="/optimization/{{ plan.alpha_id }}/variants" class="btn btn-sm btn-primary" onclick="event.stopPropagation();">生成变体</a>
+                                {% endif %}
                             {% else %}
                             <span class="text-muted">-</span>
                             {% endif %}

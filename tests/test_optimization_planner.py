@@ -46,7 +46,7 @@ class OptimizationPlannerTests(unittest.TestCase):
         self.assertTrue(plan.should_optimize)
         self.assertEqual(plan.level, "A")
         self.assertEqual(plan.strategy, "decorrelate")
-        self.assertEqual(plan.suggested_modes, ["group", "trade", "stable"])
+        self.assertEqual(plan.suggested_modes, ["decorrelate", "group", "stable"])
 
     def test_two_or_more_failed_checks_skip_automatic_optimization(self):
         plan = build_optimization_plan(
