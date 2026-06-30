@@ -9,6 +9,7 @@ from app.services.simulation_service import (
     rate_limit_retry_seconds,
     stage_detail_progress_values,
     should_emit_stage_progress_event,
+    stage_pool_settings,
 )
 
 
@@ -134,6 +135,17 @@ class BacktestProgressTests(unittest.TestCase):
         self.assertEqual(emitted, {25, 50, 100})
 
 
+    def test_stage_pool_settings_uses_region_specific_values(self):
+        params = {
+            "region_stage_config": {
+                "USA": {"FO": {"children": 4, "threads": 2}},
+                "ASI": {"SO": {"children": 3, "threads": 1}},
+            }
+        }
+
+        self.assertEqual(stage_pool_settings(params, "USA", "FO", 6, 10), (4, 2))
+        self.assertEqual(stage_pool_settings(params, "ASI", "SO", 5, 8), (3, 1))
+        self.assertEqual(stage_pool_settings(params, "EUR", "TH", 5, 8), (5, 8))
 class BacktestParameterResolutionTests(unittest.TestCase):
     def test_get_bool_param_prioritizes_params(self):
         from app.services.simulation_service import get_bool_param

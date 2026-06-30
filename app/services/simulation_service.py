@@ -829,6 +829,35 @@ def get_str_param(params: dict[str, Any], key: str, default_val: str) -> str:
     return get_setting(key, default_val)
 
 
+
+
+def stage_pool_settings(
+    params: dict[str, Any],
+    region: str,
+    stage: str,
+    default_children: int,
+    default_threads: int,
+) -> tuple[int, int]:
+    config = params.get("region_stage_config") if isinstance(params, dict) else None
+    if not isinstance(config, dict):
+        return default_children, default_threads
+    region_config = config.get(str(region or "").upper())
+    if not isinstance(region_config, dict):
+        return default_children, default_threads
+    stage_config = region_config.get(str(stage or "").upper())
+    if not isinstance(stage_config, dict):
+        return default_children, default_threads
+    children = stage_config.get("children", default_children)
+    threads = stage_config.get("threads", default_threads)
+    try:
+        children = int(children)
+    except Exception:
+        children = default_children
+    try:
+        threads = int(threads)
+    except Exception:
+        threads = default_threads
+    return max(1, children), max(1, threads)
 def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     """后台任务主入口：三阶段回测业务控制层"""
     from .check_service import run_inline_checks
@@ -863,7 +892,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     username = get_setting("wq_username")
     password = get_setting("wq_password")
     
-    region = get_setting("region", "USA")
+    base_region = get_setting("region", "USA")
+    regions = params.get("regions") or [base_region]
+    regions = [str(item).upper() for item in regions if str(item).upper() in {"USA", "ASI", "EUR"}] or [base_region]
+    region = regions[0]
     universe = get_setting("universe", "TOP3000")
     delay = int(get_setting("delay", "1"))
     instrument_type = get_setting("instrument_type", "EQUITY")
@@ -880,8 +912,9 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
             else:
                 fo_tuples.append((item, 0))
                 
-        fo_children = int(get_setting("fo_backtest_children") or get_setting("backtest_children", "6"))
-        fo_threads = int(get_setting("fo_backtest_threads") or get_setting("backtest_threads", "10"))
+        default_fo_children = int(get_setting("fo_backtest_children") or get_setting("backtest_children", "6"))
+        default_fo_threads = int(get_setting("fo_backtest_threads") or get_setting("backtest_threads", "10"))
+        fo_children, fo_threads = stage_pool_settings(params, region, "FO", default_fo_children, default_fo_threads)
         custom_pools = load_task_pool(fo_tuples, fo_children, fo_threads)
         
         custom_log_path = LOG_DIR / f"custom_progress_{job_id}.jsonl"
@@ -911,12 +944,12 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
             add_job_event(job_id, "warning", "Custom simulation yielded no saved alphas.")
         return
 
-    fo_children = int(get_setting("fo_backtest_children") or get_setting("backtest_children", "6"))
-    fo_threads = int(get_setting("fo_backtest_threads") or get_setting("backtest_threads", "10"))
-    so_children = int(get_setting("so_backtest_children") or get_setting("backtest_children", "5"))
-    so_threads = int(get_setting("so_backtest_threads") or get_setting("backtest_threads", "8"))
-    th_children = int(get_setting("th_backtest_children") or get_setting("backtest_children", "5"))
-    th_threads = int(get_setting("th_backtest_threads") or get_setting("backtest_threads", "8"))
+    default_fo_children = int(get_setting("fo_backtest_children") or get_setting("backtest_children", "6"))
+    default_fo_threads = int(get_setting("fo_backtest_threads") or get_setting("backtest_threads", "10"))
+    default_so_children = int(get_setting("so_backtest_children") or get_setting("backtest_children", "5"))
+    default_so_threads = int(get_setting("so_backtest_threads") or get_setting("backtest_threads", "8"))
+    default_th_children = int(get_setting("th_backtest_children") or get_setting("backtest_children", "5"))
+    default_th_threads = int(get_setting("th_backtest_threads") or get_setting("backtest_threads", "8"))
     
     timezone_name = get_setting("alpha_date_timezone", "Asia/Shanghai")
     fetch_limit_multiplier = int(get_setting("alpha_fetch_limit_multiplier", "3"))
@@ -925,8 +958,10 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
     if not dataset_ids:
         raise ValueError("No dataset_ids provided.")
         
-    total_datasets = len(dataset_ids)
-    stage_plan = build_backtest_stage_plan(dataset_ids, run_fo, run_so, run_th)
+    work_items = [(region_name, dataset_id) for region_name in regions for dataset_id in dataset_ids]
+    dataset_labels = [f"{region_name}:{dataset_id}" if len(regions) > 1 else dataset_id for region_name, dataset_id in work_items]
+    total_datasets = len(work_items)
+    stage_plan = build_backtest_stage_plan(dataset_labels, run_fo, run_so, run_th)
     total_stages = len(stage_plan)
     stage_lookup = {
         (dataset_index, stage_name): (
@@ -1018,8 +1053,12 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
             "group_label": group_label,
         }
     
-    for idx, dataset_id in enumerate(dataset_ids):
-        msg = f"Starting backtest for dataset {dataset_id} ({idx+1}/{total_datasets})..."
+    for idx, (region, dataset_id) in enumerate(work_items):
+        dataset_label = dataset_labels[idx]
+        fo_children, fo_threads = stage_pool_settings(params, region, "FO", default_fo_children, default_fo_threads)
+        so_children, so_threads = stage_pool_settings(params, region, "SO", default_so_children, default_so_threads)
+        th_children, th_threads = stage_pool_settings(params, region, "TH", default_th_children, default_th_threads)
+        msg = f"Starting backtest for dataset {dataset_label} ({idx+1}/{total_datasets})..."
         logger.info(msg)
         update_job(job_id, message=msg)
         add_job_event(job_id, "info", msg)

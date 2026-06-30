@@ -14,6 +14,32 @@
         </div>
         <div class="card-body">
             <form action="/api/jobs/backtest" method="POST" class="backtest-launch-form">
+                <div class="profile-summary-panel" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 14px; background: rgba(255,255,255,0.03);">
+                    <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px;">
+                        <div>
+                            <div style="font-size: 13px; font-weight: 700; color: var(--text-main);">王哥严格版</div>
+                            <div style="font-size: 11px; color: var(--text-muted);">SC 0.68/0.70，Turnover 10%/15%，算子上限 8，D档本地隐藏并远端隐藏。</div>
+                        </div>
+                        <span class="badge status-S">RA only</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="advisor_level" style="font-size: 11px; margin-bottom: 3px; display: block;">顾问等级</label>
+                            <select id="advisor_level" name="advisor_level" style="width: 100%; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
+                                <option value="starter" {% if settings.advisor_level == 'starter' %}selected{% endif %}>Starter（基础字段）</option>
+                                <option value="gold" {% if settings.advisor_level == 'gold' or settings.advisor_level is not defined %}selected{% endif %}>Gold（常规顾问）</option>
+                                <option value="master" {% if settings.advisor_level == 'master' %}selected{% endif %}>Master（全部字段）</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label style="font-size: 11px; margin-bottom: 3px; display: block;">地区组合</label>
+                            <div style="width: 100%; padding: 7px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.18); color: var(--text-main); font-size: 12px;">
+                                {{ backtest_regions | join(', ') }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="dataset_ids">数据集 ID 列表 (每行输入一个)</label>
                     <textarea id="dataset_ids" name="dataset_ids" rows="8" placeholder="例如:&#10;macro38&#10;fundamental6&#10;analyst4" required></textarea>
@@ -46,6 +72,25 @@
                     </div>
                     <div class="accordion-content" id="launch-settings-content" style="display: none; padding: 15px; border-top: 1px solid var(--border-color);">
                         
+                        <div style="margin-bottom: 14px;">
+                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--text-main);">槽位与线程</div>
+
+            <div class="table-responsive">
+                                <table class="table table-sm" style="font-size: 11px;">
+                                    <thead>
+                                        <tr><th>适用地区</th><th>FO 槽/线程</th><th>SO 槽/线程</th><th>TH 槽/线程</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>{{ backtest_regions | join(', ') }}</td>
+                                            <td><input name="fo_backtest_children" value="{{ settings.fo_backtest_children or '6' }}" style="width:42px;"> / <input name="fo_backtest_threads" value="{{ settings.fo_backtest_threads or '10' }}" style="width:42px;"></td>
+                                            <td><input name="so_backtest_children" value="{{ settings.so_backtest_children or '5' }}" style="width:42px;"> / <input name="so_backtest_threads" value="{{ settings.so_backtest_threads or '8' }}" style="width:42px;"></td>
+                                            <td><input name="th_backtest_children" value="{{ settings.th_backtest_children or '5' }}" style="width:42px;"> / <input name="th_backtest_threads" value="{{ settings.th_backtest_threads or '8' }}" style="width:42px;"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                         <!-- Tabs Header -->
                         <div class="tabs-header" style="display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; padding-bottom: 4px;">
                             <div class="backtest-tab-btn" onclick="switchBacktestTab(event, 'tab-fo')" data-color="#60a5fa" style="padding: 6px 12px; cursor: pointer; border-bottom: 2px solid var(--primary-color, #4f46e5); font-size: 11px; font-weight: bold; color: #60a5fa; transition: all 0.2s;">一阶 FO</div>
@@ -220,6 +265,12 @@
             <h2><i class="fa-solid fa-list-check"></i> 最近的回测任务</h2>
         </div>
         <div class="card-body">
+            <div class="run-effect-summary" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px;">
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(255,255,255,0.03);"><div style="font-size:11px;color:var(--text-muted);">运行效果统计</div><strong id="run-summary-total">待运行</strong></div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(255,255,255,0.03);"><div style="font-size:11px;color:var(--text-muted);">通过因子</div><strong id="run-summary-passed">--</strong></div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(255,255,255,0.03);"><div style="font-size:11px;color:var(--text-muted);">D档隐藏</div><strong id="run-summary-hidden">--</strong></div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(255,255,255,0.03);"><div style="font-size:11px;color:var(--text-muted);">效率</div><strong id="run-summary-efficiency">--/min</strong></div>
+            </div>
             <div class="table-responsive">
                 <table class="table" id="backtest-jobs-table">
                     <thead>
@@ -327,6 +378,7 @@
         </div>
         
         <div class="tab-content" id="tab-events" style="display: none;">
+
             <div class="table-responsive">
                 <table class="table table-sm">
                     <thead>
@@ -416,7 +468,28 @@
                 container.innerHTML = `<span class="text-muted text-sm">点击左侧 Alpha ID 在此加载 PnL 走势图</span>`;
             }
         };
+        loadLatestJobSummary();
     });
+
+    function loadLatestJobSummary() {
+        const firstJob = document.querySelector("#backtest-jobs-table tbody tr[data-job-id]");
+        if (!firstJob) return;
+        const jobId = firstJob.getAttribute("data-job-id");
+        fetch(`/api/jobs/${jobId}/summary`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+                if (!data) return;
+                const total = document.getElementById("run-summary-total");
+                const passed = document.getElementById("run-summary-passed");
+                const hidden = document.getElementById("run-summary-hidden");
+                const efficiency = document.getElementById("run-summary-efficiency");
+                if (total) total.textContent = `${data.total} 个`;
+                if (passed) passed.textContent = `${data.passed} 个`;
+                if (hidden) hidden.textContent = `${data.hidden} 个`;
+                if (efficiency) efficiency.textContent = `${data.alphas_per_minute}/min`;
+            })
+            .catch(err => console.error("Error fetching job summary:", err));
+    }
 
     function loadJobAlphas() {
         if (!window.currentSelectedJobId) return;

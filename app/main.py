@@ -810,7 +810,20 @@ def get_backtest(request: Request, admin: str = Depends(get_current_admin)):
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'backtest' ORDER BY id DESC LIMIT 5").fetchall()
     settings = get_settings()
     success_msg = "配置已成功保存。" if request.query_params.get("success") == "1" else None
-    return templates.TemplateResponse(request, "backtest.html", {"jobs": jobs, "settings": settings, "success": success_msg})
+    return templates.TemplateResponse(
+        request,
+        "backtest.html",
+        {"jobs": jobs, "settings": settings, "success": success_msg, "backtest_regions": _backtest_regions_from_catalog()},
+    )
+
+
+def _backtest_regions_from_catalog() -> list[str]:
+    cached = get_cached_scopes()
+    regions = [region for region in ("USA", "ASI", "EUR") if region in cached]
+    if regions:
+        return regions
+    selected = str(get_setting("region", "USA") or "USA").upper()
+    return [selected] if selected in {"USA", "ASI", "EUR"} else ["USA"]
 
 
 
@@ -1361,6 +1374,8 @@ async def post_backtest_run(
     request: Request,
     admin: str = Depends(get_current_admin)
 ):
+    from .services.job_params import normalize_backtest_params
+
     form_data = await request.form()
     dataset_ids = form_data.get("dataset_ids", "")
     run_fo = form_data.get("run_fo") == "true" or form_data.get("run_fo") == "on"
@@ -1371,7 +1386,19 @@ async def post_backtest_run(
     if not ids_list:
         raise HTTPException(status_code=400, detail="数据集 ID 列表不能为空。")
 
-    # 保存所有回测阶段参数到全局设置中以供执行器读取
+    raw_backtest_params = dict(form_data)
+    raw_backtest_params.update({
+        "dataset_ids": ids_list,
+        "regions": _backtest_regions_from_catalog(),
+        "run_fo": run_fo,
+        "run_so": run_so,
+        "run_th": run_th,
+    })
+    params = normalize_backtest_params(raw_backtest_params)
+    if not params["allowed_dataset_ids"]:
+        raise HTTPException(status_code=400, detail="当前顾问等级没有可运行的数据集。")
+    params["dataset_ids"] = params["allowed_dataset_ids"]
+
     settings_keys = [
         "fo_filter_negative_sharpe", "fo_corr_enable", "fo_corr_sharpe_th", "fo_max_prod_corr",
         "so_corr_enable", "so_corr_sharpe_th", "so_max_prod_corr",
@@ -1382,7 +1409,9 @@ async def post_backtest_run(
         "fo_backtest_children", "fo_backtest_threads",
         "so_backtest_children", "so_backtest_threads",
         "th_backtest_children", "th_backtest_threads",
-        "alpha_fetch_limit_multiplier", "alpha_date_timezone"
+        "alpha_fetch_limit_multiplier", "alpha_date_timezone",
+        "advisor_level", "self_corr_safe", "self_corr_hard", "prod_corr_good", "prod_corr_hard",
+        "turnover_warn", "turnover_hard", "operator_count_max", "hide_grade_d_local", "retire_grade_d_remote",
     ]
     updates = {}
     for key in settings_keys:
@@ -1400,14 +1429,8 @@ async def post_backtest_run(
     if updates:
         update_settings(updates)
 
-    params = {
-        "dataset_ids": ids_list,
-        "run_fo": run_fo,
-        "run_so": run_so,
-        "run_th": run_th
-    }
-
-    job_id = create_job("backtest", f"回测三阶段任务 (共 {len(ids_list)} 个数据集)", params)
+    title_regions = "/".join(params.get("regions") or [])
+    job_id = create_job("backtest", f"王哥严格版回测 ({title_regions}，共 {len(params['dataset_ids'])} 个数据集)", params)
     JobRunner().start_job(job_id, "backtest", params)
     return RedirectResponse(url="/backtest", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -1632,6 +1655,53 @@ def get_job_log_tail_json(job_id: int, max_lines: int = 100, admin: str = Depend
     path = LOG_DIR / f"job_{job_id}.log"
     lines = read_log_tail(path, max_lines=max_lines)
     return {"lines": lines}
+
+
+@app.get("/api/jobs/{job_id}/summary")
+def get_job_summary_json(job_id: int, admin: str = Depends(get_current_admin)):
+    with connect() as conn:
+        job = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found.")
+        rows = conn.execute(
+            """
+            SELECT alpha_type, status, is_garbage
+            FROM alpha_records
+            WHERE source = ? OR source LIKE ?
+            """,
+            (f"job_{job_id}", f"%job_{job_id}%"),
+        ).fetchall()
+
+    grade_counts = {grade: 0 for grade in ("S", "A", "B", "C", "D")}
+    passed = 0
+    hidden = 0
+    for row in rows:
+        grade = row["alpha_type"] or ""
+        if grade in grade_counts:
+            grade_counts[grade] += 1
+        if grade in {"S", "A", "B"} or row["status"] == "CHECKED_PASS":
+            passed += 1
+        if grade == "D" or int(row["is_garbage"] or 0):
+            hidden += 1
+
+    try:
+        started = datetime.fromisoformat(str(job["created_at"]).replace("Z", "+00:00"))
+        ended = datetime.fromisoformat(str(job["updated_at"]).replace("Z", "+00:00"))
+        duration_seconds = max(0, int((ended - started).total_seconds()))
+    except Exception:
+        duration_seconds = 0
+    minutes = max(duration_seconds / 60, 1 / 60)
+    total = len(rows)
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "total": total,
+        "passed": passed,
+        "hidden": hidden,
+        "grade_counts": grade_counts,
+        "duration_seconds": duration_seconds,
+        "alphas_per_minute": round(total / minutes, 2),
+    }
 
 
 @app.get("/api/gui_log_tail")
