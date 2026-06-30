@@ -398,34 +398,41 @@ def migrate_alpha_types():
         with connect() as conn:
             rows = conn.execute("SELECT * FROM alpha_records").fetchall()
             
-        updated_count = 0
-        for r in rows:
-            row_dict = dict(r)
-            alpha_id = row_dict["alpha_id"]
-            current_type = row_dict.get("alpha_type") or ""
-            
-            # 如果已经是五档分类之一，并且不是空的，就跳过
-            if current_type in {"S", "A", "B", "C", "D"}:
-                continue
+            # 批量载入所有的最新 check_results，避免循环中重复查询
+            latest_checks = {}
+            for chk in conn.execute(
+                """
+                SELECT c1.alpha_id, c1.result 
+                FROM check_results c1
+                INNER JOIN (
+                    SELECT alpha_id, MAX(id) AS max_id
+                    FROM check_results
+                    GROUP BY alpha_id
+                ) latest ON latest.max_id = c1.id
+                """
+            ).fetchall():
+                latest_checks[chk["alpha_id"]] = {"result": chk["result"]}
                 
-            # 读取最新核验记录以防缺失等级
-            with connect() as conn:
-                chk_row = conn.execute(
-                    "SELECT result FROM check_results WHERE alpha_id = ? ORDER BY id DESC LIMIT 1",
-                    (alpha_id,)
-                ).fetchone()
-            latest_check = {"result": chk_row["result"]} if chk_row else None
-            
-            rating = build_alpha_rating(row_dict, latest_check)
-            grade = rating.get("grade", "C")
-            
-            with connect() as conn:
+            updated_count = 0
+            for r in rows:
+                row_dict = dict(r)
+                alpha_id = row_dict["alpha_id"]
+                current_type = row_dict.get("alpha_type") or ""
+                
+                # 如果已经是五档分类之一，并且不是空的，就跳过
+                if current_type in {"S", "A", "B", "C", "D"}:
+                    continue
+                    
+                latest_check = latest_checks.get(alpha_id)
+                rating = build_alpha_rating(row_dict, latest_check)
+                grade = rating.get("grade", "C")
+                
                 conn.execute(
                     "UPDATE alpha_records SET alpha_type = ?, updated_at = datetime('now') WHERE alpha_id = ?",
                     (grade, alpha_id)
                 )
-            updated_count += 1
-            
+                updated_count += 1
+                
         logger.info(f"Database rating unification complete. Migrated {updated_count} alpha records.")
     except Exception as e:
         logger.error(f"Failed to migrate alpha rating types: {e}")
