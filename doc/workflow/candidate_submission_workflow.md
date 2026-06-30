@@ -31,7 +31,7 @@
 | 正式提交类型 | 文档说主流程只交 `Regular Alpha / RA`，但 `submit_service` / `check_service` 仍把 `PPA / RA / ATOM` 当优先或检查候选 | 正式提交 goal 默认只保留 RA；PPA/ATOM 只读、展示、诊断，不进入默认正式提交队列 |
 | 模板迭代 job 状态 | 候选文档未反映最新实现；模板文档仍写远程 expression job 待接入 | 改为“基础 job adapter 已接入；独立 expression runner 待做” |
 | Expression 回测路径 | 文档要求 expression 流程不要硬塞 dataset 三阶段任务；当前基础 adapter 调用 `run_backtest_job(custom_alphas=...)` | 允许作为过渡；下一 goal 抽 `run_expression_candidate_job`，复用 WQ client，不复用 dataset_id 输入模型 |
-| 自动提交边界 | 文档强调不自动提交，但存在 `daily_inspection_auto_submit` 配置 | 默认必须关闭；任何自动提交只能在用户显式开启且只针对 RA 时执行 |
+| 自动提交与每日巡检 | 原有每日巡检任务 (daily_inspection) 易产生调度冲突与干扰 | 已彻底移除每日巡检任务及相关参数，转为增量云端同步后的 alpha_inspection 诊断任务 |
 | 预览阶段 self-corr | 模板文档写了 self-corr > 0.70 隐藏，但预览阶段没有真实 PnL 证据 | 预览只做静态风险；有 PnL / 平台 check 后才执行 self-corr 硬隐藏 |
 
 ### 0.2 Goal 模式目标
@@ -45,7 +45,7 @@
 | 优先级 | 任务 | 当前状态 | 完成标准 |
 | --- | --- | --- | --- |
 | P0 | RA-only 正式提交过滤 | 待修正代码；文档已定边界 | `list_local_submit_candidates` 默认只返回 RA/普通 checked pass；PPA/ATOM 不进入正式提交队列；测试覆盖 |
-| P0 | 保持 `daily_inspection_auto_submit` 默认关闭 | 已有默认值，需回归验证 | 设置页/默认 settings 均不自动提交；测试或手工验证记录 |
+| P0 | 废除并清理 daily_inspection | 已完成 | 删除了全部每日因子巡检关联逻辑、代码与配置，防止干扰 |
 | P0 | 模板 job 基础 adapter 文档同步 | 已完成实现，文档本次修正 | 文档不再写“job 待接入”为主状态 |
 | P1 | 独立 expression runner | 待实现 | 新增 `run_expression_candidate_job`，输入 expression candidates，不吃 dataset_id 三阶段参数 |
 | P1 | 模板结果 JSONL/Markdown 导出 | 待实现 | job 结果可按 `job_id/template_id/reason_code` 导出 |

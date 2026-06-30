@@ -84,8 +84,8 @@
 * **后台自动巡检核查守护服务 (`BackgroundInspector`)**:
   * 引入独立的后台守护线程巡检器，周期性（每 30 秒）以单线程低负荷机制轮询处理本地因子库：
     * **自动计算自相关性**：对任意缺失 `prod_corr` 或自相关性的因子，自动拉取 PnL 并在本地进行 prod_corr / self_corr 计算与定级。
-    * **自动 check submit**：对评级为 B 级及以上的 UNSUBMITTED 新因子，后台自动触发远端 Checks 校验并捕获异常状态。
-    * **自动补充明细数据**：对 S/A/B 级缺少完整年度统计 (`yearly-stats`) 或 PNL 日线数据的因子，自动调 API 抓取入库，提供完美的 IS/OS 检测数据。
+    * **自动 check submit**：对评级为 C 级及以上的 UNSUBMITTED 新因子，后台自动触发远端 Checks 校验并捕获异常状态。
+    * **自动补充明细数据**：对 S/A/B/C 级缺少完整年度统计 (`yearly-stats`) 或 PNL 日线数据的因子，自动调 API 抓取入库，提供完美的 IS/OS 检测数据。
     * **自动物理退休**：定档为 Grade D 的因子会自动触发 WQ simulations 的 `DELETE` 退休物理删除。
  
 ---

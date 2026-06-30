@@ -44,38 +44,39 @@ doc/
 
 ## 核心规则速查
 
-### 因子分级（S/A/B/C/D）
+### 因子级别（S/A/B/C/D）与评级（Premium/Standard/Marginal）
 
-| 档位 | 标准 | 系统动作 |
-|-----|------|---------|
-| **S** | Sharpe ≥ 1.8，Fitness ≥ 3.0，无 Check 失败，Prod Corr < 0.5 | 标记"可直接提交"，优先批量提交 |
-| **A** | Sharpe ≥ 1.5，Fitness ≥ 2.5，Check 失败 ≤ 1，Prod Corr < 0.6 | **触发远端二次验证**（拉取 yearly-stats + IS/OS 对比） |
-| **B** | Sharpe ≥ 1.2，Fitness ≥ 1.5，Check 失败 ≤ 2 | 标记"需审核"，建议 Decay/中性化扫频后再决定 |
-| **C** | 不满足 A/B，但无直接 D 级标志 | 标记"需优化"，进入优化规划队列 |
-| **D** | 负夏普 / 厂字 / SKIP / FAIL / DEAD_ALPHA_RISK | 本地隐藏 + WQ 平台物理删除（DELETE /simulations/{id}） |
+| 档位 (Grade) | 评级 (Rating) | 核心标准 | 系统动作 |
+|:-----|:------|:---------|:---------|
+| **S** (黄金) | 优质 (Premium) | Sharpe ≥ 1.58，Fitness ≥ 1.0，Margin ≥ 0.001，self_corr ≤ 0.68，prod_corr < 0.50 | 标记“直接提交”，后台巡检优先保障提交 |
+| **A** (标准) | 一般 (Standard) | Sharpe ≥ 1.50，Fitness ≥ 0.80，Margin ≥ 0.0008，self_corr ≤ 0.70，prod_corr < 0.70 | **触发自动 Checks 与 PnL 拉取**，合格后进入提交队列 |
+| **B** (审核) | 边际 (Marginal) | Sharpe ≥ 1.25，Fitness ≥ 0.60，Margin ≥ 0.0005，相关性 < 0.70 | **触发自动 Checks 与 PnL 拉取**，允许送入优化规划，需人工审核 |
+| **C** (优化) | 不合格 (Substandard) | 表现较弱，或存在自相关、Turnover 等警告，但无直接 D 级标志 | **触发自动 Checks 与 PnL 拉取**，进入优化规划筛选队列 |
+| **D** (垃圾) | 不合格 (Substandard) | 负夏普 (`sharpe < 0`) / 厂字死因子 / 极致相关 (`self_corr > 0.7` 或 `prod_corr >= 0.7`) / 检查失败 / 未来函数泄漏 / 交易股票数 < 30 | 本地隐藏 + WQ 平台物理删除 (`DELETE /simulations/{id}`) |
 
 ### 厂字因子 / DEAD_ALPHA_RISK 判断条件
 
 1. **IS 层**：本地 `alpha_type == 'SKIP'` 或 `status == 'FAIL/ERROR'`
-2. **远端年度统计层（A 级以上额外触发）**：
-   - 某年 `turnover < 0.0001` 且 `|returns| < 0.0001` → 判定 DEAD_ALPHA_RISK
-   - OS Sharpe（近 2 年均值 L2Y_Sharpe）< IS Sharpe × 0.6 → 判定 OS 表现崩塌，降至 C 级
-   - IS/OS Sharpe 落差超过 40%（`os_sharpe / is_sharpe < 0.60`）→ 疑似过拟合
+2. **多头/空头归零拦截（全年度核查）**：任意年份 `longCount == 0` 或 `shortCount == 0`（退化死因子直接拦截）
+3. **远端年度统计层（C 级及以上均触发拉取）**：
+   - 某年 `turnover < 0.0001` 且 `returns < 0.00001` → 判定 DEAD_ALPHA_RISK
+   - L2Y Sharpe（近2年均值） < IS Sharpe × 0.50 → 判定 OS 表现衰减，降级至 C 级并标注 os_decay_warning
+   - 本地 `fitness > 2 * sharpe` → 过拟合预警，降级 C 级
 
-### 远端二次验证触发逻辑（A 级及以上）
+### 远端自动核验与补充拉取触发逻辑（C 级及以上）
 
 ```
-IF grade in {S, A}:
-    1. GET /alphas/{id}/recordsets/yearly-stats
-       → 遍历逐年 turnover/returns → 检测 DEAD_ALPHA_RISK
-       → 计算 L2Y_Sharpe（近2年均值）→ 对比 IS Sharpe
-    2. GET /alphas/{id}/check
-       → 统计 IS checks 中 FAIL/ERROR 数量
+IF grade in {S, A, B, C}:
+    1. IF status == "UNSUBMITTED":
+       → 自动向远端平台提交 Checks 核验 (GET /check)
+    2. IF 缺失 yearly-stats 或 PnL 明细:
+       → GET /alphas/{id}/recordsets/yearly-stats 并入库
+       → 遍历逐年 turnover/returns/longCount/shortCount → 检测 DEAD_ALPHA_RISK
+       → 计算 L2Y_Sharpe（近2年均值）→ 对比 IS Sharpe 判定衰减
     3. 综合结论：
-       - DEAD_ALPHA_RISK 命中 → 降级为 D，执行隐藏
-       - L2Y_Sharpe < IS_Sharpe × 0.6 → 降至 C，标注"OS衰减预警"
-       - check 新增 FAIL → 降至 B，等待人工确认
-       - 全部通过 → 保持 S/A，标注"远端验证通过"
+       - DEAD_ALPHA_RISK / 多空归零命中 → 降级为 D，物理退休删除
+       - L2Y_Sharpe < IS_Sharpe × 0.50 → 降至 C，标注"os_decay_warning"并优化
+       - 全部通过 → 保持对应原等级，标注"remote_verified ✓"
 ```
 
 ---

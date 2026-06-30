@@ -37,7 +37,7 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
         start_date = end_date - timedelta(days=lookback_days)
         region = settings.get("region", "USA")
         
-        limit_val = 500
+        limit_val = 2000
         try:
             limit_val = int(settings.get("wq_sync_limit", "500"))
         except (ValueError, TypeError):

@@ -32,7 +32,7 @@
 
 过滤：
 - coverage 太低且 backfill 后仍无交易对象，D 档。
-- longCount + shortCount 过低，D 档。
+- 任意年份 longCount 或 shortCount == 0 (厂字停牌死因子)，D 档。
 - 全 0、全 NaN、长期常数，D 档。
 - 单点 Sharpe 高但年份断层，降档。
 
