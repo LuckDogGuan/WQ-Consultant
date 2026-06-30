@@ -104,7 +104,96 @@ def select_checks_payload(alpha_payload: Any, check_payload: Any = None) -> dict
     return loads_payload(alpha_payload)
 
 
+from functools import lru_cache
+
+@lru_cache(maxsize=16384)
+def _build_alpha_rating_cached(
+    alpha_id: str,
+    alpha_type: str,
+    name: str,
+    region: str,
+    universe: str,
+    sharpe: float | None,
+    fitness: float | None,
+    prod_corr: float | None,
+    ppa_corr: float | None,
+    margin: float | None,
+    returns: float | None,
+    drawdown: float | None,
+    payload_str: str,
+    updated_at: str,
+    check_result: str | None,
+    check_payload_str: str | None,
+    check_prod_corr: float | None
+) -> dict[str, Any]:
+    alpha_record = {
+        "alpha_id": alpha_id,
+        "alpha_type": alpha_type,
+        "name": name,
+        "region": region,
+        "universe": universe,
+        "sharpe": sharpe,
+        "fitness": fitness,
+        "prod_corr": prod_corr,
+        "ppa_corr": ppa_corr,
+        "margin": margin,
+        "returns": returns,
+        "drawdown": drawdown,
+        "payload": payload_str,
+        "updated_at": updated_at
+    }
+    latest_check = {
+        "result": check_result,
+        "payload": check_payload_str,
+        "prod_corr": check_prod_corr
+    }
+    return _build_alpha_rating_impl(alpha_record, latest_check)
+
 def build_alpha_rating(
+    alpha_record: Mapping[str, Any],
+    latest_check_result: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    latest_check_result = latest_check_result or {}
+    
+    alpha_payload = alpha_record.get("alpha_payload") or alpha_record.get("payload") or {}
+    if not isinstance(alpha_payload, str):
+        try:
+            alpha_payload_str = json.dumps(alpha_payload, sort_keys=True)
+        except Exception:
+            alpha_payload_str = "{}"
+    else:
+        alpha_payload_str = alpha_payload
+        
+    check_payload = latest_check_result.get("check_payload") or latest_check_result.get("payload") or {}
+    if not isinstance(check_payload, str):
+        try:
+            check_payload_str = json.dumps(check_payload, sort_keys=True)
+        except Exception:
+            check_payload_str = "{}"
+    else:
+        check_payload_str = check_payload
+
+    return _build_alpha_rating_cached(
+        str(alpha_record.get("alpha_id") or ""),
+        str(alpha_record.get("alpha_type") or ""),
+        str(alpha_record.get("name") or ""),
+        str(alpha_record.get("region") or ""),
+        str(alpha_record.get("universe") or ""),
+        alpha_record.get("sharpe"),
+        alpha_record.get("fitness"),
+        alpha_record.get("prod_corr"),
+        alpha_record.get("ppa_corr"),
+        alpha_record.get("margin"),
+        alpha_record.get("returns"),
+        alpha_record.get("drawdown"),
+        alpha_payload_str,
+        str(alpha_record.get("updated_at") or ""),
+        latest_check_result.get("result"),
+        check_payload_str,
+        latest_check_result.get("prod_corr")
+    )
+
+def _build_alpha_rating_impl(
     alpha_record: Mapping[str, Any],
     latest_check_result: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:

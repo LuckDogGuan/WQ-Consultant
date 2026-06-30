@@ -6,12 +6,41 @@ import requests
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.storage import connect, get_settings, upsert_alpha, create_job
+from app.storage import connect, get_settings, upsert_alpha, create_job, utc_now
 from app.job_runner import update_job, add_job_event, JobRunner
 from app.services.wq_client import login_with_credentials
 from consultant_core.machine_lib import get_alphas_full
 
 logger = logging.getLogger(__name__)
+
+
+def _completed_sync_chunks(region: str) -> set[tuple[str, str]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT chunk_start, chunk_end
+            FROM sync_chunks
+            WHERE kind = 'wq_sync' AND region = ? AND status = 'success'
+            """,
+            (region,),
+        ).fetchall()
+    return {(row["chunk_start"], row["chunk_end"]) for row in rows}
+
+
+def _record_sync_chunk(region: str, st: Any, ed: Any, status: str, fetched_count: int = 0, error: str = "") -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO sync_chunks(kind, region, chunk_start, chunk_end, status, fetched_count, error, updated_at)
+            VALUES ('wq_sync', ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(kind, region, chunk_start, chunk_end) DO UPDATE SET
+                status = excluded.status,
+                fetched_count = excluded.fetched_count,
+                error = excluded.error,
+                updated_at = excluded.updated_at
+            """,
+            (region, st.isoformat(), ed.isoformat(), status, int(fetched_count), str(error)[:1000], utc_now()),
+        )
 
 def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
     """同步云端因子任务：拉取最近 30 天因子，将未记录的新增因子添加入库，并自动触发评估"""
@@ -39,18 +68,21 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
         
         logger.info(f"[SyncJob] Fetching all alphas for region {region} from {start_date.isoformat()} to {end_date.isoformat()} concurrently in chunks.")
         
-        # 将天数切分为 1 天的分片并发获取以绕过 WQ 10k offset 截断限制。最后一个分片结束时间为明天以确保覆盖今天的数据。
-        import concurrent.futures
+        # 将天数切分为 1 天的分片以绕过 WQ 10k offset 截断限制。成功分片会落库，后续同步不重复拉取。
         import pandas as pd
         
         today = datetime.now().date()
-        chunks = []
+        all_chunks = []
         for i in range(lookback_days + 1):
             st = today - timedelta(days=lookback_days - i)
             ed = st + timedelta(days=1)
-            chunks.append((st, ed))
+            all_chunks.append((st, ed))
+        completed_chunks = _completed_sync_chunks(region)
+        chunks = [(st, ed) for st, ed in all_chunks if (st.isoformat(), ed.isoformat()) not in completed_chunks]
             
         dfs = []
+        failed_chunks = []
+        skipped_count = len(all_chunks) - len(chunks)
         
         def fetch_chunk(st, ed):
             logger.info(f"[SyncJob] Thread starting chunk fetch: {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')}")
@@ -65,19 +97,37 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
                 limit=100000
             )
             
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            future_to_chunk = {executor.submit(fetch_chunk, st, ed): (st, ed) for st, ed in chunks}
-            for future in concurrent.futures.as_completed(future_to_chunk):
-                st, ed = future_to_chunk[future]
+        for idx, (st, ed) in enumerate(chunks, start=1):
+            JobRunner().check_paused(job_id)
+            update_job(
+                job_id,
+                message=f"正在同步 {st.strftime('%Y-%m-%d')} ({idx}/{len(chunks)}，已跳过成功分片 {skipped_count} 个)...",
+                progress_current=30 + int((idx / max(1, len(chunks))) * 30),
+                progress_total=100,
+            )
+            last_error = ""
+            for attempt in range(1, 4):
                 try:
-                    df_chunk = future.result()
+                    df_chunk = fetch_chunk(st, ed)
                     if not df_chunk.empty:
                         logger.info(f"[SyncJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} fetched {len(df_chunk)} alphas.")
                         dfs.append(df_chunk)
                     else:
                         logger.info(f"[SyncJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} empty.")
+                    _record_sync_chunk(region, st, ed, "success", len(df_chunk), "")
+                    break
                 except Exception as exc:
-                    logger.error(f"[SyncJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} failed: {exc}")
+                    last_error = str(exc)
+                    logger.error(f"[SyncJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} attempt {attempt}/3 failed: {exc}")
+                    _record_sync_chunk(region, st, ed, "failed", 0, last_error)
+                    if attempt < 3:
+                        try:
+                            session.close()
+                        except Exception:
+                            pass
+                        session = login_with_credentials(username.strip(), password.strip())
+            else:
+                failed_chunks.append((st, ed, last_error))
                     
         session.close()
         
@@ -87,9 +137,9 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
         else:
             alphas_df = pd.DataFrame()
         
-        if alphas_df.empty:
+        if alphas_df.empty and not failed_chunks:
             update_job(job_id, status="completed", message="云端没有查询到最近 30 天的回测因子记录。", progress_current=100, progress_total=100)
-            add_job_event(job_id, "info", "No simulated alphas found on WQ platform for the last 30 days.")
+            add_job_event(job_id, "info", f"No simulated alphas found; skipped {skipped_count} already-synced day chunk(s).")
             return
             
         update_job(job_id, message="正在比对本地数据库，过滤重复因子...", progress_current=60, progress_total=100)
@@ -131,7 +181,7 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             })
             new_count += 1
             
-        add_job_event(job_id, "info", f"Fetched {synced_count} alphas; added {new_count} new alphas to database.")
+        add_job_event(job_id, "info", f"Fetched {synced_count} alphas; added {new_count} new alphas to database; skipped {skipped_count} completed day chunk(s).")
         
         if new_count > 0:
             update_job(job_id, message=f"同步完成，共新增 {new_count} 个因子。正在启动评估校验任务...", progress_current=85, progress_total=100)
@@ -159,6 +209,10 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
                 progress_current=100, 
                 progress_total=100
             )
+
+        if failed_chunks:
+            failed_days = ", ".join(st.strftime("%Y-%m-%d") for st, _, _ in failed_chunks[:5])
+            raise RuntimeError(f"{len(failed_chunks)} 个日期分片同步失败，已成功的日期不会重复拉取，下次同步会重试失败日期：{failed_days}")
             
     except Exception as e:
         logger.error(f"[SyncJob] Sync failed: {e}", exc_info=True)

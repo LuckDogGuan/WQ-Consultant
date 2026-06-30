@@ -58,3 +58,49 @@
 - **页面刷新**: `/alphas` 过滤垃圾因子后，加载耗时缩短至毫秒级别，避免了无意义的垃圾因子解析开销。
 - **并发能力**: 采用 3 个并发 worker 处理 1 天跨度的分片，不仅规避了 10k 截断，且能极大减少网络超时发生。
 - **单元测试**: 核心组件和业务逻辑的自动化 `pytest` 用例全部绿灯通过（新增 local_sync_job 后，共 128 项 passed）。
+
+---
+
+## 5. 第三阶段：Alpha 列表与优化规划切换卡顿修复
+
+### 5.1 根因
+* `/alphas` 页面原先先查询所有匹配 Alpha，再对每条记录执行 `build_alpha_rating()`、高危因子判断，最后才在 Python 内存中分页。切换等级、日期、页码时都会重复解析整批数据。
+* `/optimization` 页面原先依赖共享的 `list_optimization_plans(limit=500)` 重建最多 500 个优化计划，再在 Python 中应用“全部待优化 / 自相关性超标 / 其他性能优化 / 已跳过 / 等级 / 策略”过滤。
+* 因此卡顿不是前端按钮问题，而是每次切换都触发后端重复全量计算。
+
+### 5.2 本次处理流程
+1. 更新 GitNexus 索引后，对 `get_alphas`、`get_optimization_page`、`list_optimization_plans` 做影响分析。
+2. `list_optimization_plans` 影响 dashboard 与 API，风险为 HIGH，因此不修改共享函数。
+3. 在页面路由内做最小优化：
+   * `/alphas` 将 `is_garbage`、等级、日期、评级条件下推到 SQL，并使用 `LIMIT/OFFSET` 只对当前页 12 条记录计算评级。
+   * `/optimization` 在页面路由内先用 SQL 过滤非垃圾、S/A/B/C、等级和 `CORR_FAIL`，再只对筛出的候选构建计划。
+   * 增加 `idx_alpha_records_list_filters(is_garbage, alpha_type, created_at DESC)` 索引，支撑常用列表筛选。
+4. 保留共享优化计划 API 行为，避免影响 dashboard 统计和后台优化任务。
+
+### 5.3 注意事项
+* 页面性能问题优先检查“分页是否下推到 SQL”。不要在 Python 中先全量 JSON 解码、评级、再分页。
+* `list_optimization_plans` 是共享入口，改动前必须重新做 GitNexus impact；若风险仍为 HIGH，应优先做页面专用查询或新增显式参数，不要改变默认语义。
+* `/alphas` 的评级过滤目前用 SQL 近似匹配 S 级三档阈值，再对当前页做最终展示计算；如果未来要做到“总数与复杂评级完全一致”，应把评级结果持久化成数据库列，而不是恢复全量扫描。
+* WQ 平台相关判断仍以 `doc/reference/` 和两个 WQ skill 为业务边界来源；本次只优化 GUI 查询路径，不改变因子拯救、相关性红线或提交规则。
+
+---
+
+## 6. 第四阶段：云端同步按天断点续拉
+
+### 6.1 根因
+* 云端同步虽然按 1 天切片拉取，但成功/失败状态只存在当前任务内存里。
+* 一旦某个日期分片出现 `RemoteDisconnected` 或平台临时断连，下次同步仍会从整个 lookback 区间重新拉取，导致已成功日期重复请求。
+* 旧实现还在多个线程中共享同一个 WQ `requests.Session`，这会放大远端断连概率。
+
+### 6.2 当前流程
+1. 启动 `sync_alphas` 后，将 lookback 区间切为 `[day, day+1)` 的日分片。
+2. 查询 `sync_chunks` 表，跳过 `status='success'` 的日期分片。
+3. 对未成功分片逐天拉取，每个日期最多重试 3 次。
+4. 分片成功后写入 `sync_chunks(status='success', fetched_count=N)`；即使当天没有 Alpha，也记录 success，后续不重复拉。
+5. 分片失败后写入 `sync_chunks(status='failed', error=...)`，任务最终报 failed；下次同步会自动重试这些 failed 日期。
+6. 已经拉取成功的数据仍会正常入库、去重并触发后续巡检；失败日期不会被标记为完成。
+
+### 6.3 注意事项
+* 不要手动删除 `sync_chunks`，除非明确需要强制重拉历史日期。
+* 如果 WQ 平台某天数据会变化，当前策略不会自动重拉已成功日期；需要补一个“强制重拉最近 N 天”的显式开关后再做。
+* 为了稳定性，当前云端同步分片改为串行；如果未来要恢复并发，应为每个 worker 使用独立 WQ session，不能共享同一个 session。

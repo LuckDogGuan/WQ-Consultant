@@ -50,3 +50,39 @@
 
 * 运行了核心生产测试：`python -m pytest tests/`
 * **120 个核心测试全部通过 (100% PASS)**，证明改动对现有系统机制完全兼容，且增强了健壮性。
+
+---
+
+## 6. Alpha 记录与优化规划页面切换提速
+
+* **成因与瓶颈**:
+  * `/alphas` 与 `/optimization` 的按钮切换、等级筛选和分页都会重新请求后端。
+  * 旧实现把数据库中大量 Alpha 先全部取出，逐条解析 payload JSON、计算评级/优化计划，再做页面分页。
+  * 数据量上来后，翻页和筛选本质上都是重复全量计算，所以表现为“每个位置都慢”。
+* **优化方案**:
+  * `/alphas` 改为 SQL 先过滤 `is_garbage`、`alpha_type`、日期与 S 级评级阈值，再 `LIMIT/OFFSET` 分页，只对当前页记录做最终评级展示。
+  * `/optimization` 页面不再调用共享的 `list_optimization_plans` 生成全量计划，而是在页面路由内先 SQL 过滤非垃圾、S/A/B/C、指定等级和 `CORR_FAIL`，再构建当前候选集合。
+  * 新增 `idx_alpha_records_list_filters` SQLite 索引，覆盖列表页最常用的 `is_garbage + alpha_type + created_at` 查询。
+* **保留边界**:
+  * 未修改共享 `list_optimization_plans` 默认行为，因为它同时影响 dashboard 和 `/api/optimization/plans`。
+  * 未修改 WQ 因子优化业务规则，只调整 GUI 查询和分页路径。
+* **验证**:
+  * 新增 `tests/test_alpha_pages_performance.py`，断言 `/alphas?page=2` 只对当前页记录执行评级计算。
+  * 已通过：`python -m pytest tests/test_alpha_pages_performance.py tests/test_optimization_pages.py tests/test_optimization_planner.py tests/test_dashboard_metrics.py`。
+
+---
+
+## 7. 云端因子同步按天断点续拉
+
+* **成因与瓶颈**:
+  * 日分片请求成功后没有持久化状态，下一次同步会重复拉取已成功日期。
+  * 临时断连分片只写日志，不保留“待重试”状态。
+  * 多线程共享同一个 WQ session，容易遇到 `RemoteDisconnected('Remote end closed connection without response')`。
+* **优化方案**:
+  * 新增 `sync_chunks` 表，按 `kind + region + chunk_start + chunk_end` 记录每日分片状态。
+  * `status='success'` 的日期后续同步直接跳过；`status='failed'` 不跳过，下次自动重试。
+  * 单个日期分片最多重试 3 次；失败会记录错误摘要并让任务失败，避免用户误以为全部同步完成。
+  * 同步分片改为串行执行，避免共享 session 并发请求引发连接中断。
+* **验证**:
+  * 新增测试覆盖：已成功日期不会重复请求；失败日期写入 `failed` 并可在下次任务重试。
+  * 已通过：`python -m pytest tests/test_background_inspector.py`。

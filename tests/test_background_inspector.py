@@ -13,6 +13,7 @@ class BackgroundInspectorTests(unittest.TestCase):
         with connect() as conn:
             conn.execute("DELETE FROM alpha_records")
             conn.execute("DELETE FROM check_results")
+            conn.execute("DELETE FROM sync_chunks")
             conn.execute("DELETE FROM settings")
             
         # Put WQ credentials in Settings
@@ -218,6 +219,53 @@ class BackgroundInspectorTests(unittest.TestCase):
         # Verify that alpha_inspection job was triggered
         mock_create_job.assert_called_once()
         runner_instance.start_job.assert_called_once_with(999, "alpha_inspection", {"only_new": True})
+
+    @patch("app.services.sync_service.login_with_credentials")
+    @patch("app.services.sync_service.get_alphas_full")
+    def test_run_sync_alphas_job_skips_successful_day_chunks(self, mock_get_alphas, mock_login):
+        from datetime import datetime, timedelta
+        from app.services.sync_service import run_sync_alphas_job
+
+        session_mock = MagicMock()
+        mock_login.return_value = session_mock
+        mock_get_alphas.return_value = pd.DataFrame()
+
+        today = datetime.now().date()
+        yesterday = today - timedelta(days=1)
+        with connect() as conn:
+            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (889, 'sync_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
+            conn.execute(
+                """
+                INSERT INTO sync_chunks(kind, region, chunk_start, chunk_end, status, fetched_count, error, updated_at)
+                VALUES ('wq_sync', 'USA', ?, ?, 'success', 0, '', datetime('now'))
+                """,
+                (yesterday.isoformat(), today.isoformat()),
+            )
+
+        run_sync_alphas_job(889, {"lookback_days": 1})
+
+        self.assertEqual(mock_get_alphas.call_count, 1)
+
+    @patch("app.services.sync_service.login_with_credentials")
+    @patch("app.services.sync_service.get_alphas_full")
+    def test_run_sync_alphas_job_records_failed_day_for_retry(self, mock_get_alphas, mock_login):
+        from app.services.sync_service import run_sync_alphas_job
+
+        session_mock = MagicMock()
+        mock_login.return_value = session_mock
+        mock_get_alphas.side_effect = RuntimeError("temporary disconnect")
+
+        with connect() as conn:
+            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (890, 'sync_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
+
+        with self.assertRaises(RuntimeError):
+            run_sync_alphas_job(890, {"lookback_days": 0})
+
+        with connect() as conn:
+            row = conn.execute("SELECT status, error FROM sync_chunks WHERE kind = 'wq_sync' AND region = 'USA'").fetchone()
+
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("temporary disconnect", row["error"])
 
     @patch("app.services.sync_service.login_with_credentials")
     @patch("app.services.background_inspector.BackgroundInspector._run_autocorrelation")

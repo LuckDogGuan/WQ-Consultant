@@ -307,7 +307,7 @@ def get_optimization_page(
     limit: int = 500,
     admin: str = Depends(get_current_admin),
 ):
-    from .services.optimization_planner import list_optimization_plans
+    from .services.optimization_planner import build_optimization_plan
 
     page_size = 11
     success_map = {
@@ -318,7 +318,63 @@ def get_optimization_page(
     settings = get_settings()
     with connect() as conn:
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'optimization_run' ORDER BY id DESC LIMIT 5").fetchall()
-    plans = [plan.to_dict() for plan in list_optimization_plans(limit=limit)]
+    query_limit = max(1, min(int(limit), 1000))
+    plan_where = ["a.is_garbage = 0", "a.alpha_type IN ('S', 'A', 'B', 'C')"]
+    plan_params: list[Any] = []
+    if level_filter:
+        plan_where.append("a.alpha_type = ?")
+        plan_params.append(level_filter)
+    if status_filter == "corr_fail":
+        plan_where.append("a.status = 'CORR_FAIL'")
+    plan_where_sql = " AND ".join(plan_where)
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                a.alpha_id,
+                a.name,
+                a.alpha_type,
+                a.sharpe,
+                a.fitness,
+                a.margin,
+                a.prod_corr,
+                a.ppa_corr,
+                a.status,
+                a.payload,
+                a.updated_at,
+                c.result AS check_result,
+                c.message AS check_message,
+                c.payload AS check_payload
+            FROM alpha_records a
+            LEFT JOIN (
+                SELECT c1.*
+                FROM check_results c1
+                INNER JOIN (
+                    SELECT alpha_id, MAX(id) AS max_id
+                    FROM check_results
+                    GROUP BY alpha_id
+                ) latest ON latest.max_id = c1.id
+            ) c ON c.alpha_id = a.alpha_id
+            WHERE {plan_where_sql}
+            ORDER BY a.updated_at DESC
+            LIMIT ?
+            """,
+            tuple(plan_params) + (query_limit,),
+        ).fetchall()
+
+    plans = []
+    for row in rows:
+        row_dict = dict(row)
+        plan_dict = build_optimization_plan(
+            row_dict,
+            check_payload=row_dict.get("check_payload"),
+            check_message=row_dict.get("check_message") or "",
+            check_result=row_dict.get("check_result") or "",
+        )
+        plan = plan_dict.to_dict()
+        plan["prod_corr"] = row_dict.get("prod_corr")
+        plan["ppa_corr"] = row_dict.get("ppa_corr")
+        plans.append(plan)
     # 彻底过滤掉负夏普/厂字等垃圾/高危因子，不展示在优化页面上
     plans = [plan for plan in plans if plan.get("skip_reason") != "high_risk_garbage_alpha"]
     if status_filter == "optimizable":
@@ -330,8 +386,6 @@ def get_optimization_page(
     elif status_filter == "other_opt":
         plans = [plan for plan in plans if plan["should_optimize"] and plan["strategy"] != "decorrelate" and not any("CORRELATION" in str(chk.get("name")).upper() for chk in plan.get("failed_checks", []))]
 
-    if level_filter:
-        plans = [plan for plan in plans if plan["level"] == level_filter]
     if strategy_filter:
         plans = [plan for plan in plans if plan["strategy"] == strategy_filter]
 
@@ -771,6 +825,8 @@ def get_alphas(
     admin: str = Depends(get_current_admin)
 ):
     page_size = 12
+    page = max(1, int(page))
+    offset = (page - 1) * page_size
     where = "1=1"
     params = []
     if show_hidden != "1":
@@ -779,6 +835,18 @@ def get_alphas(
     if type_filter:
         where += " AND a.alpha_type = ?"
         params.append(type_filter)
+
+    if level_filter:
+        if level_filter == "premium":
+            where += " AND a.alpha_type = 'S' AND a.sharpe >= 1.70 AND a.fitness >= 1.50 AND a.margin >= 0.0015 AND COALESCE(a.prod_corr, 0) <= 0.35"
+        elif level_filter == "standard":
+            where += " AND a.alpha_type = 'S' AND a.sharpe >= 1.58 AND a.fitness >= 1.20 AND a.margin >= 0.0012 AND COALESCE(a.prod_corr, 0) <= 0.45"
+            where += " AND NOT (a.sharpe >= 1.70 AND a.fitness >= 1.50 AND a.margin >= 0.0015 AND COALESCE(a.prod_corr, 0) <= 0.35)"
+        elif level_filter == "marginal":
+            where += " AND a.alpha_type = 'S'"
+            where += " AND NOT (a.sharpe >= 1.58 AND a.fitness >= 1.20 AND a.margin >= 0.0012 AND COALESCE(a.prod_corr, 0) <= 0.45)"
+        elif level_filter == "substandard":
+            where += " AND a.alpha_type != 'S'"
         
     if date_filter:
         local_tz = datetime.now().astimezone().tzinfo
@@ -805,6 +873,10 @@ def get_alphas(
 
     where_sql = f" WHERE {where}" if where else ""
     with connect() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) AS n FROM alpha_records a {where_sql}",
+            tuple(params),
+        ).fetchone()["n"]
         rows = conn.execute(
             f"""
             SELECT
@@ -823,12 +895,13 @@ def get_alphas(
             ) c ON c.alpha_id = a.alpha_id
             {where_sql}
             ORDER BY a.created_at DESC
+            LIMIT ? OFFSET ?
             """,
-            tuple(params)
+            tuple(params) + (page_size, offset)
         ).fetchall()
         
     from .services.optimization_planner import is_high_risk_garbage_alpha
-    alphas_all = []
+    alphas = []
     for r in rows:
         row_dict = dict(r)
         rating = build_alpha_rating(
@@ -846,14 +919,9 @@ def get_alphas(
         if show_hidden != "1" and is_garbage:
             continue
 
-        if level_filter and row_dict["submission_class"] != level_filter:
-            continue
-        alphas_all.append(row_dict)
+        alphas.append(row_dict)
         
-    total = len(alphas_all)
     total_pages = math.ceil(total / page_size) if total > 0 else 1
-    offset = (page - 1) * page_size
-    alphas = alphas_all[offset:offset+page_size]
         
     return templates.TemplateResponse(
         request,

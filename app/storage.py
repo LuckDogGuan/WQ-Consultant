@@ -75,6 +75,9 @@ def init_db() -> None:
                 source TEXT NOT NULL DEFAULT '',
                 platform_url TEXT NOT NULL DEFAULT '',
                 payload TEXT NOT NULL DEFAULT '{}',
+                is_garbage INTEGER NOT NULL DEFAULT 0,
+                skip_reason TEXT NOT NULL DEFAULT '',
+                remote_validation_note TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -98,9 +101,24 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS sync_chunks (
+                kind TEXT NOT NULL,
+                region TEXT NOT NULL,
+                chunk_start TEXT NOT NULL,
+                chunk_end TEXT NOT NULL,
+                status TEXT NOT NULL,
+                fetched_count INTEGER NOT NULL DEFAULT 0,
+                error TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(kind, region, chunk_start, chunk_end)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_check_results_alpha_id ON check_results(alpha_id);
             CREATE INDEX IF NOT EXISTS idx_check_results_latest ON check_results(alpha_id, id DESC);
             CREATE INDEX IF NOT EXISTS idx_alpha_records_updated_at ON alpha_records(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_alpha_records_created_at ON alpha_records(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_alpha_records_list_filters ON alpha_records(is_garbage, alpha_type, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_sync_chunks_status ON sync_chunks(kind, region, status);
             CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id);
             """
         )
