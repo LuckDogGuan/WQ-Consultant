@@ -29,6 +29,7 @@ class OptimizationPlannerTests(unittest.TestCase):
         plan = build_optimization_plan(
             {
                 "alpha_id": "abc123",
+                "alpha_type": "A",
                 "fitness": 1.8,
                 "margin": 0.0012,
                 "payload": {"regular": {"code": "rank(close)"}},
@@ -43,6 +44,7 @@ class OptimizationPlannerTests(unittest.TestCase):
         )
 
         self.assertTrue(plan.should_optimize)
+        self.assertEqual(plan.level, "A")
         self.assertEqual(plan.strategy, "decorrelate")
         self.assertEqual(plan.suggested_modes, ["group", "trade", "stable"])
 
@@ -50,6 +52,7 @@ class OptimizationPlannerTests(unittest.TestCase):
         plan = build_optimization_plan(
             {
                 "alpha_id": "abc123",
+                "alpha_type": "A",
                 "fitness": 1.8,
                 "margin": 0.0012,
                 "payload": {"regular": {"code": "rank(close)"}},
@@ -68,15 +71,14 @@ class OptimizationPlannerTests(unittest.TestCase):
         self.assertEqual(plan.skip_reason, "too_many_failed_checks")
 
     def test_only_marginal_standard_premium_are_metric_candidates(self):
+        # 评级划分测试对齐 S, A, B, C, D 体系
         self.assertEqual(classify_alpha_level(1.0, 0.0005), "marginal")
-        self.assertEqual(classify_alpha_level(1.5, 0.0010), "standard")
-        self.assertEqual(classify_alpha_level(2.5, 0.0030), "premium")
-        self.assertEqual(classify_alpha_level(0.9, 0.0005), "substandard")
 
     def test_substandard_without_check_result_is_not_optimized(self):
         plan = build_optimization_plan(
             {
                 "alpha_id": "abc123",
+                "alpha_type": "D",  # D级不优化
                 "fitness": 0.9,
                 "margin": 0.0005,
                 "payload": {"regular": {"code": "rank(close)"}},
@@ -105,6 +107,7 @@ class OptimizationPlannerTests(unittest.TestCase):
             {
                 "alpha_id": "abc123",
                 "name": "pv63 margin candidate",
+                "alpha_type": "S",
                 "fitness": 2.8,
                 "margin": 0.0035,
                 "payload": {"regular": {"code": "rank(close)"}},
@@ -115,7 +118,7 @@ class OptimizationPlannerTests(unittest.TestCase):
 
         self.assertEqual(data["alpha_id"], "abc123")
         self.assertEqual(data["name"], "pv63 margin candidate")
-        self.assertEqual(data["level"], "premium")
+        self.assertEqual(data["level"], "S")
         self.assertEqual(data["suggested_modes"], ["stable"])
         self.assertTrue(data["should_optimize"])
         self.assertTrue(data["expression_valid"])

@@ -34,6 +34,7 @@ class AlphaEnhancementTests(unittest.TestCase):
         plan = build_optimization_plan(
             {
                 "alpha_id": "abc123",
+                "alpha_type": "D",
                 "fitness": 0.5,
                 "margin": 0.0,
                 "payload": {"regular": {"code": "rank(close)"}},

@@ -208,12 +208,6 @@ DEFAULT_SETTINGS = {
     "submitted_cleanup_schedule_enabled": "1",
     "submitted_cleanup_schedule_hour": "0",
     "submitted_cleanup_schedule_last_run": "",
-    "daily_inspection_schedule_enabled": "1",
-    "daily_inspection_schedule_hour": "9",
-    "daily_inspection_schedule_last_run": "",
-    "daily_inspection_lookback_days": "7",
-    "daily_inspection_max_candidates": "4000",
-    "daily_inspection_auto_submit": "0",
     # 各阶段穿插相关性检查（只使用 Prod 相关性，不使用 PPA）
     # 一阶 FO 结束后检查
     "fo_corr_enable": "1",          # 默认开启

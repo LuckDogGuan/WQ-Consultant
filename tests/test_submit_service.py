@@ -58,15 +58,7 @@ class SubmitServiceTests(unittest.TestCase):
         self.assertEqual(candidates[0]["candidate_tier"], "priority")
         self.assertEqual(candidates[2]["candidate_tier"], "checked_pass")
 
-    def test_daily_inspection_defaults_have_highest_scheduler_priority(self):
-        from app.services.daily_inspection_service import DAILY_INSPECTION_PRIORITY, build_daily_inspection_params
 
-        params = build_daily_inspection_params()
-
-        self.assertEqual(DAILY_INSPECTION_PRIORITY, 0)
-        self.assertEqual(params["source"], "daily_inspection")
-        self.assertIn("correlation", params["stages"])
-        self.assertIn("check_submission", params["stages"])
 
 
 if __name__ == "__main__":

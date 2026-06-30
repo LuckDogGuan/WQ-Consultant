@@ -208,9 +208,6 @@ class JobRunner:
                 elif kind == "check_submission":
                     from .services.check_service import run_check_job
                     run_check_job(job_id, params)
-                elif kind == "daily_inspection":
-                    from .services.daily_inspection_service import run_daily_inspection_job
-                    run_daily_inspection_job(job_id, params)
                 elif kind == "alpha_submit":
                     from .services.submit_service import run_submit_job
                     run_submit_job(job_id, params)

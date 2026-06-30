@@ -37,7 +37,13 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
         start_date = end_date - timedelta(days=lookback_days)
         region = settings.get("region", "USA")
         
-        logger.info(f"[SyncJob] Fetching alphas for region {region} from {start_date.isoformat()} to {end_date.isoformat()}")
+        limit_val = 500
+        try:
+            limit_val = int(settings.get("wq_sync_limit", "500"))
+        except (ValueError, TypeError):
+            pass
+            
+        logger.info(f"[SyncJob] Fetching alphas for region {region} from {start_date.isoformat()} to {end_date.isoformat()} (limit={limit_val})")
         alphas_df = get_alphas_full(
             start_date=start_date,
             end_date=end_date,
@@ -46,7 +52,7 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             usage="submit",
             session=session,
             order="-dateCreated",
-            limit=500
+            limit=limit_val
         )
         
         session.close()
@@ -190,16 +196,16 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
         })
         grade = grading.get("grade", "C")
         
-        # B. 评级 B 级及以上，状态为 UNSUBMITTED，且没有本地 check 记录 -> 自动远程 Checks 校验
-        if grade in {"S", "A", "B"} and status == "UNSUBMITTED":
+        # B. 评级 C 级及以上，状态为 UNSUBMITTED，且没有本地 check 记录 -> 自动远程 Checks 校验
+        if grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
             with connect() as conn:
                 chk_row = conn.execute("SELECT id FROM check_results WHERE alpha_id = ?", (alpha_id,)).fetchone()
             if not chk_row:
                 candidates.append((row_dict, "CHECK"))
                 continue
                 
-        # C. 评级 B 级及以上，但缺少年度分解数据 (yearly-stats) -> 补充明细数据
-        if grade in {"S", "A", "B"}:
+        # C. 评级 C 级及以上，但缺少年度分解数据 (yearly-stats) -> 补充明细数据
+        if grade in {"S", "A", "B", "C"}:
             if not yearly_stats:
                 candidates.append((row_dict, "FETCH"))
                 continue

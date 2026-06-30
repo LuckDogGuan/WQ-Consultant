@@ -13,6 +13,7 @@ def normalize_optimization_params(params: dict[str, Any] | None) -> dict[str, An
         "source_mode": _one_of(raw.get("source_mode"), {"recent", "range", "manual"}, "recent"),
         "recent_days": _positive_int(raw.get("recent_days"), 14),
         "candidate_limit": _positive_int(raw.get("candidate_limit"), 20),
+        "level_filter": _one_of(raw.get("level_filter"), {"S", "A", "B", "C", "all"}, "C"),
         "start_date": str(raw.get("start_date") or ""),
         "end_date": str(raw.get("end_date") or ""),
         "alpha_ids": str(raw.get("alpha_ids") or ""),

@@ -10,7 +10,7 @@ from .alpha_rating import classify_metric_level
 from .expression_validator import validate_expression
 
 
-ACTIONABLE_LEVELS = {"marginal", "standard", "premium", "elite"}
+ACTIONABLE_LEVELS = {"S", "A", "B", "C"}
 FAILED_RESULTS = {"FAIL", "FAILED", "ERROR"}
 
 STRATEGY_BY_CHECK = {
@@ -205,6 +205,18 @@ def is_high_risk_garbage_alpha(alpha_record: dict[str, Any], check_result: str =
     if payload:
         years = _extract_yearly_stats(payload)
         if isinstance(years, list) and len(years) > 0:
+            # 增加 Long Count 和 Short Count 检测，如果任意一年为 0 则判定为厂字/停牌死因子
+            for yr in years:
+                try:
+                    long_c = yr.get("longCount")
+                    short_c = yr.get("shortCount")
+                    if long_c is not None and float(long_c) == 0:
+                        return True
+                    if short_c is not None and float(short_c) == 0:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+
             # 整理年度数据
             valid_years = []
             for yr in years:
@@ -274,7 +286,7 @@ def build_optimization_plan(
     name = str(alpha_record.get("name") or payload.get("name") or "")
     source_neutralization = extract_alpha_neutralization(payload)
     expression = extract_alpha_expression(payload)
-    level = classify_alpha_level(alpha_record.get("fitness"), alpha_record.get("margin"))
+    level = alpha_record.get("alpha_type") or "C"
     failed_checks = extract_failed_checks(check_payload, check_message)
     error_count = len(failed_checks)
     has_check_result = bool(check_payload) or bool(check_message) or bool(check_result)
@@ -323,7 +335,7 @@ def build_optimization_plan(
             expression_warnings=expression_validation.warnings,
         )
 
-    if level not in ACTIONABLE_LEVELS and not has_check_result:
+    if level not in ACTIONABLE_LEVELS:
         return _skip(
             alpha_id,
             name,
@@ -368,9 +380,9 @@ def choose_strategy(
     if str(check_result).upper() == "ERROR":
         return "conservative_explore", ["stable", "template"], "check_result_error_without_detail"
 
-    if level == "premium":
+    if level in {"S", "A"}:
         return "stabilize", ["stable"], "premium_metric_candidate"
-    if level == "standard":
+    if level == "B":
         return "improve_performance", ["template", "stable"], "standard_metric_candidate"
     return "improve_margin", ["stable", "power"], "marginal_metric_candidate"
 

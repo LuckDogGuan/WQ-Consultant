@@ -63,44 +63,6 @@ class SchedulerService:
         sh_tz = ZoneInfo("Asia/Shanghai")
         now_sh = datetime.now(sh_tz)
 
-        daily_enabled = get_setting("daily_inspection_schedule_enabled", "1") == "1"
-        if daily_enabled:
-            daily_hour = int(get_setting("daily_inspection_schedule_hour", "9"))
-            daily_last_run_str = get_setting("daily_inspection_schedule_last_run", "")
-            daily_trigger = False
-            current_date_str = now_sh.strftime("%Y-%m-%d")
-
-            if now_sh.hour == daily_hour:
-                last_run_date = ""
-                if daily_last_run_str:
-                    try:
-                        last_run_dt = datetime.fromisoformat(daily_last_run_str).astimezone(sh_tz)
-                        last_run_date = last_run_dt.strftime("%Y-%m-%d")
-                    except Exception:
-                        pass
-                if last_run_date != current_date_str:
-                    daily_trigger = True
-
-            if daily_trigger:
-                logger.info("Scheduler triggering high-priority daily factor inspection job...")
-                now_iso = datetime.now(timezone.utc).isoformat()
-                with connect() as conn:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('daily_inspection_schedule_last_run', ?, datetime('now'))",
-                        (now_iso,),
-                    )
-
-                from .daily_inspection_service import build_daily_inspection_params
-
-                params = build_daily_inspection_params()
-                job_id = create_job(
-                    "daily_inspection",
-                    f"每日因子巡检 (最近 {params['lookback_days']} 天，最多 {params['max_candidates']} 个)",
-                    params,
-                )
-                JobRunner().start_job(job_id, "daily_inspection", params)
-                return
-        
         # 1. 定时自动提交检查任务
         check_enabled = get_setting("check_schedule_enabled", "0") == "1"
         if check_enabled:

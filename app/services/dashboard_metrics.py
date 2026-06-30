@@ -81,7 +81,7 @@ def get_dashboard_metrics(now: datetime | None = None) -> dict[str, int | str]:
     counts["optimization_total"] = len(plans)
     counts["optimization_optimizable"] = sum(1 for plan in plans if plan.should_optimize)
     counts["optimization_min_submit"] = sum(
-        1 for plan in plans if plan.should_optimize and plan.level in {"marginal", "standard", "premium"}
+        1 for plan in plans if plan.should_optimize and plan.level in {"S", "A", "B", "C"}
     )
     counts["backtest_daily_pct"] = _pct(int(counts["backtest_daily_done"]), backtest_limit)
     counts["check_daily_pct"] = _pct(int(counts["check_daily_done"]), check_limit)

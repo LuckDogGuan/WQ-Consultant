@@ -30,6 +30,16 @@
                     </select>
                 </div>
                 <div class="form-group">
+                    <label for="level_filter">最低评级过滤</label>
+                    <select id="level_filter" name="level_filter" class="filter-select">
+                        <option value="C" {% if settings.optimization_level_filter == 'C' or settings.optimization_level_filter is not defined %}selected{% endif %}>C级及以上 (推荐)</option>
+                        <option value="B" {% if settings.optimization_level_filter == 'B' %}selected{% endif %}>B级及以上</option>
+                        <option value="A" {% if settings.optimization_level_filter == 'A' %}selected{% endif %}>A级及以上</option>
+                        <option value="S" {% if settings.optimization_level_filter == 'S' %}selected{% endif %}>S级</option>
+                        <option value="all" {% if settings.optimization_level_filter == 'all' %}selected{% endif %}>全部 (含D级)</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="recent_days">最近天数</label>
                     <input type="number" id="recent_days" name="recent_days" min="1" value="{{ settings.optimization_recent_days or '14' }}">
                 </div>
@@ -88,10 +98,11 @@
                 <label for="level_filter_select" style="font-size: 13px; color: var(--text-muted); white-space: nowrap;">等级</label>
                 <select id="level_filter_select" onchange="window.location.href=this.value" class="filter-select">
                     <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == '' %}selected{% endif %}>全部</option>
-                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=premium&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'premium' %}selected{% endif %}>Premium</option>
-                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=standard&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'standard' %}selected{% endif %}>Standard</option>
-                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=marginal&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'marginal' %}selected{% endif %}>Marginal</option>
-                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=substandard&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'substandard' %}selected{% endif %}>Substandard</option>
+                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=S&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'S' %}selected{% endif %}>S级</option>
+                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=A&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'A' %}selected{% endif %}>A级</option>
+                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=B&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'B' %}selected{% endif %}>B级</option>
+                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=C&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'C' %}selected{% endif %}>C级</option>
+                    <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=D&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'D' %}selected{% endif %}>D级</option>
                 </select>
             </div>
 

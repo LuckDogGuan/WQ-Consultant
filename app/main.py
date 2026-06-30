@@ -605,8 +605,9 @@ def post_settings_page(
     blocked_end_cn: str = Form("00:00"),
     auto_rename: str = Form("0"),
     corr_lookback_days: str = Form("14"),
-    corr_fetch_limit: str = Form(""),
+    corr_fetch_limit: str = Form("4000"),
     corr_workers: str = Form("5"),
+    wq_sync_limit: str = Form("500"),
     submit_lookback_days: str = Form("30"),
     submit_sharpe: str = Form("1.58"),
     submit_fitness: str = Form("1.0"),
@@ -653,6 +654,7 @@ def post_settings_page(
         "corr_lookback_days": corr_lookback_days,
         "corr_fetch_limit": corr_fetch_limit,
         "corr_workers": corr_workers,
+        "wq_sync_limit": wq_sync_limit,
         "submit_lookback_days": submit_lookback_days,
         "submit_sharpe": submit_sharpe,
         "submit_fitness": submit_fitness,
@@ -1363,6 +1365,7 @@ def post_optimization_run(
     source_mode: str = Form("recent"),
     recent_days: int = Form(14),
     candidate_limit: int = Form(20),
+    level_filter: str = Form("C"),
     start_date: str = Form(""),
     end_date: str = Form(""),
     alpha_ids: str = Form(""),
@@ -1380,6 +1383,7 @@ def post_optimization_run(
             "optimization_source_mode": source_mode,
             "optimization_recent_days": recent_days,
             "optimization_candidate_limit": candidate_limit,
+            "optimization_level_filter": level_filter,
             "optimization_children_per_request": children_per_request,
             "optimization_schedule_enabled": schedule_enabled_value,
             "optimization_schedule_hour": schedule_hour,
@@ -1390,6 +1394,7 @@ def post_optimization_run(
         "source_mode": source_mode,
         "recent_days": recent_days,
         "candidate_limit": candidate_limit,
+        "level_filter": level_filter,
         "start_date": start_date,
         "end_date": end_date,
         "alpha_ids": "\n".join(parse_alpha_ids(alpha_ids)),
@@ -1403,7 +1408,7 @@ def post_optimization_run(
         "range": f"{start_date or '起始'} 至 {end_date or '现在'}",
         "recent": f"最近 {recent_days} 天",
     }.get(source_mode, source_mode)
-    job_id = create_job("optimization_run", f"Alpha 优化运行 ({source_label}，最多 {candidate_limit} 个)", params)
+    job_id = create_job("optimization_run", f"Alpha 优化运行 ({source_label}，等级 {level_filter}及以上，最多 {candidate_limit} 个)", params)
     JobRunner().start_job(job_id, "optimization_run", params)
     return RedirectResponse(url="/optimization?success=optimization_job_started", status_code=status.HTTP_303_SEE_OTHER)
 

@@ -30,6 +30,19 @@ def collect_optimization_plans(params: dict[str, Any]) -> list[Any]:
     mode = str(params.get("source_mode") or "recent")
     limit = _positive_int(params.get("candidate_limit"), 20)
     manual_ids = parse_alpha_ids(str(params.get("alpha_ids") or ""))
+    level_filter = str(params.get("level_filter") or "C")
+
+    # 定义最低评级过滤映射关系
+    if level_filter == "S":
+        allowed_levels = {"S"}
+    elif level_filter == "A":
+        allowed_levels = {"S", "A"}
+    elif level_filter == "B":
+        allowed_levels = {"S", "A", "B"}
+    elif level_filter == "C":
+        allowed_levels = {"S", "A", "B", "C"}
+    else:  # all
+        allowed_levels = {"S", "A", "B", "C", "D"}
 
     query, values = _candidate_query(mode, limit, manual_ids, params)
     with connect() as conn:
@@ -44,7 +57,7 @@ def collect_optimization_plans(params: dict[str, Any]) -> list[Any]:
             check_message=row_dict.get("check_message") or "",
             check_result=row_dict.get("check_result") or "",
         )
-        if plan.should_optimize:
+        if plan.should_optimize and plan.level in allowed_levels:
             plans.append(plan)
     return plans[:limit]
 

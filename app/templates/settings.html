@@ -81,6 +81,10 @@
             </div>
             <div class="card-body form-grid">
                 <div class="form-group">
+                    <label for="wq_sync_limit">云端因子同步数量上限 (调整测试规模)</label>
+                    <input type="number" id="wq_sync_limit" name="wq_sync_limit" value="{{ settings.wq_sync_limit or '500' }}">
+                </div>
+                <div class="form-group">
                     <label for="corr_threshold_sharpe">相关性过滤 Sharpe 比率阈值 (Sharpe ≥ X)</label>
                     <input type="number" step="0.01" id="corr_threshold_sharpe" name="corr_threshold_sharpe" value="{{ settings.corr_threshold_sharpe or '1.0' }}">
                 </div>

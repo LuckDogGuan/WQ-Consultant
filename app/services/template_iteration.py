@@ -414,6 +414,23 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload, dict):
         years = _extract_yearly_stats(payload)
         if isinstance(years, list) and len(years) > 0:
+            # 增加 Long Count 和 Short Count 检测，如果任意一年为 0 则判定为厂字/停牌死因子
+            has_zero_count = False
+            for yr in years:
+                try:
+                    long_c = yr.get("longCount")
+                    short_c = yr.get("shortCount")
+                    if long_c is not None and float(long_c) == 0:
+                        has_zero_count = True
+                        break
+                    if short_c is not None and float(short_c) == 0:
+                        has_zero_count = True
+                        break
+                except (ValueError, TypeError):
+                    pass
+            if has_zero_count:
+                reasons.append("DEAD_ALPHA_RISK")
+            
             valid_years = []
             for yr in years:
                 try:

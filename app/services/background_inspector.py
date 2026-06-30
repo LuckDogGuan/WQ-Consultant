@@ -146,9 +146,9 @@ class BackgroundInspector:
             })
             grade = grading.get("grade", "C")
             
-            # B. 评级 B 级及以上，但状态为 UNSUBMITTED，且没有本地 check_results 历史 -> 自动 check submit
+            # B. 评级 C 级及以上，但状态为 UNSUBMITTED，且没有本地 check_results 历史 -> 自动 check submit
             # 这能触发 WQ 平台在云端进行 Checks 校验并生成 PNL 数据
-            if grade in {"S", "A", "B"} and status == "UNSUBMITTED":
+            if grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
                 # 查询本地是否已有该因子的 check 结果
                 with connect() as conn:
                     chk_row = conn.execute("SELECT id FROM check_results WHERE alpha_id = ?", (alpha_id,)).fetchone()
@@ -157,9 +157,9 @@ class BackgroundInspector:
                     work_type = "CHECK"
                     break
                     
-            # C. 评级 B 级及以上，但 payload 中缺少年度分解统计 (yearly-stats) 或没有 recordsets_data
+            # C. 评级 C 级及以上，但 payload 中缺少年度分解统计 (yearly-stats) 或没有 recordsets_data
             # 说明虽然有了 check 结果，但尚未补充拉取完整的年度 PnL 数据，无法进行精细 IS/OS 检验
-            if grade in {"S", "A", "B"}:
+            if grade in {"S", "A", "B", "C"}:
                 yearly_stats = []
                 if isinstance(payload, dict):
                     # 使用我们优化的提取助手
