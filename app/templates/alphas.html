@@ -16,16 +16,7 @@
                     <a href="/alphas?page=1&type_filter=C&level_filter={{ level_filter }}&date_filter={{ date_filter }}" class="btn btn-sm {% if type_filter == 'C' %}btn-primary{% else %}btn-secondary{% endif %}">C级</a>
                     <a href="/alphas?page=1&type_filter=D&level_filter={{ level_filter }}&date_filter={{ date_filter }}" class="btn btn-sm {% if type_filter == 'D' %}btn-primary{% else %}btn-secondary{% endif %}">D级</a>
                 </div>
-                <div class="filter-group-select" style="display: flex; align-items: center; gap: 8px;">
-                    <label for="level_filter_select" style="font-size: 13px; color: var(--text-muted); white-space: nowrap;">因子评级:</label>
-                    <select id="level_filter_select" onchange="window.location.href=this.value" class="filter-select">
-                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=&date_filter={{ date_filter }}" {% if level_filter == '' %}selected{% endif %}>全部评级</option>
-                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=premium&date_filter={{ date_filter }}" {% if level_filter == 'premium' %}selected{% endif %}>🏆 优质因子 (Premium)</option>
-                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=standard&date_filter={{ date_filter }}" {% if level_filter == 'standard' %}selected{% endif %}>⭐ 一般因子 (Standard)</option>
-                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=marginal&date_filter={{ date_filter }}" {% if level_filter == 'marginal' %}selected{% endif %}>⚠️ 边际因子 (Marginal)</option>
-                        <option value="/alphas?page=1&type_filter={{ type_filter }}&level_filter=substandard&date_filter={{ date_filter }}" {% if level_filter == 'substandard' %}selected{% endif %}>❌ 不合格因子 (Substandard)</option>
-                    </select>
-                </div>
+
                 <div class="filter-group-date-buttons" style="display: flex; gap: 4px; border-left: 1px solid var(--border-color); padding-left: 16px; align-items: center;">
                     <span style="font-size: 13px; color: var(--text-muted); margin-right: 4px;">时间筛选:</span>
                     <a href="/alphas?page=1&type_filter={{ type_filter }}&level_filter={{ level_filter }}&date_filter=" class="btn btn-sm {% if date_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
@@ -68,8 +59,7 @@
                                 <input type="checkbox" id="select-all-alphas" onchange="toggleSelectAllAlphas(this)" style="cursor: pointer; width: 16px; height: 16px;">
                             </th>
                             <th>Alpha ID</th>
-                            <th>因子评级</th>
-                            <th>评估类型</th>
+                            <th>因子级别</th>
                             <th>实际名称 (Name)</th>
                             <th>分数 (Sharpe/Fitness)</th>
                             <th>利润率 (Margin)</th>
@@ -90,19 +80,10 @@
                                 </a>
                             </td>
                             <td>
-                                {% if a.alpha_level %}
+                                {% if a.grade %}
                                 <span class="badge grade-{{ a.grade }}" style="font-weight: bold; font-size: 11px; padding: 2px 6px; border-radius: 4px; color: #fff; background: {% if a.grade == 'S' %}#ef4444{% elif a.grade == 'A' %}#10b981{% elif a.grade == 'B' %}#3b82f6{% elif a.grade == 'C' %}#f59e0b{% else %}#6b7280{% endif %}; margin-right: 4px; display: inline-block;">
                                     {{ a.grade_label }}
                                 </span>
-                                <span class="badge status-{{ a.submission_class }}">提交: {{ a.submission_label }}</span>
-                                <span class="badge status-{{ a.metric_class }}">指标: {{ a.metric_label }}</span>
-                                {% else %}
-                                <span class="text-muted">—</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if a.alpha_type %}
-                                <span class="badge status-{{ a.correlation_class }}">{{ a.correlation_type }} / {{ a.correlation_label }}</span>
                                 {% else %}
                                 <span class="text-muted">—</span>
                                 {% endif %}
