@@ -170,11 +170,6 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             except Exception:
                 pass
                 
-        # A. 最优先：自相关性检测缺失 (prod_corr IS NULL 或 0.0)
-        if prod_corr is None or prod_corr == 0.0:
-            candidates.append((row_dict, "CORR"))
-            continue
-            
         # 计算当前因子的评级以校验其他缺失指标
         sharpe = row_dict.get("sharpe")
         fitness = row_dict.get("fitness")
@@ -195,7 +190,18 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             "payload": payload,
         })
         grade = grading.get("grade", "C")
-        
+
+        # 0. 垃圾/D级因子发现 -> 立即触发物理退休删除
+        if grade == "D":
+            candidates.append((row_dict, "RETIRE"))
+            continue
+            
+        # A. 自相关性检测缺失 (prod_corr IS NULL 或 0.0) -> 必须是已提交/已校验过 (status != 'UNSUBMITTED')
+        # 否则 UNSUBMITTED 没有 PNL 无法在本地算自相关，须先进行 CHECK 提交生成 PNL
+        if (prod_corr is None or prod_corr == 0.0) and status != 'UNSUBMITTED':
+            candidates.append((row_dict, "CORR"))
+            continue
+            
         # B. 评级 C 级及以上，状态为 UNSUBMITTED，且没有本地 check 记录 -> 自动远程 Checks 校验
         if grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
             with connect() as conn:
@@ -227,7 +233,9 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             
             alpha_id = row_dict["alpha_id"]
             action_desc = ""
-            if work_type == "CORR":
+            if work_type == "RETIRE":
+                action_desc = "垃圾因子物理退休"
+            elif work_type == "CORR":
                 action_desc = "自相关性补算"
             elif work_type == "CHECK":
                 action_desc = "远程 Checks 提交校验"
@@ -238,7 +246,9 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             update_job(job_id, message=msg, progress_current=idx, progress_total=total_candidates)
             add_job_event(job_id, "info", f"Processing {alpha_id}: WorkType={work_type}")
             
-            if work_type == "CHECK":
+            if work_type == "RETIRE":
+                inspector._run_retire(session, alpha_id, row_dict)
+            elif work_type == "CHECK":
                 inspector._run_check_submit(session, alpha_id, row_dict)
             elif work_type == "CORR":
                 inspector._run_autocorrelation(session, alpha_id, row_dict)

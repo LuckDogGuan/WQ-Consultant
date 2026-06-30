@@ -119,17 +119,13 @@ class BackgroundInspector:
                 except Exception:
                     pass
             
-            # A. 自相关性检测缺失 (prod_corr IS NULL 或等于 0.0) -> 最优先做自相关检测
-            if prod_corr is None or prod_corr == 0.0:
-                target_alpha = row_dict
-                work_type = "CORR"
-                break
-                
             # 计算当前因子的初步评级
             sharpe = row_dict.get("sharpe")
             fitness = row_dict.get("fitness")
             margin = row_dict.get("margin")
-            turnover = row_dict.get("turnover") or (payload.get("is", {}).get("turnover") if isinstance(payload, dict) else None)
+            from .optimization_planner import _extract_yearly_stats
+            yearly_stats = _extract_yearly_stats(payload)
+            turnover = row_dict.get("turnover") or (yearly_stats[0].get("turnover") if yearly_stats else None)
             self_corr = row_dict.get("ppa_corr") or 0.0
             prod_corr_val = prod_corr or 0.0
             
@@ -145,7 +141,20 @@ class BackgroundInspector:
                 "payload": payload,
             })
             grade = grading.get("grade", "C")
+
+            # 0. 垃圾/D级因子发现 -> 立即触发物理退休删除
+            if grade == "D":
+                target_alpha = row_dict
+                work_type = "RETIRE"
+                break
             
+            # A. 自相关性检测缺失 (prod_corr IS NULL 或等于 0.0) -> 但必须是已提交/已校验过 (status != 'UNSUBMITTED')
+            # 否则 UNSUBMITTED 没有 PNL 无法在本地算自相关，须先进行 CHECK 提交生成 PNL
+            if (prod_corr is None or prod_corr == 0.0) and status != 'UNSUBMITTED':
+                target_alpha = row_dict
+                work_type = "CORR"
+                break
+                
             # B. 评级 C 级及以上，但状态为 UNSUBMITTED，且没有本地 check_results 历史 -> 自动 check submit
             # 这能触发 WQ 平台在云端进行 Checks 校验并生成 PNL 数据
             if grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
@@ -160,11 +169,6 @@ class BackgroundInspector:
             # C. 评级 C 级及以上，但 payload 中缺少年度分解统计 (yearly-stats) 或没有 recordsets_data
             # 说明虽然有了 check 结果，但尚未补充拉取完整的年度 PnL 数据，无法进行精细 IS/OS 检验
             if grade in {"S", "A", "B", "C"}:
-                yearly_stats = []
-                if isinstance(payload, dict):
-                    # 使用我们优化的提取助手
-                    from .optimization_planner import _extract_yearly_stats
-                    yearly_stats = _extract_yearly_stats(payload)
                 if not yearly_stats:
                     target_alpha = row_dict
                     work_type = "FETCH"
@@ -179,7 +183,9 @@ class BackgroundInspector:
         # 登录 WQ 平台会话
         session = login_with_credentials(username, password)
         try:
-            if work_type == "CHECK":
+            if work_type == "RETIRE":
+                self._run_retire(session, alpha_id, target_alpha)
+            elif work_type == "CHECK":
                 self._run_check_submit(session, alpha_id, target_alpha)
             elif work_type == "CORR":
                 self._run_autocorrelation(session, alpha_id, target_alpha)
@@ -219,7 +225,24 @@ class BackgroundInspector:
             
         except Exception as e:
             logger.error(f"[BackgroundInspector] Check submission failed for {alpha_id}: {e}")
- 
+
+    def _run_retire(self, session: requests.Session, alpha_id: str, row_dict: dict[str, Any]) -> None:
+        """自动物理退休 Grade D 垃圾因子"""
+        logger.info(f"[BackgroundInspector] Automatically retiring Grade D alpha {alpha_id} on WQ platform...")
+        try:
+            from app.services.wq_client import retire_wq_alpha
+            retire_wq_alpha(session, alpha_id)
+            
+            # 更新本地数据库，将 is_garbage 设为 1
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE alpha_records SET is_garbage = 1, alpha_type = 'D', updated_at = datetime('now') WHERE alpha_id = ?",
+                    (alpha_id,)
+                )
+            logger.info(f"[BackgroundInspector] Retired and marked Grade D alpha {alpha_id} in database.")
+        except Exception as e:
+            logger.error(f"[BackgroundInspector] Failed to retire Grade D alpha {alpha_id}: {e}")
+
     def _run_autocorrelation(self, session: requests.Session, alpha_id: str, row_dict: dict[str, Any]) -> None:
         """自动拉取远程 PNL 并在本地做自相关性分析"""
         logger.info(f"[BackgroundInspector] Downloading correlation data & PnL for {alpha_id}...")
@@ -380,12 +403,35 @@ class BackgroundInspector:
                 logger.info(f"[BackgroundInspector] Successfully retired Grade D alpha {alpha_id} on WQ platform.")
             except Exception as re_err:
                 logger.error(f"[BackgroundInspector] Failed to retire Grade D alpha {alpha_id}: {re_err}")
- 
+
+        # C级及以上因子：若未改名，则自动触发符合平台格式规范的 Scheme A 远程重命名
+        target_name = detail_payload.get("name") or row_dict.get("name") or ""
+        db_status = f"CHECKED_{chk_res}" if chk_res else row_dict.get("status")
+
+        if new_grade in {"S", "A", "B", "C"} and db_status != "RENAMED":
+            from app.services.wq_client import rename_wq_alpha_scheme_a
+            region = detail_payload.get("settings", {}).get("region") or row_dict.get("region") or "USA"
+            universe = detail_payload.get("settings", {}).get("universe") or row_dict.get("universe") or "TOP3000"
+            rename_res = rename_wq_alpha_scheme_a(
+                session=session,
+                alpha_id=alpha_id,
+                grade=new_grade,
+                region=region,
+                universe=universe,
+                self_corr=prod_corr,
+                sharpe=is_metrics.get("sharpe"),
+                turnover=turnover,
+                fitness=is_metrics.get("fitness")
+            )
+            if rename_res:
+                target_name = rename_res
+                db_status = "RENAMED"
+
         # 写入数据库，更新 alpha_type 和相关指标
         upsert_alpha({
             "alpha_id": alpha_id,
             "alpha_type": new_grade,  # 统一在此列存级别字母（S/A/B/C/D）
-            "name": detail_payload.get("name") or row_dict.get("name") or "",
+            "name": target_name,
             "region": detail_payload.get("settings", {}).get("region") or row_dict.get("region") or "USA",
             "universe": detail_payload.get("settings", {}).get("universe") or row_dict.get("universe") or "TOP3000",
             "sharpe": is_metrics.get("sharpe"),
@@ -395,7 +441,7 @@ class BackgroundInspector:
             "drawdown": is_metrics.get("drawdown"),
             "prod_corr": prod_corr,
             "ppa_corr": ppa_corr,
-            "status": f"CHECKED_{chk_res}" if chk_res else row_dict.get("status"),
+            "status": db_status,
             "source": row_dict.get("source") or "background_inspector",
             "payload": detail_payload
         })

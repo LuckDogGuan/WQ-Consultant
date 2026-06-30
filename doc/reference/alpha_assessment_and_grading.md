@@ -277,4 +277,24 @@ flowchart TD
 | Turnover 控制 | Turnover > 15% 时性能急剧退化 | 建议 Turnover < 10%，最高不超过 15% |
 | Decay 扫频 | 建议扫 `[0, 20, 22, 60, 120, 240]` | Sharpe 无极端崩塌才判定稳健 |
 
+### 22.6 WQ 平台自动重命名规范 (Scheme A)
+
+为便于在 WorldQuant Brain 平台上对大批量仿真因子进行筛选与过滤，所有在相关性计算（自相关性/产品相关性）完成后定档为 **Grade C 及以上** (S/A/B/C) 的仿真因子均会执行自动 Patch 重命名。
+
+由于 WQ 平台限制名称必须匹配 `^[a-zA-Z0-9_\-]{3,30}$` 且不能包含小数点，重命名采用无小数百分化缩略的 Scheme A 规范：
+
+$$\text{Name} = \text{[Grade]}\_\text{[Region]}\_\text{[Universe]}\_\text{c[Self\_Corr]}\_\text{s[Sharpe]}\_\text{t[Turnover]}\_\text{f[Fitness]}$$
+
+#### 字段解析规则
+
+1. **Grade (级别)**: `S`, `A`, `B`, `C` (由系统评级算法生成)
+2. **Region (地区简写)**: `US` (USA), `AP` (ASI), `EU` (EUR)
+3. **Universe (股票池简写)**: `T3K` (TOP3000), `T2K` (TOP2000), `T1K` (TOP1000), `T500` (TOP500)
+4. **c (自相关性)**: 取 `prod_corr * 100` 四舍五入后整数（如 `c18` 表示相关性 18%）
+5. **s (夏普比率)**: 取 `sharpe * 100` 四舍五入后整数（如 `s158` 表示夏普 1.58）
+6. **t (年换手率)**: 取 `turnover * 100` 四舍五入后整数（如 `t7` 表示换手 7%）
+7. **f (拟合度/Fitness)**: 取 `fitness * 100` 四舍五入后整数（如 `f115` 表示拟合度 1.15）
+
+**示例**：`S_US_T3K_c18_s158_t7_f120`
+
 ---

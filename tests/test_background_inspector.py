@@ -48,7 +48,7 @@ class BackgroundInspectorTests(unittest.TestCase):
             "margin": 0.0015,
             "prod_corr": 0.0,
             "ppa_corr": 0.0,
-            "status": "UNSUBMITTED",
+            "status": "CHECKED_PASS",
             "source": "test_src"
         })
  
@@ -238,7 +238,7 @@ class BackgroundInspectorTests(unittest.TestCase):
             "fitness": 1.0,
             "margin": 0.0012,
             "prod_corr": 0.0,
-            "status": "UNSUBMITTED",
+            "status": "CHECKED_PASS",
             "source": "wq_sync"
         })
         

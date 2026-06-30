@@ -376,32 +376,41 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
                 except Exception as e:
                     logger.error(f"Failed to fetch checks for correlation analysis of {alpha_id}: {e}")
                     
-                # 判定后续类型
-                submit_sharpe_th = float(get_setting("submit_sharpe", "1.58"))
-                if sharpe >= corr_sharpe_th and ppa_corr < 0.5:
-                    if error_count > 0:
-                        alpha_type = "SKIP"
-                        target_name = "anonymous"
-                    else:
-                        alpha_type = "PPA"
-                        target_name = f"PPA_{ppa_corr:.2f}_{fitness:.2f}"
-                elif l2y_sharpe > 2.38 and prod_corr < 0.7:
-                    if error_count < 2:
-                        alpha_type = "ATOM"
-                        target_name = f"ATOM_{prod_corr:.2f}_{fitness:.2f}_err{error_count}"
-                    else:
-                        alpha_type = "SKIP"
-                        target_name = "anonymous"
-                elif sharpe > submit_sharpe_th and prod_corr < 0.7 and is_ladder_pass:
-                    if error_count > 0:
-                        alpha_type = "SKIP"
-                        target_name = "anonymous"
-                    else:
-                        alpha_type = "RA"
-                        target_name = f"RA_{prod_corr:.2f}_{fitness:.2f}"
-                else:
-                    alpha_type = "SKIP"
+                # 判定后续类型：统一使用系统级评级系统，并为 C 级及以上因子构造符合平台合规要求的 Scheme A 名称
+                from .optimization_planner import grade_candidate_result
+                grading = grade_candidate_result({
+                    "sharpe": sharpe,
+                    "fitness": fitness,
+                    "margin": row.get("margin"),
+                    "turnover": row.get("turnover"),
+                    "self_corr": ppa_corr,
+                    "prod_corr": prod_corr,
+                    "failed_checks": error_count,
+                    "status": "CHECKED_FAIL" if error_count > 0 else "CHECKED_PASS",
+                    "payload": row
+                })
+                alpha_type = grading.get("grade", "C")
+                
+                if alpha_type == "D":
                     target_name = "anonymous"
+                else:
+                    reg_map = {"USA": "US", "ASI": "AP", "EUR": "EU"}
+                    reg_code = reg_map.get(str(row_region).upper(), "US")
+
+                    uni_str = str(row.get("universe") or "").upper()
+                    if "3000" in uni_str: uni_code = "T3K"
+                    elif "2000" in uni_str: uni_code = "T2K"
+                    elif "1000" in uni_str: uni_code = "T1K"
+                    elif "500" in uni_str: uni_code = "T500"
+                    else: uni_code = uni_str[:4]
+
+                    c_val = int(round((prod_corr or 0.0) * 100))
+                    s_val = int(round((sharpe or 0.0) * 100))
+                    t_val = int(round((row.get("turnover") or 0.0) * 100))
+                    f_val = int(round((fitness or 0.0) * 100))
+
+                    target_name = f"{alpha_type}_{reg_code}_{uni_code}_c{c_val}_s{s_val}_t{t_val}_f{f_val}"
+                    target_name = target_name[:30]
                 
             return {
                 'alpha_id': alpha_id,
@@ -442,7 +451,7 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
                         logger.info(msg)
                         
                         db_status = res["status"]
-                        if auto_rename_enabled and res["target_name"] and res["alpha_type"] != "SKIP" and db_status != 'RENAMED':
+                        if auto_rename_enabled and res["target_name"] and res["alpha_type"] != "D" and db_status != 'RENAMED':
                             try:
                                 logger.info(f"Auto-renaming remote alpha {alpha_id} to '{res['target_name']}'...")
                                 from consultant_core.machine_lib import set_alpha_properties
