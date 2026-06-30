@@ -1704,3 +1704,37 @@ def get_alpha_pnl_chart(alpha_id: str, admin: str = Depends(get_current_admin)):
             return {"status": "error", "message": f"图表渲染失败: {e}"}
             
     return {"status": "empty", "message": "该因子暂无可用的 PnL 数据。"}
+
+
+@app.post("/api/alphas/sync")
+def sync_alphas_from_wq(admin: str = Depends(get_current_admin)):
+    """从 WQ 平台拉取最近 30 天所有已回测因子记录同步至本地数据库（后台任务化）"""
+    from app.storage import create_job
+    from app.job_runner import JobRunner
+    
+    settings = get_settings()
+    username = settings.get("wq_username")
+    password = settings.get("wq_password")
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="请先在设置中配置 WQ 账号和密码。")
+        
+    try:
+        # 创建同步任务，默认回看最近 30 天
+        job_id = create_job(
+            kind="sync_alphas",
+            title="同步云端因子 (最近 30 天)",
+            params={"lookback_days": 30}
+        )
+        
+        # 启动任务
+        JobRunner().start_job(job_id, "sync_alphas", {"lookback_days": 30})
+        
+        return {
+            "status": "ok", 
+            "message": f"云端因子同步任务已成功启动，已加入后台队列。Job ID: #{job_id}",
+            "job_id": job_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to start sync alphas job: {e}")
+        raise HTTPException(status_code=500, detail=f"启动同步任务失败: {e}")

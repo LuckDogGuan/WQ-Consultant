@@ -116,7 +116,142 @@ class BackgroundInspectorTests(unittest.TestCase):
             mock_check_remotely.assert_called_once_with(session_mock, "A22222")
             mock_add_check.assert_called_once()
             mock_fetch.assert_called_once()
- 
- 
+
+    @patch("app.job_runner.JobRunner")
+    @patch("app.storage.create_job")
+    def test_sync_alphas_endpoint(self, mock_create_job, mock_job_runner):
+        from fastapi.testclient import TestClient
+        from app.main import app, get_current_admin
+        
+        app.dependency_overrides[get_current_admin] = lambda: "admin"
+        client = TestClient(app)
+        
+        mock_create_job.return_value = 888
+        runner_instance = MagicMock()
+        mock_job_runner.return_value = runner_instance
+        
+        try:
+            response = client.post("/api/alphas/sync")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("同步任务已成功启动", response.json()["message"])
+            self.assertEqual(response.json()["job_id"], 888)
+            
+            mock_create_job.assert_called_once_with(
+                kind="sync_alphas",
+                title="同步云端因子 (最近 30 天)",
+                params={"lookback_days": 30}
+            )
+            runner_instance.start_job.assert_called_once_with(888, "sync_alphas", {"lookback_days": 30})
+        finally:
+            app.dependency_overrides.clear()
+
+    @patch("app.services.sync_service.login_with_credentials")
+    @patch("app.services.sync_service.get_alphas_full")
+    @patch("app.services.sync_service.create_job")
+    @patch("app.services.sync_service.JobRunner")
+    def test_run_sync_alphas_job(self, mock_job_runner, mock_create_job, mock_get_alphas, mock_login):
+        from app.services.sync_service import run_sync_alphas_job
+        
+        session_mock = MagicMock()
+        mock_login.return_value = session_mock
+        
+        # Cloud returned A_NEW_1 and A_CLOUD_1 (which is already in DB)
+        mock_df = pd.DataFrame([
+            {
+                "alpha_id": "A_NEW_1",
+                "name": "New Alpha 1",
+                "sharpe": 1.65,
+                "fitness": 1.2,
+                "margin": 0.0018,
+                "returns": 0.15,
+                "drawdown": 0.08,
+                "status": "UNSUBMITTED",
+                "universe": "TOP3000"
+            },
+            {
+                "alpha_id": "A_CLOUD_1",
+                "name": "Cloud Alpha 1",
+                "sharpe": 1.45,
+                "fitness": 1.0,
+                "margin": 0.0012,
+                "returns": 0.12,
+                "drawdown": 0.07,
+                "status": "UNSUBMITTED",
+                "universe": "TOP3000"
+            }
+        ])
+        mock_get_alphas.return_value = mock_df
+        
+        # Pre-insert A_CLOUD_1 to test filtering duplicate
+        upsert_alpha({
+            "alpha_id": "A_CLOUD_1",
+            "alpha_type": "B",
+            "name": "Cloud Alpha 1",
+            "region": "USA",
+            "universe": "TOP3000",
+            "sharpe": 1.45,
+            "fitness": 1.0,
+            "margin": 0.0012,
+            "status": "UNSUBMITTED",
+            "source": "manual"
+        })
+        
+        mock_create_job.return_value = 999
+        runner_instance = MagicMock()
+        mock_job_runner.return_value = runner_instance
+        
+        # Create a job in DB
+        with connect() as conn:
+            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (888, 'sync_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
+            
+        run_sync_alphas_job(888, {"lookback_days": 30})
+        
+        # Verify that only A_NEW_1 was added (since A_CLOUD_1 already existed)
+        with connect() as conn:
+            rows = conn.execute("SELECT alpha_id, source FROM alpha_records").fetchall()
+            ids = {r["alpha_id"]: r["source"] for r in rows}
+            
+        self.assertIn("A_NEW_1", ids)
+        self.assertEqual(ids["A_NEW_1"], "wq_sync")
+        self.assertEqual(ids["A_CLOUD_1"], "manual") # Source should not change
+        
+        # Verify that alpha_inspection job was triggered
+        mock_create_job.assert_called_once()
+        runner_instance.start_job.assert_called_once_with(999, "alpha_inspection", {"only_new": True})
+
+    @patch("app.services.sync_service.login_with_credentials")
+    @patch("app.services.background_inspector.BackgroundInspector._run_autocorrelation")
+    def test_run_alpha_inspection_job(self, mock_run_auto, mock_login):
+        from app.services.sync_service import run_alpha_inspection_job
+        
+        session_mock = MagicMock()
+        mock_login.return_value = session_mock
+        
+        # Pre-insert one alpha with missing correlation
+        upsert_alpha({
+            "alpha_id": "A_INSP_1",
+            "alpha_type": "",
+            "name": "Inspection Alpha 1",
+            "region": "USA",
+            "universe": "TOP3000",
+            "sharpe": 1.45,
+            "fitness": 1.0,
+            "margin": 0.0012,
+            "prod_corr": 0.0,
+            "status": "UNSUBMITTED",
+            "source": "wq_sync"
+        })
+        
+        # Create job in DB
+        with connect() as conn:
+            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (777, 'alpha_inspection', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
+            
+        run_alpha_inspection_job(777, {})
+        
+        # Verify that autocorrelation run was triggered for A_INSP_1
+        mock_run_auto.assert_called_once()
+        self.assertEqual(mock_run_auto.call_args[0][1], "A_INSP_1")
+
+
 if __name__ == "__main__":
     unittest.main()

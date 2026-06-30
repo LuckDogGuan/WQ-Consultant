@@ -35,8 +35,11 @@
                     <a href="/alphas?page=1&type_filter={{ type_filter }}&level_filter={{ level_filter }}&date_filter=7days" class="btn btn-sm {% if date_filter == '7days' %}btn-primary{% else %}btn-secondary{% endif %}">最近一周</a>
                 </div>
             </div>
-            <div class="filter-count">
+            <div class="filter-count" style="display: flex; align-items: center; gap: 10px;">
                 <span>总共记录: <strong>{{ total }}</strong> 个 Alpha</span>
+                <button class="btn btn-secondary btn-sm" id="sync-alphas-btn" onclick="syncAlphasFromWQ()" style="font-size: 11px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
+                    <i class="fa-solid fa-rotate"></i> 同步云端因子
+                </button>
             </div>
         </div>
     </div>
@@ -262,6 +265,32 @@
         .catch(err => {
             alert("提交请求出错: " + err.message);
         });
+    }
+
+    function syncAlphasFromWQ() {
+        const btn = document.getElementById("sync-alphas-btn");
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 正在同步...`;
+        
+        fetch('/api/alphas/sync', { method: 'POST' })
+            .then(res => {
+                if (!res.ok) {
+                    return res.json().then(data => { throw new Error(data.detail || "同步失败"); });
+                }
+                return res.json();
+            })
+            .then(data => {
+                alert(data.message);
+                window.location.reload();
+            })
+            .catch(err => {
+                alert("同步失败: " + err.message);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
     }
 </script>
 {% endblock %}

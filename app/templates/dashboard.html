@@ -72,8 +72,8 @@
         </div>
         <div class="stat-details">
             <h3>检测合格 Alpha</h3>
-            <p class="stat-number">{{ counts.ppa_count + counts.ra_count + counts.atom_count }}</p>
-            <span class="stat-sub">PPA: {{ counts.ppa_count }} | RA: {{ counts.ra_count }} | ATOM: {{ counts.atom_count }}</span>
+            <p class="stat-number">{{ counts.S_count + counts.A_count + counts.B_count }}</p>
+            <span class="stat-sub">S级: {{ counts.S_count }} | A级: {{ counts.A_count }} | B级: {{ counts.B_count }} | C级: {{ counts.C_count }}</span>
         </div>
     </div>
 
@@ -146,6 +146,10 @@
                                                 {% if p.dataset_ids %} | 数据集: {{ p.dataset_ids | join(', ') | truncate(40) }}{% endif %}
                                             {% elif job.kind == 'check_submission' %}
                                                 {% if p.manual_ids %}手动追加: {{ p.manual_ids | join(', ') | truncate(40) }}{% else %}自动合并检查{% endif %}
+                                            {% elif job.kind == 'sync_alphas' %}
+                                                回看天数: {{ p.lookback_days or 30 }} 天
+                                            {% elif job.kind == 'alpha_inspection' %}
+                                                自相关与 IS/OS 评估校验 (新增因子增量评估)
                                             {% else %}
                                                 {{ job.params | truncate(60) }}
                                             {% endif %}

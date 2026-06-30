@@ -42,9 +42,11 @@ def get_dashboard_metrics(now: datetime | None = None) -> dict[str, int | str]:
         counts["alpha_records"] = conn.execute("SELECT COUNT(*) FROM alpha_records").fetchone()[0]
         counts["check_results"] = conn.execute("SELECT COUNT(*) FROM check_results").fetchone()[0]
         counts["errors"] = conn.execute("SELECT COUNT(*) FROM errors").fetchone()[0]
-        counts["ppa_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'PPA'").fetchone()[0]
-        counts["ra_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'RA'").fetchone()[0]
-        counts["atom_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'ATOM'").fetchone()[0]
+        counts["S_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'S'").fetchone()[0]
+        counts["A_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'A'").fetchone()[0]
+        counts["B_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'B'").fetchone()[0]
+        counts["C_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'C'").fetchone()[0]
+        counts["D_count"] = conn.execute("SELECT COUNT(*) FROM alpha_records WHERE alpha_type = 'D'").fetchone()[0]
         counts["backtest_daily_done"] = conn.execute(
             """
             SELECT COUNT(*)
@@ -61,7 +63,7 @@ def get_dashboard_metrics(now: datetime | None = None) -> dict[str, int | str]:
             """
             SELECT COUNT(*)
             FROM alpha_records
-            WHERE status = 'SUBMITTED' AND alpha_type = 'PPA' AND updated_at >= ?
+            WHERE status = 'SUBMITTED' AND alpha_type = 'S' AND updated_at >= ?
             """,
             (daily_start,),
         ).fetchone()[0]
@@ -69,7 +71,7 @@ def get_dashboard_metrics(now: datetime | None = None) -> dict[str, int | str]:
             """
             SELECT COUNT(*)
             FROM alpha_records
-            WHERE status = 'SUBMITTED' AND alpha_type != 'PPA' AND updated_at >= ?
+            WHERE status = 'SUBMITTED' AND alpha_type != 'S' AND updated_at >= ?
             """,
             (daily_start,),
         ).fetchone()[0]

@@ -245,8 +245,16 @@
                                     {% if p %}
                                         <div class="job-params-display text-muted" style="margin-top: 4px; font-size: 11px;">
                                             <i class="fa-solid fa-sliders"></i>
-                                            一阶: {{ '是' if p.run_fo else '否' }} | 二阶: {{ '是' if p.run_so else '否' }} | 三阶: {{ '是' if p.run_th else '否' }}
-                                            {% if p.dataset_ids %} | 数据集: {{ p.dataset_ids | join(', ') | truncate(40) }}{% endif %}
+                                            {% if j.kind == 'backtest' %}
+                                                一阶: {{ '是' if p.run_fo else '否' }} | 二阶: {{ '是' if p.run_so else '否' }} | 三阶: {{ '是' if p.run_th else '否' }}
+                                                {% if p.dataset_ids %} | 数据集: {{ p.dataset_ids | join(', ') | truncate(40) }}{% endif %}
+                                            {% elif j.kind == 'sync_alphas' %}
+                                                回看天数: {{ p.lookback_days or 30 }} 天
+                                            {% elif j.kind == 'alpha_inspection' %}
+                                                新增因子增量评估与 IS/OS 诊断
+                                            {% else %}
+                                                {{ j.params | truncate(60) }}
+                                            {% endif %}
                                         </div>
                                     {% endif %}
                                 {% endif %}
@@ -504,6 +512,39 @@
                     </div>
                 `;
             });
+    }
+
+    // Toggle Backtest parameter settings accordion
+    function toggleLaunchSettingsAccordion() {
+        const content = document.getElementById("launch-settings-content");
+        const icon = document.querySelector(".launch-accordion-icon");
+        if (content.style.display === "none" || !content.style.display) {
+            content.style.display = "block";
+            if (icon) icon.style.transform = "rotate(90deg)";
+        } else {
+            content.style.display = "none";
+            if (icon) icon.style.transform = "rotate(0deg)";
+        }
+    }
+
+    // Switch between Backtest parameter tabs
+    function switchBacktestTab(event, tabId) {
+        const contents = document.querySelectorAll(".backtest-tab-content");
+        contents.forEach(c => c.style.display = "none");
+        
+        const activeContent = document.getElementById(tabId);
+        if (activeContent) activeContent.style.display = "block";
+        
+        const buttons = document.querySelectorAll(".backtest-tab-btn");
+        buttons.forEach(b => {
+            b.style.borderBottom = "none";
+            b.style.color = "#94a3b8";
+        });
+        
+        const btn = event.currentTarget;
+        const color = btn.getAttribute("data-color") || "#4f46e5";
+        btn.style.borderBottom = `2px solid ${color}`;
+        btn.style.color = color;
     }
 </script>
 {% endblock %}

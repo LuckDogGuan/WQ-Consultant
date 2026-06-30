@@ -52,7 +52,7 @@ class DashboardMetricsTests(unittest.TestCase):
         upsert_alpha(
             {
                 "alpha_id": "bt_today",
-                "alpha_type": "RA",
+                "alpha_type": "A",
                 "fitness": 1.2,
                 "margin": 0.0006,
                 "status": "UNSUBMITTED",
@@ -63,7 +63,7 @@ class DashboardMetricsTests(unittest.TestCase):
         upsert_alpha(
             {
                 "alpha_id": "bt_old",
-                "alpha_type": "RA",
+                "alpha_type": "A",
                 "fitness": 1.2,
                 "margin": 0.0006,
                 "status": "UNSUBMITTED",
@@ -74,7 +74,7 @@ class DashboardMetricsTests(unittest.TestCase):
         upsert_alpha(
             {
                 "alpha_id": "sub_regular",
-                "alpha_type": "RA",
+                "alpha_type": "A",
                 "fitness": 1.2,
                 "margin": 0.0006,
                 "status": "SUBMITTED",
@@ -85,7 +85,7 @@ class DashboardMetricsTests(unittest.TestCase):
         upsert_alpha(
             {
                 "alpha_id": "sub_super",
-                "alpha_type": "PPA",
+                "alpha_type": "S",
                 "fitness": 2.6,
                 "margin": 0.0031,
                 "status": "SUBMITTED",
@@ -96,7 +96,7 @@ class DashboardMetricsTests(unittest.TestCase):
         upsert_alpha(
             {
                 "alpha_id": "sub_old",
-                "alpha_type": "PPA",
+                "alpha_type": "S",
                 "status": "SUBMITTED",
                 "source": "submitted_cleanup",
                 "payload": {"regular": {"code": "rank(low)"}},
