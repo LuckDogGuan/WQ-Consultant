@@ -239,3 +239,33 @@ class SchedulerService:
                 params = {"schema_version": 1, "limit": 100, "max_pages": 20}
                 job_id = create_job("submitted_cleanup", "每日 submitted Alpha 本地候选清理", params)
                 JobRunner().start_job(job_id, "submitted_cleanup", params)
+
+        # 5. 定时自动本地因子同步与自相关性计算任务
+        local_sync_enabled = get_setting("local_sync_schedule_enabled", "1") == "1"
+        if local_sync_enabled:
+            local_sync_hour = int(get_setting("local_sync_schedule_hour", "0"))
+            local_sync_last_run_str = get_setting("local_sync_schedule_last_run", "")
+            
+            local_sync_trigger = False
+            current_date_str = now_sh.strftime("%Y-%m-%d")
+            if now_sh.hour == local_sync_hour:
+                last_run_date = ""
+                if local_sync_last_run_str:
+                    try:
+                        last_run_dt = datetime.fromisoformat(local_sync_last_run_str).astimezone(sh_tz)
+                        last_run_date = last_run_dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+                if last_run_date != current_date_str:
+                    local_sync_trigger = True
+                    
+            if local_sync_trigger:
+                logger.info("Scheduler triggering auto local sync and correlation job...")
+                now_iso = datetime.now(timezone.utc).isoformat()
+                with connect() as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('local_sync_schedule_last_run', ?, datetime('now'))",
+                        (now_iso,)
+                    )
+                job_id = create_job("sync_local_alphas", "定时本地因子自相关同步计算", {})
+                JobRunner().start_job(job_id, "sync_local_alphas", {})

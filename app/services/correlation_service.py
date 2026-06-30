@@ -250,23 +250,49 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
         region = get_setting("region", "USA")
         universe = get_setting("universe", "TOP3000")
         
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=lookback)
-        
-        msg = f"Fetching unsubmitted alphas for {region} ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})..."
+        today = datetime.now().date()
+        chunks = []
+        for i in range(lookback + 1):
+            st = today - timedelta(days=lookback - i)
+            ed = st + timedelta(days=1)
+            chunks.append((st, ed))
+
+        msg = f"Fetching unsubmitted alphas for {region} concurrently in day-by-day chunks (last {lookback} days)..."
         logger.info(msg)
         update_job(job_id, message=msg)
+
+        dfs = []
         
-        alphas_df = get_alphas_full(
-            start_date=start_date,
-            end_date=end_date,
-            sharpe_th=-10.0,  # 允许拉取低分进行本地筛选
-            region=region,
-            usage="submit",
-            session=session,
-            order="-dateCreated",
-            limit=limit_val
-        )
+        def fetch_corr_chunk(st_dt, ed_dt):
+            logger.info(f"[CorrJob] Thread starting chunk fetch: {st_dt.strftime('%Y-%m-%d')} to {ed_dt.strftime('%Y-%m-%d')}")
+            return get_alphas_full(
+                start_date=st_dt,
+                end_date=ed_dt,
+                sharpe_th=-10.0,
+                region=region,
+                usage="submit",
+                session=session,
+                order="-dateCreated",
+                limit=limit_val
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_chunk = {executor.submit(fetch_corr_chunk, st, ed): (st, ed) for st, ed in chunks}
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                st, ed = future_to_chunk[future]
+                try:
+                    df_chunk = future.result()
+                    if not df_chunk.empty:
+                        logger.info(f"[CorrJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} fetched {len(df_chunk)} alphas.")
+                        dfs.append(df_chunk)
+                except Exception as exc:
+                    logger.error(f"[CorrJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} failed: {exc}")
+
+        if dfs:
+            alphas_df = pd.concat(dfs, ignore_index=True)
+            alphas_df = alphas_df.drop_duplicates(subset=["alpha_id"])
+        else:
+            alphas_df = pd.DataFrame()
         
         if alphas_df.empty:
             msg = "No unsubmitted alphas found in the lookback window."

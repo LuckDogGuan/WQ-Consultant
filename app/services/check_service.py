@@ -112,13 +112,18 @@ def check_alpha_remotely(s: requests.Session, alpha_id: str) -> tuple[str, float
     url = f"https://api.worldquantbrain.com/alphas/{alpha_id}/check"
     
     for attempt in range(5):
-        resp = s.get(url, timeout=30)
-        
+        try:
+            resp = s.get(url, timeout=30)
+        except Exception as e:
+            logger.warning(f"Connection error checking {alpha_id} (attempt {attempt+1}): {e}")
+            time.sleep(2 ** attempt)
+            continue
+            
         if resp.status_code == 401:
             raise ConnectionResetError("Session expired (401)")
         if resp.status_code == 429:
             retry_after = int(resp.headers.get("Retry-After", 5))
-            sleep_time = min(60, retry_after)
+            sleep_time = min(60, retry_after) * (attempt + 1)
             logger.warning(f"Rate limited (429) checking {alpha_id}. Sleeping for {sleep_time}s...")
             time.sleep(sleep_time)
             continue
@@ -126,11 +131,18 @@ def check_alpha_remotely(s: requests.Session, alpha_id: str) -> tuple[str, float
         if resp.status_code != 200:
             return "ERROR", None, f"HTTP Error {resp.status_code}", {}
             
+        content_type = resp.headers.get("Content-Type", "")
+        if "application/json" not in content_type:
+            logger.warning(f"Non-JSON response checking {alpha_id}: Content-Type={content_type}, status={resp.status_code}. Retrying...")
+            time.sleep(2 ** attempt)
+            continue
+            
         try:
             data = resp.json()
         except Exception as je:
             logger.warning(f"JSONDecodeError checking {alpha_id}: {je}. Response: {resp.text[:200]}")
-            raise requests.exceptions.ContentDecodingError(f"Invalid JSON response: {je}", response=resp)
+            time.sleep(2 ** attempt)
+            continue
             
         if data.get("is", 0) == 0:
             raise ConnectionResetError("Logged out indicator in body")
@@ -181,7 +193,7 @@ def check_alpha_remotely(s: requests.Session, alpha_id: str) -> tuple[str, float
                 
         return "ERROR", None, "Invalid checks schema", data
         
-    return "ERROR", None, "Max 429 retries exceeded", {}
+    return "ERROR", None, "Max retries exceeded or rate limit failed", {}
 
 
 def run_check_job(job_id: int, params: dict[str, Any]) -> None:

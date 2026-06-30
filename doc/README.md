@@ -20,11 +20,13 @@ doc/
 │   ├── candidate_submission_workflow.md
 │   ├── backtest_three_stages.md
 │   ├── error_handling_and_recovery.md
-│   └── system_updates_20260629.md  ← 最新系统变更详细设计
+│   ├── system_updates_20260629.md  ← 最新系统变更详细设计
+│   └── system_updates_20260630.md  ← 巡检与同步流程性能与鲁棒性优化
 │
 └── reference/                      ← 因子评估知识库（只增不删）
     ├── alpha_assessment_and_grading.md
-    └── platform_retirement_and_salvage.md
+    ├── platform_retirement_and_salvage.md
+    └── optimizable_alpha_classification.md
 ```
 
 ---
@@ -35,11 +37,13 @@ doc/
 |------|---------|---------|
 | [alpha_assessment_and_grading.md](reference/alpha_assessment_and_grading.md) | S/A/B/C/D 五档评级标准、垃圾因子判定（负夏普/厂字/DEAD_ALPHA_RISK）、A级远端二次验证规则 | 因子定级、隐藏策略、优化方向决策 |
 | [platform_retirement_and_salvage.md](reference/platform_retirement_and_salvage.md) | D档因子 WQ 平台物理删除机制、Check 失败定向拯救模板 | 平台端清理、失败因子挽救改写 |
+| [optimizable_alpha_classification.md](reference/optimizable_alpha_classification.md) | 待优化因子分类矩阵（Class A/B/C）、高相关性因子 (CORR_FAIL) 拯救与闭环淘汰工作流 | 因子优化规划、自相关性降低、变体生成决策 |
 | [candidate_submission_workflow.md](workflow/candidate_submission_workflow.md) | 候选提交全流程、字段 Catalog、数据错误处理、人工提交决策规范 | 回测结果分级 → 提交前检查 |
 | [backtest_three_stages.md](workflow/backtest_three_stages.md) | 三阶段（FO/SO/TH）优化配置、Per-Job 参数覆盖机制 | 配置批量回测任务 |
 | [error_handling_and_recovery.md](workflow/error_handling_and_recovery.md) | 网络中断、API 限额、Checkpoint 持久化与自动重连 | 长周期任务保障 |
 | [template_iteration_page_plan.md](design/template_iteration_page_plan.md) | 模板迭代页面结构、多选数据集、Tabbed Preset、表达式本地验证 | 模板迭代功能开发参考 |
 | [system_updates_20260629.md](workflow/system_updates_20260629.md) | 苹果风格双主题、移动端适配、DEAD_ALPHA_RISK、A级远端验证、回测参数合并 | 系统更新详细设计与实现细节 |
+| [system_updates_20260630.md](workflow/system_updates_20260630.md) | 数据库查询 SQL 过滤提速、429限频空响应容错与退避重试、BackgroundInspector 批量物理退休 | 解决同步与巡检中的性能瓶颈与崩溃问题 |
 
 ---
 

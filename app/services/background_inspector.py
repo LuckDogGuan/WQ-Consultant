@@ -100,9 +100,9 @@ class BackgroundInspector:
         if not rows:
             return
             
-        # 挑选出最需要处理的一个因子
+        retire_candidates = []
         target_alpha = None
-        work_type = None  # "CORR" (自相关缺失) 或 "CHECK" (未提交核查) 或 "FETCH" (需要补充明细/PNL)
+        work_type = None  # "CORR", "CHECK", "FETCH"
         
         for row in rows:
             row_dict = dict(row)
@@ -142,59 +142,71 @@ class BackgroundInspector:
             })
             grade = grading.get("grade", "C")
 
-            # 0. 垃圾/D级因子发现 -> 立即触发物理退休删除
+            # 0. 垃圾/D级因子发现 -> 收集到批量退休列表中
             if grade == "D":
-                target_alpha = row_dict
-                work_type = "RETIRE"
-                break
-            
-            # A. 自相关性检测缺失 (prod_corr IS NULL 或等于 0.0) -> 但必须是已提交/已校验过 (status != 'UNSUBMITTED')
-            # 否则 UNSUBMITTED 没有 PNL 无法在本地算自相关，须先进行 CHECK 提交生成 PNL
-            if (prod_corr is None or prod_corr == 0.0) and status != 'UNSUBMITTED':
-                target_alpha = row_dict
-                work_type = "CORR"
-                break
-                
-            # B. 评级 C 级及以上，但状态为 UNSUBMITTED，且没有本地 check_results 历史 -> 自动 check submit
-            # 这能触发 WQ 平台在云端进行 Checks 校验并生成 PNL 数据
-            if grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
-                # 查询本地是否已有该因子的 check 结果
-                with connect() as conn:
-                    chk_row = conn.execute("SELECT id FROM check_results WHERE alpha_id = ?", (alpha_id,)).fetchone()
-                if not chk_row:
-                    target_alpha = row_dict
-                    work_type = "CHECK"
+                retire_candidates.append(row_dict)
+                if len(retire_candidates) >= 50:  # 单次批量处理最多 50 个
                     break
+                continue
+            
+            # 如果目前没有处于退休状态的因子，我们才去查其他耗时的单体工作 (CORR, CHECK, FETCH)
+            # 这样可以在有 Grade D 堆积时优先全速批量清理垃圾
+            if not retire_candidates and not work_type:
+                # A. 自相关性检测缺失 (prod_corr IS NULL 或等于 0.0) -> 但必须是已提交/已校验过 (status != 'UNSUBMITTED')
+                if (prod_corr is None or prod_corr == 0.0) and status != 'UNSUBMITTED':
+                    target_alpha = row_dict
+                    work_type = "CORR"
                     
-            # C. 评级 C 级及以上，但 payload 中缺少年度分解统计 (yearly-stats) 或没有 recordsets_data
-            # 说明虽然有了 check 结果，但尚未补充拉取完整的年度 PnL 数据，无法进行精细 IS/OS 检验
-            if grade in {"S", "A", "B", "C"}:
-                if not yearly_stats:
+                # B. 评级 C 级及以上，但状态为 UNSUBMITTED，且没有本地 check_results 历史 -> 自动 check submit
+                elif grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
+                    # 查询本地是否已有该因子的 check 结果
+                    with connect() as conn:
+                        chk_row = conn.execute("SELECT id FROM check_results WHERE alpha_id = ?", (alpha_id,)).fetchone()
+                    if not chk_row:
+                        target_alpha = row_dict
+                        work_type = "CHECK"
+                        
+                # C. 评级 C 级及以上，但 payload 中缺少年度分解统计 (yearly-stats) 或没有 recordsets_data
+                elif grade in {"S", "A", "B", "C"} and not yearly_stats:
                     target_alpha = row_dict
                     work_type = "FETCH"
-                    break
- 
-        if not target_alpha:
+
+        # 如果有需要退休的垃圾因子，执行批量退休
+        if retire_candidates:
+            logger.info(f"[BackgroundInspector] Found {len(retire_candidates)} Grade D alphas. Starting batch retire...")
+            session = login_with_credentials(username, password)
+            try:
+                for idx, alpha in enumerate(retire_candidates, 1):
+                    # 检查是否请求终止
+                    if self.stop_event.is_set():
+                        break
+                    aid = alpha["alpha_id"]
+                    logger.info(f"[BackgroundInspector] Batch retiring ({idx}/{len(retire_candidates)}): {aid}")
+                    self._run_retire(session, aid, alpha)
+                    # 适当小休眠防平台限流
+                    time.sleep(0.1)
+            except Exception as e:
+                logger.error(f"[BackgroundInspector] Batch retirement error: {e}")
+            finally:
+                session.close()
             return
-            
-        alpha_id = target_alpha["alpha_id"]
-        logger.info(f"[BackgroundInspector] Auto trigger workflow for alpha {alpha_id}: WorkType={work_type}")
-        
-        # 登录 WQ 平台会话
-        session = login_with_credentials(username, password)
-        try:
-            if work_type == "RETIRE":
-                self._run_retire(session, alpha_id, target_alpha)
-            elif work_type == "CHECK":
-                self._run_check_submit(session, alpha_id, target_alpha)
-            elif work_type == "CORR":
-                self._run_autocorrelation(session, alpha_id, target_alpha)
-            elif work_type == "FETCH":
-                self._run_fetch_pnl_details(session, alpha_id, target_alpha)
-        except Exception as e:
-            logger.error(f"[BackgroundInspector] Workflow failed for {alpha_id}: {e}")
-        finally:
-            session.close()
+
+        # 如果是其他单体任务
+        if target_alpha and work_type:
+            alpha_id = target_alpha["alpha_id"]
+            logger.info(f"[BackgroundInspector] Auto trigger workflow for alpha {alpha_id}: WorkType={work_type}")
+            session = login_with_credentials(username, password)
+            try:
+                if work_type == "CHECK":
+                    self._run_check_submit(session, alpha_id, target_alpha)
+                elif work_type == "CORR":
+                    self._run_autocorrelation(session, alpha_id, target_alpha)
+                elif work_type == "FETCH":
+                    self._run_fetch_pnl_details(session, alpha_id, target_alpha)
+            except Exception as e:
+                logger.error(f"[BackgroundInspector] Workflow failed for {alpha_id}: {e}")
+            finally:
+                session.close()
  
     def _run_check_submit(self, session: requests.Session, alpha_id: str, row_dict: dict[str, Any]) -> None:
         """自动触发 WQ 平台 Checks 进行核验评估"""
@@ -281,21 +293,30 @@ class BackgroundInspector:
             url = f"https://api.worldquantbrain.com/alphas/{alpha_id}/recordsets/yearly-stats"
             resp = session.get(url, timeout=30)
             if resp.status_code == 200:
-                stats_json = resp.json()
-                yearly_stats = stats_json.get('records', [])
+                try:
+                    stats_json = resp.json()
+                    yearly_stats = stats_json.get('records', [])
+                except Exception as e:
+                    logger.warning(f"[BackgroundInspector] Failed to parse yearly-stats JSON for {alpha_id}: {e}")
                 
             # 2. 获取 PNL 每日数据
             pnl_records = []
             url_pnl = f"https://api.worldquantbrain.com/alphas/{alpha_id}/recordsets/pnl"
             resp_pnl = session.get(url_pnl, timeout=30)
             if resp_pnl.status_code == 200:
-                pnl_records = resp_pnl.json().get('records', [])
+                try:
+                    pnl_records = resp_pnl.json().get('records', [])
+                except Exception as e:
+                    logger.warning(f"[BackgroundInspector] Failed to parse PNL JSON for {alpha_id}: {e}")
                 
             # 3. 获取因子明细
             detail_data = {}
             detail_resp = session.get(f"https://api.worldquantbrain.com/alphas/{alpha_id}", timeout=30)
             if detail_resp.status_code == 200:
-                detail_data = detail_resp.json()
+                try:
+                    detail_data = detail_resp.json()
+                except Exception as e:
+                    logger.warning(f"[BackgroundInspector] Failed to parse detail JSON for {alpha_id}: {e}")
             else:
                 # 使用已有 payload fallback
                 payload_str = row_dict.get("payload")

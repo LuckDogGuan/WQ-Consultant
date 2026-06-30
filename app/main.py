@@ -762,6 +762,9 @@ def get_alphas(
     page_size = 12
     where = "1=1"
     params = []
+    if show_hidden != "1":
+        where += " AND a.is_garbage = 0"
+        
     if type_filter:
         where += " AND a.alpha_type = ?"
         params.append(type_filter)
@@ -1743,3 +1746,60 @@ def sync_alphas_from_wq(admin: str = Depends(get_current_admin)):
     except Exception as e:
         logger.error(f"Failed to start sync alphas job: {e}")
         raise HTTPException(status_code=500, detail=f"启动同步任务失败: {e}")
+
+
+@app.post("/api/alphas/sync_local")
+def sync_local_alphas_endpoint(admin: str = Depends(get_current_admin)):
+    """计算本地所有非垃圾且已提交因子的自相关性 (后台任务)"""
+    from app.storage import create_job
+    from app.job_runner import JobRunner
+    
+    settings = get_settings()
+    username = settings.get("wq_username")
+    password = settings.get("wq_password")
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="请先在设置中配置 WQ 账号和密码。")
+        
+    try:
+        job_id = create_job(
+            kind="sync_local_alphas",
+            title="同步本地因子 (自相关计算)",
+            params={}
+        )
+        JobRunner().start_job(job_id, "sync_local_alphas", {})
+        return {
+            "status": "ok",
+            "message": f"本地因子自相关同步任务已成功启动，已加入后台队列。Job ID: #{job_id}",
+            "job_id": job_id
+        }
+    except Exception as e:
+        logger.error(f"Failed to start sync local alphas job: {e}")
+        raise HTTPException(status_code=500, detail=f"启动同步任务失败: {e}")
+
+
+@app.post("/api/alphas/{alpha_id}/local_correlation_check")
+def local_correlation_check_endpoint(alpha_id: str, admin: str = Depends(get_current_admin)):
+    """对单个因子触发本地自相关性计算与更新/重命名"""
+    from app.services.background_inspector import BackgroundInspector
+    from app.services.wq_client import login_with_credentials
+    
+    with connect() as conn:
+        alpha = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
+    if not alpha:
+        raise HTTPException(status_code=404, detail="Alpha not found in database.")
+        
+    settings = get_settings()
+    username = settings.get("wq_username")
+    password = settings.get("wq_password")
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="WorldQuant username and password are not set in settings.")
+        
+    try:
+        s = login_with_credentials(username.strip(), password.strip())
+        inspector = BackgroundInspector()
+        inspector._run_autocorrelation(s, alpha_id, dict(alpha))
+        s.close()
+        return {"status": "ok", "message": "本地自相关性检查和重命名计算完成。"}
+    except Exception as e:
+        logger.error(f"Failed to perform local correlation check for {alpha_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

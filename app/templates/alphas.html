@@ -42,6 +42,9 @@
                 <button class="btn btn-secondary btn-sm" id="sync-alphas-btn" onclick="syncAlphasFromWQ()" style="font-size: 11px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
                     <i class="fa-solid fa-rotate"></i> 同步云端因子
                 </button>
+                <button class="btn btn-secondary btn-sm" id="sync-local-btn" onclick="syncLocalAlphas()" style="font-size: 11px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
+                    <i class="fa-solid fa-calculator"></i> 同步本地因子 (自相关)
+                </button>
             </div>
         </div>
     </div>
@@ -286,6 +289,32 @@
             })
             .catch(err => {
                 alert("同步失败: " + err.message);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+    }
+
+    function syncLocalAlphas() {
+        const btn = document.getElementById("sync-local-btn");
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 正在计算...`;
+        
+        fetch('/api/alphas/sync_local', { method: 'POST' })
+            .then(res => {
+                if (!res.ok) {
+                    return res.json().then(data => { throw new Error(data.detail || "同步失败"); });
+                }
+                return res.json();
+            })
+            .then(data => {
+                alert(data.message);
+                window.location.reload();
+            })
+            .catch(err => {
+                alert("同步本地因子失败: " + err.message);
             })
             .finally(() => {
                 btn.disabled = false;

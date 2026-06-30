@@ -108,9 +108,12 @@
 
 <div class="alpha-detail-container" style="display: flex; flex-direction: column; gap: 24px; max-width: 1200px; margin: 0 auto;">
     <!-- Back Button and Platform Link -->
-    <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
         <a href="javascript:history.back()" class="btn btn-secondary"><i class="fa-solid fa-arrow-left"></i> 返回上一页</a>
-        <a href="{{ alpha.platform_url }}" target="_blank" class="btn btn-primary"><i class="fa-solid fa-arrow-up-right-from-square"></i> 在 WorldQuant 平台打开</a>
+        <div style="display: flex; gap: 8px;">
+            <button id="btn-local-corr" class="btn btn-warning" onclick="runLocalCorr()"><i class="fa-solid fa-calculator"></i> 本地自相关性检查</button>
+            <a href="{{ alpha.platform_url }}" target="_blank" class="btn btn-primary"><i class="fa-solid fa-arrow-up-right-from-square"></i> 在 WorldQuant 平台打开</a>
+        </div>
     </div>
 
     <!-- Header Card -->
@@ -526,6 +529,41 @@
             if (statusText) {
                 statusText.style.display = "none";
             }
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        });
+    }
+
+    function runLocalCorr() {
+        const btn = document.getElementById("btn-local-corr");
+        if (!btn) return;
+        const originalText = btn.innerHTML;
+        
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 正在检测并改名...`;
+        
+        fetch("/api/alphas/{{ alpha.alpha_id }}/local_correlation_check", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => { throw new Error(err.detail || "请求失败"); });
+            }
+            return response.json();
+        })
+        .then(data => {
+            alert(data.message);
+            window.location.reload();
+        })
+        .catch(error => {
+            alert("自相关性检测失败: " + error.message);
+            btn.disabled = false;
+            btn.innerHTML = originalText;
         });
     }
 </script>
