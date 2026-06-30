@@ -6,12 +6,15 @@
 
 ### 21.1 垃圾因子定义与识别逻辑
  
-垃圾因子（Garbage Alphas）指表现极差或存在严重相关性、有效性缺陷的因子。判定规则如下：
+垃圾因子（Garbage Alphas / Grade D）指表现极差或存在严重相关性、有效性缺陷的因子。判定规则如下：
 1. **负夏普因子**：`sharpe < 0` 的因子（无实际经济含义且表现极差）。
 2. **厂字因子 / 相关性冲突因子**：在本地相关性检测或平台结果中被标记为 `alpha_type == 'SKIP'` 或 `status == 'SKIP'` 的因子。
 3. **硬性失败因子**：运行结果或最新检查状态为 `FAIL`、`FAILED`、`ERROR`。
-4. **停牌死因子 (DEAD_ALPHA_RISK)**：在年度分解数据中存在某年 `turnover < 0.0001` 且 `returns ≈ 0` 的情形，即 PnL 曲线在该年进入完全平坦（"厂字"）状态，说明因子已停止产生信号。此类因子与 WQ 平台关于持续有效性的要求相悖，直接判定为 Grade D 垃圾隐藏。如截图所示的 PnL 变平 + Turnover 归零即为典型特征。
-5. **未来数据/未来函数泄漏检测**：表达式中含有独立的 `returns` 变量（独立词边界 `\breturns\b`，排除 `ts_returns` 等内置函数）。`returns` 代表未来的个股回报，在回测中引入此类变量会导致严重的 Look-ahead Leakage（前瞻性偏差），平台校验必挂，因此在本地会被识别为 DEAD_ALPHA_RISK 并标记为垃圾因子。
+4. **停牌死因子 (DEAD_ALPHA_RISK)**：
+   - 满足任一特征（全零、跨度不足5年、末端250天等值、中途250天冻结、3年零值断带）。
+   - 年度 Turnover 极低：在年度分解数据中存在某年 `turnover < 0.0001` 且 `returns < 0.00001` 的情形，即 PnL 曲线变平。
+   - **多头/空头零值拦截**：年度统计数据中**任意年份的 `longCount` (多头股票数量) 或 `shortCount` (空头股票数量) 为 0**。这表明因子在某些年份处于单边买入/完全不交易状态，属于未来函数退化厂字因子的典型表现，直接拦截并标记为 Grade D 垃圾因子。
+5. **未来数据/未来函数泄漏检测**：表达式中含有独立的 `returns` 变量（独立词边界 `\breturns\b`，排除 `ts_returns` 等内置函数）。在回测中引入此类变量会导致严重的 Look-ahead Leakage（前瞻性偏差），平台校验必挂，因此在本地会被识别为 DEAD_ALPHA_RISK 并标记为垃圾因子。
 6. **交易样本过低**：因子在整个回测区间内覆盖的标的股票数量过低（如 `instrumentCount < 30`）。极低股票覆盖度通常表明条件过于苛刻或逻辑过拟合到少数个股上，线上检验将触发 LOW_INSTRUMENT_COUNT 或 MIN_INSTRUMENTS 失败，因此直接判定为 DEAD_ALPHA_RISK 并标记为垃圾因子。
 
 
@@ -23,23 +26,26 @@ graph TD
     B -->|是| C[判定为负夏普垃圾因子]
     B -->|否| D{类型或状态为 SKIP/FAIL/ERROR?}
     D -->|是| E[判定为相关性冲突/厂字因子/失败因子]
-    D -->|否| D2{年度 Turnover < 0.0001 且 Returns ≈ 0?}
-    D2 -->|是| E2[判定为停牌死因子 DEAD_ALPHA_RISK]
-    D2 -->|否| F{单次检查失败项 >= 2?}
+    D -->|否| D2{任意年 longCount==0 或 shortCount==0?}
+    D2 -->|是| E3[判定为停牌死因子 DEAD_ALPHA_RISK]
+    D2 -->|否| D3{年度 Turnover < 0.0001 且 Returns < 0.00001?}
+    D3 -->|是| E2[判定为停牌死因子 DEAD_ALPHA_RISK]
+    D3 -->|否| F{单次检查失败项 >= 2?}
     F -->|是| G[判定为表现极差因子]
-    F -->|否| H[正常评估分档]
+    F -->|否| H[正常评估分档 S/A/B/C 级]
 
-    C --> I[should_optimize = False]
+    C --> I[Grade D: should_optimize = False]
     E --> I
     E2 --> I
+    E3 --> I
     G --> I
 
     I --> J[标记 skip_reason = high_risk_garbage_alpha / DEAD_ALPHA_RISK]
     J --> K[在 /alphas 因子目录默认隐藏]
     J --> L[在 /optimization 优化列表中隐藏]
-    J --> M[在三阶段优化/任务生成中完全屏蔽]
+    J --> M[在三阶段优化中物理退休删除]
     
-    H --> N[可优化或按 ABC 档建议优化]
+    H --> N[Grade C 及以上: 送入优化候选/诊断流程]
 ```
 
 ### 21.3 系统表现与操作规程
@@ -54,15 +60,15 @@ graph TD
 
 ### 22.1 因子决断分类体系 (Decision & Grading Matrix)
 
-回测任务结束后，系统及用户应根据 5 维客观数据（Sharpe, Fitness, Margin, Turnover, Correlation）对因子进行分档归类，执行不同路径：
+系统基于 **S/A/B/C/D 五档等级** 进行因子的底层诊断和后台任务控制。同时为了给用户提供细致的筛选维度，系统对 **B级及以上（高表现）因子划分了三个评级（Premium, Standard, Marginal）**：
 
-| 因子类别 (档位) | 核心指标定义 | 诊断与成因分析 | 处置动作 (Action) |
-| :--- | :--- | :--- | :--- |
-| **高危垃圾因子**<br/>**(Grade D)** | - 负夏普: `sharpe < 0`<br/>- 厂字因子 (Flat PnL): 满足任一特征（全零、跨度不足5年、末端250天等值、中途250天冻结、3年零值断带）<br/>- 极致相关: `self_corr > 0.70` 或 `prod_corr >= 0.70`<br/>- 检查失败: `FAIL/FAILED/ERROR`<br/>- 存在未来数据泄漏 (`\breturns\b`) 或交易个股数 < 30 | - 厂字因子本质上是由于数据漏洞或代码除 0/极值常数引发的“假因子”，线上提交必挂。<br/>- 未来数据泄露说明有Look-ahead Bias。<br/>- 负夏普说明没有任何预测价值。 | **直接丢弃，本地隐藏 + 平台物理删除**。<br/>- 不在优化中心展示。<br/>- 彻底屏蔽自动或人工重回测，避免浪费平台配额。 |
-| **需要优化因子**<br/>**(Grade C)** | - 存在任何警告与指标硬伤（如 `turnover` 超标、近年表现衰退 `os_decay_warning` 等） | - 因子蕴含了有效的预测特征，但由于算子堆砌或未中性化，导致风格/行业暴露过重。 | **送入优化规划 (Go to Optimization)**。<br/>- 执行参数扫频测试，采用多维优化动作进行提纯。 |
-| **需要审核因子**<br/>**(Grade B)** | - 临界表现: `1.25 <= sharpe < 1.50`<br/>- 适配度: `fitness >= 0.60`<br/>- 收益率: `margin >= 0.0005` (5 bps)<br/>- 自相关与总相关满足: `self_corr <= 0.70` 且 `prod_corr < 0.70` | - 无硬伤的常规有效因子，具有一定的样本内预测价值，适合结合中性化进一步打磨。 | **本地保留，人工审核优化**。<br/>- 可在优化中心进行参数微调。 |
-| **标准候选因子**<br/>**(Grade A)** | - 高表现: `sharpe >= 1.50`<br/>- 高适配: `fitness >= 0.80`<br/>- 高收益: `margin >= 0.0008` (8 bps)<br/>- 较强正交: `self_corr <= 0.70` 且 `prod_corr < 0.70` | - 拥有良好的 Sharpe 和拟合度，属于核心可提交候选。 | **自动触发远端核验，核验通过进入提交**。<br/>- 属于高级候选，后台巡检服务会自动提交检查。 |
-| **黄金优秀因子**<br/>**(Grade S)** | - 极高表现: `sharpe >= 1.58`<br/>- 极高适配: `fitness >= 1.0`<br/>- 极高收益: `margin >= 0.001` (10 bps)<br/>- 极强正交: `self_corr <= 0.68` 且 `prod_corr < 0.50` | - 代码逻辑极其精简，未产生过度拟合。<br/>- 蕴含独特的阿尔法源，与已提交的 OS 资产库相关度低。 | **直接提交 (Direct Submit)**。<br/>- 立即进入平台 Check 队列。<br/>- 后台巡检服务会自动优先保障提交。 |
+| 因子级别 (Grade) | 核心指标定义 | 诊断与成因分析 | 因子评级 (Rating Sub-class) | 处置动作 (Action) |
+| :--- | :--- | :--- | :--- | :--- |
+| **黄金优秀因子**<br/>**(Grade S)** | - 极高 Sharpe: `sharpe >= 1.58`<br/>- 极高适配: `fitness >= 1.0`<br/>- 极高收益: `margin >= 0.001` (10 bps)<br/>- 极强正交: `self_corr <= 0.68` 且 `prod_corr < 0.50` | - 代码逻辑极其精简，未产生过度拟合。<br/>- 蕴含独特的阿尔法源，与已提交的 OS 资产相关度低。 | **优质因子 (Premium)** | **直接提交 (Direct Submit)**。<br/>- 立即进入平台 Check 队列。<br/>- 后台巡检服务会自动优先保障提交。 |
+| **标准候选因子**<br/>**(Grade A)** | - 高 Sharpe: `sharpe >= 1.50`<br/>- 高适配: `fitness >= 0.80`<br/>- 高收益: `margin >= 0.0008` (8 bps)<br/>- 较强正交: `self_corr <= 0.70` 且 `prod_corr < 0.70` | - 拥有良好的 Sharpe 和拟合度，属于核心可提交候选。 | **一般因子 (Standard)** | **自动触发远端核验，核验通过进入提交**。<br/>- 属于高级候选，后台巡检服务会自动提交检查并补充时序。 |
+| **需要审核因子**<br/>**(Grade B)** | - 临界表现: `1.25 <= sharpe < 1.50`<br/>- 适配度: `fitness >= 0.60`<br/>- 收益率: `margin >= 0.0005` (5 bps)<br/>- 自相关与总相关满足: `self_corr <= 0.70` 且 `prod_corr < 0.70` | - 无硬伤的常规有效因子，具有一定的样本内预测价值，适合结合中性化进一步打磨。 | **边际因子 (Marginal)** | **本地保留，允许运行优化规划**。<br/>- 允许自动补充拉取时序，人工审核优化。 |
+| **需要优化因子**<br/>**(Grade C)** | - 存在任何警告与指标硬伤（如 `turnover` 超标、近年表现衰退 `os_decay_warning` 等） | - 因子蕴含了有效的预测特征，但由于未中性化，导致风格/行业暴露过重。 | **不合格 (Substandard)** | **进入优化规划中心 (Go to Optimization)**。<br/>- 允许补充拉取时序图。<br/>- 允许根据评级筛选自动参与优化运行。 |
+| **高危垃圾因子**<br/>**(Grade D)** | - 负夏普: `sharpe < 0`<br/>- **多空数量归零**: 任意年份 `longCount == 0` 或 `shortCount == 0`<br/>- 厂字特征 (Flat PnL): 满足任一特征（全零、跨度不足5年等）<br/>- 极致相关: `self_corr > 0.70` 或 `prod_corr >= 0.70`<br/>- 检查失败: `FAIL/FAILED/ERROR` | - 厂字因子/多空归零属于未来函数漏洞引发的“假因子”，线上必挂。<br/>- 负夏普没有任何预测价值。 | **不合格 (Substandard)** | **直接丢弃，本地隐藏 + 平台物理删除**。<br/>- 不在优化中心展示。<br/>- 彻底屏蔽自动或人工重回测，避免浪费平台配额。 |
 
 ### 22.2 多维指标针对性优化动作 (ATLAS-based Optimization Tactics)
 
@@ -210,6 +216,7 @@ fitness = sharpe × √( |returns| / max(turnover, 0.125) )
 | 正收益年份占比 | `< 50%` | 降级 D，标注 `unstable_returns` |
 | L2Y Sharpe（近 2 年均值） | `< IS_Sharpe × 0.5` | 降级 C，标注 `os_decay_warning` |
 | 年度 Turnover | 某年 `< 0.0001` 且 Returns `< 0.00001` | 降级 D，标注 `DEAD_ALPHA_RISK` |
+| 多头/空头持仓数 | 任意年份 `longCount == 0` 或 `shortCount == 0` | 降级 D，标注 `DEAD_ALPHA_RISK` (未来函数厂字) |
 | 最大回撤 | `> 15%` | 扣分，加注 `high_drawdown` |
 
 #### 厂字 PNL 端点检测（逐日 PNL 接口补充验证）
@@ -237,12 +244,14 @@ def compute_remote_validation_score(yearly_stats: list[dict], is_sharpe: float =
 
 ```mermaid
 flowchart TD
-    A["Alpha 评级结果"] --> B{Grade = S 或 A?}
-    B -->|否 B/C/D| Z[跳过远端验证，维持原评级]
+    A["Alpha 评级结果"] --> B{Grade = S, A, B, C?}
+    B -->|否 D| Z[跳过远端验证，维持原评级 D]
     B -->|是| C["拉取 yearly-stats\n GET /alphas/id/recordsets/yearly-stats"]
     C --> D{有效年份 < 3?}
     D -->|是| DEAD["降级 D\ninsufficient_years"]
-    D -->|否| E{零换手/零收益年份\n占比 > 40%?}
+    D -->|否| D2{任意年份 longCount == 0\n 或 shortCount == 0?}
+    D2 -->|是| DEAD
+    D2 -->|否| E{零换手/零收益年份\n占比 > 40%?}
     E -->|是| DEAD
     E -->|否| F{近2年 Sharpe 均值 < 0.1\n 或任意 1 年 Sharpe = 0?}
     F -->|是| DEAD
@@ -251,9 +260,9 @@ flowchart TD
     H -->|是| DEAD
     H -->|否| I{confidence < 0.7?}
     I -->|是| C2[降级 C\nos_decay_warning]
-    I -->|否| J["保持 S/A\n标注 remote_verified ✓"]
+    I -->|否| J["保持对应等级\n标注 remote_verified ✓"]
 
-    DEAD --> K["本地标记 is_garbage = 1\n触发 WQ 平台 DELETE 退休"]
+    DEAD --> K["本地标记 is_garbage = 1\n触发 WQ 平台 DELETE 物理退休"]
     C2 --> L["标注 os_decay_warning\n进入优化队列"]
 ```
 
