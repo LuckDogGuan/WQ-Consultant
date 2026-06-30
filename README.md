@@ -5,12 +5,14 @@
 ## 🎯 核心功能
 
 1. **仪表盘 (Dashboard)**: 展示系统状态与基本统计。
-2. **回测任务 (Backtest)**: 支持多数据集回测、自动过滤与检查。
+2. **回测任务 (Backtest)**: 支持多数据集回测、自动过滤与检查，包含手风琴式参数折叠展示。
 3. **优化规划 (Optimization)**: 提供因子 Error 诊断与优化建议。
 4. **模板迭代 (Template Iteration)**: 预览模板候选、隐藏坏字段和高风险候选，不自动提交。
-5. **Alpha 记录 (Alphas)**: 记录与管理本地因子，支持批量提交。
+5. **Alpha 记录 (Alphas)**: 记录与管理本地因子，支持 S/A/B/C/D 五档分级（S 级内细分 Premium/Standard/Marginal）、批量提交。
 6. **设置 (Settings)**: 账号配置与系统参数设置。
 7. **日志 (Logs)**: 实时系统日志查看与导出。
+8. **后台守护巡检 (BackgroundInspector)**: 自动处理自相关计算、远端 Checks 提交、年度统计拉取及 Grade D 因子无死锁自动退休删除。
+9. **Scheme A 重命名**: 对 C 级及以上因子自动按 `[Grade]_[Region]_[Universe]_c[SC]_s[Sharpe]_t[TO]_f[Fitness]` 规范在 WQ 平台批量重命名。
 
 ## ⚙️ 快速开始
 

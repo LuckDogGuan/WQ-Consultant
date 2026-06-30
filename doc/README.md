@@ -1,6 +1,6 @@
 # WQ Consultant GUI — 文档总目录
 
-> **最后更新**：2026-06-29
+> **最后更新**：2026-06-30
 > **维护原则**：所有设计决策、工作流、评估规则均以本 `doc/` 目录为唯一权威来源。代码更新后须同步维护对应文档。
 
 ---
@@ -19,7 +19,8 @@ doc/
 ├── workflow/                       ← 业务流程与阶段规范
 │   ├── candidate_submission_workflow.md
 │   ├── backtest_three_stages.md
-│   └── error_handling_and_recovery.md
+│   ├── error_handling_and_recovery.md
+│   └── system_updates_20260629.md  ← 最新系统变更详细设计
 │
 └── reference/                      ← 因子评估知识库（只增不删）
     ├── alpha_assessment_and_grading.md
@@ -94,6 +95,7 @@ IF grade in {S, A, B, C}:
 | v2.0 | 2026-06-14 | 三阶段回测优化、Per-Job 参数覆盖、模板迭代页面 |
 | v3.0 | 2026-06-29 | 五档评级模型（S/A/B/C/D）、垃圾因子隐藏、平台 DELETE 退休、Check 失败拯救模板 |
 | v4.0 | 2026-06-29 | 苹果风格双主题、移动端响应式、DEAD_ALPHA_RISK 识别、A级远端二次验证与回测参数合并 |
+| v5.0 | 2026-06-30 | Scheme A 自动重命名（无死锁异步实现）、Grade D 因子无死锁自动退休删除、S 级三档细分评级（Premium/Standard/Marginal）、云端同步无数量上限 |
 
 ---
 
