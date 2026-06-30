@@ -185,9 +185,25 @@ graph TD
 
 ---
 
-## 22. A 级以上因子远端二次验证规则（Remote IS/OS Validation）
+## 21.6 Grade S 黄金级细分评级规则 (S-Grade Sub-Classification)
 
-> **触发条件**：评级结果为 **Grade A 或 Grade S** 的因子，必须进行远端拉取验证，防止厂字/过拟合/OS 崩塌因子混入提交队列。
+为了对高表现的 **Grade S (黄金级)** 因子进行更精细的筛选和过滤，系统建立了三档二次评级制度；非 S 级因子评级为 Substandard (不合格)：
+
+1. **优质 (Premium / 顶级 S级)**：
+   * 判定条件：`Sharpe >= 1.70` 且 `Fitness >= 1.50` 且 `Margin >= 0.0015` (15 bps) 且 `prod_corr <= 0.35` (35%)。
+   * 经济意义：具备超群的独立表现和足够的成本安全边际，是最优质的提交候选。
+2. **一般 (Standard / 优秀 S级)**：
+   * 判定条件：`Sharpe >= 1.58` 且 `Fitness >= 1.20` 且 `Margin >= 0.0012` (12 bps) 且 `prod_corr <= 0.45` (45%)。
+   * 经济意义：各项指标表现稳健，满足平台常规高质量标准。
+3. **边际 (Marginal / 合格 S级)**：
+   * 判定条件：未能达到 Premium 和 Standard 条件的其余 S级 因子（满足 S级 基本标准：`Sharpe >= 1.58` 且 `Fitness >= 1.0` 且 `Margin >= 0.0010` 且 `self_corr <= 0.68` 且 `prod_corr < 0.50`）。
+   * 经济意义：性能符合黄金标准，但建议进行二次 Decay 稳健性分析。
+
+---
+
+## 22. C 级及以上因子远端核验与补充拉取（Remote Verification & Fetching）
+
+> **触发条件**：评级结果为 **Grade S, A, B, C** 的因子，均会由后台守护巡检自动触发远程 Checks 核验以生成 PNL 并拉取 yearly-stats 完整数据，支持全生命周期 IS/OS 鲁棒性分析。云端因子同步拉取最近 30 天回测数据时，**不设定个数上限拦截**，获取全部样本。
 
 ### 22.1 Fitness 公式与过拟合判据
 

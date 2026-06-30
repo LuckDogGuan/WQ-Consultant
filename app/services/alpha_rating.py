@@ -117,20 +117,7 @@ def build_alpha_rating(
     margin = extract_metric(alpha_record, alpha_payload, "margin")
     returns = extract_metric(alpha_record, alpha_payload, "returns")
     drawdown = extract_metric(alpha_record, alpha_payload, "drawdown")
-
     metric_class = classify_metric_level(fitness, margin)
-    failed_count = count_failed_checks(checks_payload)
-    warning_count = count_warning_checks(checks_payload)
-    submission_class = "substandard" if failed_count else metric_class
-
-    raw_type = str(alpha_record.get("alpha_type") or "").upper()
-    correlation_label = CORRELATION_LABELS.get(raw_type, "未分类")
-    check_result = str(latest_check_result.get("result") or alpha_record.get("result") or "").upper()
-
-    reason = (
-        f"checks_failed={failed_count}; metric={metric_class}; source="
-        f"{'latest_check' if extract_checks(check_payload) else 'alpha_payload'}"
-    )
 
     # 引入 S/A/B/C/D 评级诊断模型
     from .template_iteration import grade_candidate_result
@@ -146,9 +133,9 @@ def build_alpha_rating(
         "turnover": turnover,
         "self_corr": self_corr,
         "prod_corr": prod_corr,
-        "failed_checks": failed_count,
-        "status": check_result,
-        "alpha_type": raw_type,
+        "failed_checks": count_failed_checks(checks_payload),
+        "status": str(latest_check_result.get("result") or alpha_record.get("result") or "").upper(),
+        "alpha_type": str(alpha_record.get("alpha_type") or "").upper(),
         "payload": alpha_payload,
     })
     grade = grading.get("grade", "C")
@@ -159,6 +146,39 @@ def build_alpha_rating(
         "C": "C级: 需要优化",
         "D": "D级: 垃圾隐藏",
     }
+
+    # 因子评级是在S级别里面分类的，分三个等级：Premium(优质), Standard(一般), Marginal(边际)
+    # 非S级因子评级为 substandard (不合格)
+    failed_count = count_failed_checks(checks_payload)
+    if grade == "S" and not failed_count:
+        s_sharpe = sharpe or 0.0
+        s_fit = fitness or 0.0
+        s_margin = margin or 0.0
+        s_corr = prod_corr or 0.0
+        
+        # 1. Premium (优质级)
+        if s_sharpe >= 1.70 and s_fit >= 1.50 and s_margin >= 0.0015 and s_corr <= 0.35:
+            submission_class = "premium"
+        # 2. Standard (一般级)
+        elif s_sharpe >= 1.58 and s_fit >= 1.20 and s_margin >= 0.0012 and s_corr <= 0.45:
+            submission_class = "standard"
+        # 3. Marginal (边际级)
+        else:
+            submission_class = "marginal"
+    else:
+        submission_class = "substandard"
+
+    failed_count = count_failed_checks(checks_payload)
+    warning_count = count_warning_checks(checks_payload)
+
+    raw_type = str(alpha_record.get("alpha_type") or "").upper()
+    correlation_label = CORRELATION_LABELS.get(raw_type, "未分类")
+    check_result = str(latest_check_result.get("result") or alpha_record.get("result") or "").upper()
+
+    reason = (
+        f"checks_failed={failed_count}; grade={grade}; rating={submission_class}; source="
+        f"{'latest_check' if extract_checks(check_payload) else 'alpha_payload'}"
+    )
 
     return {
         "fitness": fitness,

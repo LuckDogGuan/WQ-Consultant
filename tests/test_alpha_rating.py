@@ -11,9 +11,12 @@ class AlphaRatingTests(unittest.TestCase):
     def test_uses_alpha_metrics_when_check_payload_has_no_metric_fields(self):
         alpha_record = {
             "alpha_id": "rKWbp7jm",
-            "alpha_type": "MARGINAL",
-            "fitness": 1.2,
-            "margin": 0.0006,
+            "alpha_type": "S",
+            "sharpe": 1.60,
+            "fitness": 1.10,
+            "margin": 0.0011,
+            "prod_corr": 0.48,
+            "self_corr": 0.48,
             "payload": {"is": {"checks": []}},
         }
         check_result = {

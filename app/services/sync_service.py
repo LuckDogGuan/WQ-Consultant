@@ -37,13 +37,7 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
         start_date = end_date - timedelta(days=lookback_days)
         region = settings.get("region", "USA")
         
-        limit_val = 2000
-        try:
-            limit_val = int(settings.get("wq_sync_limit", "500"))
-        except (ValueError, TypeError):
-            pass
-            
-        logger.info(f"[SyncJob] Fetching alphas for region {region} from {start_date.isoformat()} to {end_date.isoformat()} (limit={limit_val})")
+        logger.info(f"[SyncJob] Fetching all alphas for region {region} from {start_date.isoformat()} to {end_date.isoformat()} without count limit.")
         alphas_df = get_alphas_full(
             start_date=start_date,
             end_date=end_date,
@@ -52,7 +46,7 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             usage="submit",
             session=session,
             order="-dateCreated",
-            limit=limit_val
+            limit=100000  # 设置极大值以获取全部因子，无数量限制
         )
         
         session.close()
