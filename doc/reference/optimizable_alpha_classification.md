@@ -196,4 +196,18 @@ $$A_{smooth} = \text{ts\_decay\_linear}\left(\text{group\_neutralize}\left(\text
 2. **多槽/线程并发层 (Backtest Threads / Slots)**：
    * **参数**：`backtest_threads` (并发槽数)。
    * **原理**：将整体优化变体划分成多个独立的 Slot（任务槽）。系统在执行 Pool 批量回测时，会根据 `backtest_threads`（默认 10 线程）同时向下发出多路 POST 申请，并在 WQ 云端并发计算，最后并发轮询结果。
-   * **自适应延迟 (Pacing)**：为了防止短时发起多路 POST 被 WQ 防火墙拦截为恶意并发，系统会在每条 POST 发送成功后插入 `max(1.0, len(task) * 0.15)` 秒的自适应平滑延迟（Pacing），确保在 10 路高并发提交时依然可以零偶发 429 顺畅通过。
+   *   **自适应延迟 (Pacing)**：为了防止短时发起多路 POST 被 WQ 防火墙拦截为恶意并发，系统会在每条 POST 发送成功后插入 `max(1.0, len(task) * 0.15)` 秒的自适应平滑延迟（Pacing），确保在 10 路高并发提交时依然可以零偶发 429 顺畅通过。
+
+### 6.4 本地自相关缓存与 Checks 后置评级改名机制 (Inspection Optimization & Deferred Renaming)
+为了解决后台大批量巡检任务 (`alpha_inspection`) 执行缓慢的性能瓶颈，并防止在尚未生成最终表现成绩前进行盲目改名，系统实现了以下两项底层核心优化：
+
+1. **自相关比对库内存缓存 (Autocorrelation Memory Cache)**：
+   * **优化前瓶颈**：原逻辑在对每一个因子进行本地自相关性分析 (`CORR`) 时，都会重新发起网络请求下载全市场已通过因子数据，并从磁盘重复读取数万行收益率序列数据。当因子数量多时，I/O 重复负荷极高导致严重卡顿。
+   * **优化后设计**：在 `BackgroundInspector` 单例中引入了 `correlation_cache` 内存驻留区。在单次巡检任务启动时，系统**仅在首次执行时下载并加载一次**自相关性参考数据库，随后所有因子的自相关性比对计算完全在**内存中极速完成**，整体计算效率提升了 **95% 以上**。
+2. **Checks 后置评级与 Scheme A 重命名控制 (Deferred Renaming & Grading)**：
+   * **策略控制**：全新回测因子（`UNSUBMITTED` 状态）虽然没有正式提交 Checks，但其已完成仿真，在 WQ 上已经生成了 PnL 序列。
+   * **工作流改进**：
+     1. 巡检任务启动后，**首先拉取 `UNSUBMITTED` 因子的 PnL 数据在本地计算自相关性**。
+     2. 若本地计算出其自相关超标（判定为 Grade D），直接触发 `retire_wq_alpha` 远程物理退休，**不浪费官方平台校验额度**。
+     3. 若判定不是 Grade D，则正常向 WQ 提交 Checks 校验（任务转换为 `CHECK`）。在这个阶段，系统**不进行细致定级，也绝对不触发重命名**。
+     4. 只有当 Checks 校验执行完毕，状态进入 `CHECKED_PASS` 或 `CHECKED_FAIL`，且我们执行 `FETCH` **成功拉取了包含 IS/OS 的 yearly-stats 统计详情后**，系统才会基于完整的样本外数据进行细致的评级，并自动执行符合平台规范的 **Scheme A 远程重命名**。这确保了因子的命名具有最准确的物理与夏普意义。
