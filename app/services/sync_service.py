@@ -68,15 +68,47 @@ def fix_missing_metrics(session: requests.Session) -> None:
         id_filter = "%1F".join(batch)
         url = f"https://api.worldquantbrain.com/users/self/alphas?id={id_filter}&fields=id,is.sharpe,is.fitness,is.margin,is.returns,is.drawdown"
         
-        try:
-            resp = session.get(url)
-            if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 5))
-                logger.warning(f"[SyncJob] Rate limited during metrics repair. Sleeping for {retry_after}s...")
-                time.sleep(retry_after)
-                resp = session.get(url)
+        results = []
+        for attempt in range(1, 4):
+            try:
+                resp = session.get(url, timeout=30)
+                is_rate_limited = False
+                if resp.status_code in (403, 429):
+                    is_rate_limited = True
+                else:
+                    try:
+                        resp_json = resp.json()
+                        if isinstance(resp_json, dict) and "rate limit" in str(resp_json.get("message", "")).lower():
+                            is_rate_limited = True
+                    except Exception:
+                        pass
                 
-            results = resp.json().get("results", [])
+                if is_rate_limited:
+                    retry_after = 15 * attempt
+                    if resp.status_code in (403, 429) and resp.headers.get("Retry-After"):
+                        try:
+                            retry_after = max(retry_after, int(resp.headers.get("Retry-After")))
+                        except Exception:
+                            pass
+                    logger.warning(f"[SyncJob] Rate limited during metrics repair (status={resp.status_code}). Attempt {attempt}/3, sleeping for {retry_after}s...")
+                    time.sleep(retry_after)
+                    continue
+                
+                if resp.status_code == 200:
+                    results = resp.json().get("results", [])
+                    break
+                else:
+                    logger.warning(f"[SyncJob] Query failed (status={resp.status_code}). Attempt {attempt}/3...")
+                    time.sleep(2 * attempt)
+            except Exception as e:
+                logger.warning(f"[SyncJob] Error during request: {e}. Attempt {attempt}/3...")
+                time.sleep(2 * attempt)
+        else:
+            logger.error(f"[SyncJob] Batch {i//batch_size + 1} failed after 3 attempts. Skipping batch.")
+            time.sleep(5)
+            continue
+            
+        if results:
             with connect() as conn:
                 for alpha in results:
                     aid = alpha.get("id")
@@ -100,10 +132,8 @@ def fix_missing_metrics(session: requests.Session) -> None:
                         """,
                         (sharpe, fitness, margin, returns, drawdown, aid)
                     )
-            logger.info(f"[SyncJob] Successfully repaired metrics for batch {i//batch_size + 1}/{(len(missing_ids)-1)//batch_size + 1}")
-            time.sleep(0.5)
-        except Exception as e:
-            logger.error(f"[SyncJob] Error repairing metrics batch: {e}")
+        logger.info(f"[SyncJob] Successfully repaired metrics for batch {i//batch_size + 1}/{(len(missing_ids)-1)//batch_size + 1} (Fetched {len(results)} records)")
+        time.sleep(0.8)
 
 def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
     """同步云端因子任务：拉取最近 30 天因子，将未记录的新增因子添加入库，并自动触发评估"""
