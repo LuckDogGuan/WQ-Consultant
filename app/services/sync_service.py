@@ -74,8 +74,9 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
         
         today = datetime.now().date()
         
-        # 允许对最近 7 天的分片进行强制刷新，避免云端新提交的因子被缓存跳过
-        delete_threshold_date = today - timedelta(days=7)
+        # 只清除今天和昨天的同步缓存。因为历史日期的因子在云端一旦生成便不会改变，无须重复拉取。
+        # 仅清除最近 1 天（即昨天和今天）的记录以防跨时区或日切交界造成的遗漏。
+        delete_threshold_date = today - timedelta(days=1)
         with connect() as conn:
             conn.execute(
                 """
