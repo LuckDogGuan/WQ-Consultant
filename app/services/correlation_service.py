@@ -210,7 +210,7 @@ def calc_self_corr_local(alpha_rets_series: pd.Series, os_alpha_rets: pd.DataFra
         return 0.0
         
     corrs = os_alpha_rets[valid_region_alphas].corrwith(alpha_rets_series)
-    self_corr = corrs.max()
+    self_corr = corrs.abs().max()
     return float(self_corr) if pd.notna(self_corr) else 0.0
 
 

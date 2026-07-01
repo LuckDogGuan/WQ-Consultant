@@ -496,7 +496,7 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     if sharpe is None or sharpe < 1.25 or fitness < 1.0 or margin <= 0:
         reasons.append("METRIC_WEAK")
 
-    if any(reason in reasons for reason in {"CHECK_FAIL", "NEGATIVE_SHARPE", "SKIP_STATUS", "DEAD_ALPHA_RISK"}):
+    if any(reason in reasons for reason in {"NEGATIVE_SHARPE", "SKIP_STATUS", "DEAD_ALPHA_RISK"}):
         grade = "D"
         action = "discard"
     elif reasons:
