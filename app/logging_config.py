@@ -17,11 +17,13 @@ class PollingLogFilter(logging.Filter):
 def configure_logging() -> None:
     ensure_dirs()
     log_path = LOG_DIR / "gui.log"
+    from logging.handlers import RotatingFileHandler
+    log_handler = RotatingFileHandler(log_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
+            log_handler,
             logging.StreamHandler(),
         ],
     )

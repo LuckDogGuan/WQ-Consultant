@@ -20,12 +20,23 @@ def get_gui_log_path() -> Path:
 
 def filter_gui_log(start_time: str | None = None, end_time: str | None = None) -> Generator[str, None, None]:
     """
-    根据开始和结束时间过滤 system gui.log 文件。
+    根据开始和结束时间过滤 system gui.log 及其滚动备份文件，按时间顺序从小到大输出。
     start_time, end_time 的格式为 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DDTHH:MM'。
     """
+    # 查找所有滚动备份日志文件，按时间从旧到新排序
+    log_files = []
+    # 比如 gui.log.3, gui.log.2, gui.log.1
+    for i in range(3, 0, -1):
+        back_file = LOG_DIR / f"gui.log.{i}"
+        if back_file.exists():
+            log_files.append(back_file)
+    # 最后是当前的 gui.log
     log_file = get_gui_log_path()
-    if not log_file.exists():
-        logger.warning(f"gui.log file not found at {log_file}")
+    if log_file.exists():
+        log_files.append(log_file)
+
+    if not log_files:
+        logger.warning(f"No log files found in {LOG_DIR}")
         return
 
     # 规范化输入的时间格式
@@ -43,17 +54,18 @@ def filter_gui_log(start_time: str | None = None, end_time: str | None = None) -
     timestamp_pattern = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
     keep = True
 
-    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            match = timestamp_pattern.match(line)
-            if match:
-                timestamp_part = match.group(1)
-                is_after_start = True
-                is_before_end = True
-                if start_str:
-                    is_after_start = (timestamp_part >= start_str)
-                if end_str:
-                    is_before_end = (timestamp_part <= end_str)
-                keep = is_after_start and is_before_end
-            if keep:
-                yield line
+    for log_f in log_files:
+        with open(log_f, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                match = timestamp_pattern.match(line)
+                if match:
+                    timestamp_part = match.group(1)
+                    is_after_start = True
+                    is_before_end = True
+                    if start_str:
+                        is_after_start = (timestamp_part >= start_str)
+                    if end_str:
+                        is_before_end = (timestamp_part <= end_str)
+                    keep = is_after_start and is_before_end
+                if keep:
+                    yield line

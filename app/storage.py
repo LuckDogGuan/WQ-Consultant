@@ -462,10 +462,31 @@ def list_job_events(job_id: int, limit: int = 200) -> list[sqlite3.Row]:
 
 
 def read_log_tail(path: Path, max_lines: int = 200) -> list[str]:
-    if not path.exists():
-        return []
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    return lines[-max_lines:]
+    # 收集需要读取的文件，从最新到最旧（用于支持 RotatingFileHandler 滚动日志读取）
+    files_to_read = [path]
+    for i in range(1, 4):
+        back_file = path.parent / f"{path.name}.{i}"
+        if back_file.exists():
+            files_to_read.append(back_file)
+
+    accumulated_lines = []
+    import collections
+    
+    for f_path in files_to_read:
+        if len(accumulated_lines) >= max_lines:
+            break
+        if not f_path.exists():
+            continue
+        try:
+            needed = max_lines - len(accumulated_lines)
+            with open(f_path, "r", encoding="utf-8", errors="replace") as f:
+                file_tail = list(collections.deque(f, maxlen=needed))
+            # 最新文件的尾部排在最前面，最旧的排在最后面
+            accumulated_lines = file_tail + accumulated_lines
+        except Exception:
+            pass
+            
+    return accumulated_lines[-max_lines:]
 
 
 def refresh_alpha_tags(conn, alpha_id: str) -> None:
