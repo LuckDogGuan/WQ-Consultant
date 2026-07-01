@@ -264,6 +264,8 @@ DEFAULT_SETTINGS = {
     "th_max_prod_corr": "0.7",
     # 一阶 FO 结束后：自动过滤负夏普垃圾因子（厂字因子最直接识别指标）
     "fo_filter_negative_sharpe": "1",   # 默认开启，直接从数据库删除不展示
+    # 二阶 SO 结束后：可选过滤负夏普垃圾因子
+    "so_filter_negative_sharpe": "1",   # 默认开启
 }
 
 

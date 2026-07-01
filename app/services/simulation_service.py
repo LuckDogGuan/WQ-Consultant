@@ -1302,6 +1302,26 @@ def run_backtest_job(job_id: int, params: dict[str, Any]) -> None:
                         progress_context=stage_progress_context("SO", idx + 1),
                     )
 
+                    # ── SO 负夏普垃圾因子过滤（厂字识别）──
+                    if so_saved_ids and get_bool_param(params, "so_filter_negative_sharpe", True):
+                        neg_ids = []
+                        placeholders_ns = ",".join(["?"] * len(so_saved_ids))
+                        with connect() as conn:
+                            ns_rows = conn.execute(
+                                f"SELECT alpha_id, sharpe FROM alpha_records WHERE alpha_id IN ({placeholders_ns})",
+                                so_saved_ids
+                            ).fetchall()
+                        for ns_row in ns_rows:
+                            if ns_row["sharpe"] is not None and float(ns_row["sharpe"]) < 0:
+                                neg_ids.append(ns_row["alpha_id"])
+                        if neg_ids:
+                            neg_ph = ",".join(["?"] * len(neg_ids))
+                            with connect() as conn:
+                                conn.execute(f"DELETE FROM alpha_records WHERE alpha_id IN ({neg_ph})", neg_ids)
+                            add_job_event(job_id, "info",
+                                f"[{dataset_id}] SO: Removed {len(neg_ids)} negative-sharpe garbage alphas (厂字过滤).")
+                            so_saved_ids = [aid for aid in so_saved_ids if aid not in neg_ids]
+
                     # ── SO 穿插相关性检查（可配置开关）──
                     if so_saved_ids and get_bool_param(params, "so_corr_enable", False):
                         msg = f"[{dataset_id}] SO: Running inline correlation checks for {len(so_saved_ids)} alphas..."

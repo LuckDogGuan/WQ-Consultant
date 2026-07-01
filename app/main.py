@@ -1438,30 +1438,10 @@ async def post_backtest_run(
     from .services.job_params import normalize_backtest_params
 
     form_data = await request.form()
-    dataset_ids = form_data.get("dataset_ids", "")
-    run_fo = form_data.get("run_fo") == "true" or form_data.get("run_fo") == "on"
-    run_so = form_data.get("run_so") == "true" or form_data.get("run_so") == "on"
-    run_th = form_data.get("run_th") == "true" or form_data.get("run_th") == "on"
-
-    ids_list = [i.strip() for i in dataset_ids.split("\n") if i.strip()]
-    if not ids_list:
-        raise HTTPException(status_code=400, detail="数据集 ID 列表不能为空。")
-
-    raw_backtest_params = dict(form_data)
-    raw_backtest_params.update({
-        "dataset_ids": ids_list,
-        "regions": _backtest_regions_from_catalog(),
-        "run_fo": run_fo,
-        "run_so": run_so,
-        "run_th": run_th,
-    })
-    params = normalize_backtest_params(raw_backtest_params)
-    if not params["allowed_dataset_ids"]:
-        raise HTTPException(status_code=400, detail="当前顾问等级没有可运行的数据集。")
-    params["dataset_ids"] = params["allowed_dataset_ids"]
+    save_only = form_data.get("save_only") == "true" or form_data.get("save_only") == "on"
 
     settings_keys = [
-        "fo_filter_negative_sharpe", "fo_corr_enable", "fo_corr_sharpe_th", "fo_max_prod_corr",
+        "fo_filter_negative_sharpe", "so_filter_negative_sharpe", "fo_corr_enable", "fo_corr_sharpe_th", "fo_max_prod_corr",
         "so_corr_enable", "so_corr_sharpe_th", "so_max_prod_corr",
         "fo_track_lookback_days", "fo_track_sharpe", "fo_track_fitness", "fo_track_alpha_num",
         "th_corr_enable", "th_corr_sharpe_th", "th_max_prod_corr",
@@ -1489,6 +1469,31 @@ async def post_backtest_run(
                 updates[key] = "0"
     if updates:
         update_settings(updates)
+
+    if save_only:
+        return RedirectResponse(url="/backtest?success=1", status_code=status.HTTP_303_SEE_OTHER)
+
+    dataset_ids = form_data.get("dataset_ids", "")
+    run_fo = form_data.get("run_fo") == "true" or form_data.get("run_fo") == "on"
+    run_so = form_data.get("run_so") == "true" or form_data.get("run_so") == "on"
+    run_th = form_data.get("run_th") == "true" or form_data.get("run_th") == "on"
+
+    ids_list = [i.strip() for i in dataset_ids.split("\n") if i.strip()]
+    if not ids_list:
+        raise HTTPException(status_code=400, detail="数据集 ID 列表不能为空。")
+
+    raw_backtest_params = dict(form_data)
+    raw_backtest_params.update({
+        "dataset_ids": ids_list,
+        "regions": _backtest_regions_from_catalog(),
+        "run_fo": run_fo,
+        "run_so": run_so,
+        "run_th": run_th,
+    })
+    params = normalize_backtest_params(raw_backtest_params)
+    if not params["allowed_dataset_ids"]:
+        raise HTTPException(status_code=400, detail="当前顾问等级没有可运行的数据集。")
+    params["dataset_ids"] = params["allowed_dataset_ids"]
 
     title_regions = "/".join(params.get("regions") or [])
     job_id = create_job("backtest", f"王哥严格版回测 ({title_regions}，共 {len(params['dataset_ids'])} 个数据集)", params)

@@ -190,8 +190,7 @@ class BackgroundInspector:
             return
             
         retire_candidates = []
-        target_alpha = None
-        work_type = None  # "FETCH_PRECHECK", "CORR", "CHECK", "FETCH"
+        tasks = []
         
         for row in rows:
             row_dict = dict(row)
@@ -241,23 +240,20 @@ class BackgroundInspector:
                     break
                 continue
             
-            # 如果目前没有处于退休状态的因子，我们才去查其他耗时的单体工作
-            if not retire_candidates and not work_type:
+            # 收集任务以支持多线程并发执行
+            if not retire_candidates and len(tasks) < 10:
                 # 检查 Checkpoint 1: pnl_fetched
                 if not pnl_fetched:
-                    target_alpha = row_dict
-                    work_type = "FETCH_PRECHECK"
+                    tasks.append((row_dict, "FETCH_PRECHECK"))
                 # 检查 Checkpoint 2: self_corr_checked (自相关性检测)
                 elif not self_corr_checked:
-                    target_alpha = row_dict
-                    work_type = "CORR"
+                    tasks.append((row_dict, "CORR"))
                 else:
                     sim_status = str(payload.get("status") or "").upper()
                     if sim_status in {"ERROR", "FAIL"}:
                         # 如果是 ERROR/FAIL 因子且未标记隔离，需要运行一次 CORR 来标记和重命名
                         if status not in {"ERROR", "FAIL"}:
-                            target_alpha = row_dict
-                            work_type = "CORR"
+                            tasks.append((row_dict, "CORR"))
                     else:
                         # B. 评级 C 级及以上，但状态为 UNSUBMITTED，且没有本地 check_results 历史 -> 自动 check submit
                         if grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
@@ -265,13 +261,11 @@ class BackgroundInspector:
                             with connect() as conn:
                                 chk_row = conn.execute("SELECT id FROM check_results WHERE alpha_id = ?", (alpha_id,)).fetchone()
                             if not chk_row:
-                                target_alpha = row_dict
-                                work_type = "CHECK"
+                                tasks.append((row_dict, "CHECK"))
                                 
                         # C. 评级 C 级及以上，但 payload 中缺少年度分解统计 (yearly-stats) 或没有 recordsets_data
                         elif grade in {"S", "A", "B", "C"} and not yearly_stats:
-                            target_alpha = row_dict
-                            work_type = "FETCH"
+                            tasks.append((row_dict, "FETCH"))
  
         # 如果有需要退休的垃圾因子，执行批量退休
         if retire_candidates:
@@ -293,22 +287,57 @@ class BackgroundInspector:
                 session.close()
             return
  
-        # 如果是其他单体任务
-        if target_alpha and work_type:
-            alpha_id = target_alpha["alpha_id"]
-            logger.info(f"[BackgroundInspector] Auto trigger workflow for alpha {alpha_id}: WorkType={work_type}")
+        # 如果有待执行任务，使用线程池并发处理
+        if tasks:
+            logger.info(f"[BackgroundInspector] Found {len(tasks)} workflow tasks to run in this cycle.")
             session = login_with_credentials(username, password)
+            
+            # 如果有自相关性检测任务，先在主线程同步加载并缓存自相关性比对库，防范并发冲突
+            if any(w_type == "CORR" for _, w_type in tasks):
+                try:
+                    if not getattr(self, "correlation_cache", None):
+                        logger.info("[BackgroundInspector] Pre-loading correlation cache synchronously...")
+                        from app.services.background_inspector import download_correlation_data, load_correlation_data
+                        download_correlation_data(session, flag_increment=True)
+                        all_ids, all_rets = load_correlation_data(tag=None)
+                        ppa_ids, ppa_rets = load_correlation_data(tag='PPAC')
+                        self.correlation_cache = {
+                            "all_ids": all_ids,
+                            "all_rets": all_rets,
+                            "ppa_ids": ppa_ids,
+                            "ppa_rets": ppa_rets
+                        }
+                except Exception as e:
+                    logger.warning(f"[BackgroundInspector] Synchronous pre-load correlation cache failed: {e}")
+
+            from concurrent.futures import ThreadPoolExecutor
+            
+            def run_single_task(task_item):
+                if self.stop_event.is_set():
+                    return
+                r_dict, w_type = task_item
+                aid = r_dict["alpha_id"]
+                logger.info(f"[BackgroundInspector] Auto trigger workflow for alpha {aid}: WorkType={w_type}")
+                local_session = login_with_credentials(username, password)
+                try:
+                    if w_type == "FETCH_PRECHECK":
+                        self._fetch_alpha_precheck_data(local_session, aid, r_dict)
+                    elif w_type == "CHECK":
+                        self._run_check_submit(local_session, aid, r_dict)
+                    elif w_type == "CORR":
+                        self._run_autocorrelation(local_session, aid, r_dict)
+                    elif w_type == "FETCH":
+                        self._run_fetch_pnl_details(local_session, aid, r_dict)
+                except Exception as e:
+                    logger.error(f"[BackgroundInspector] Workflow failed for {aid} ({w_type}): {e}")
+                finally:
+                    local_session.close()
+
             try:
-                if work_type == "FETCH_PRECHECK":
-                    self._fetch_alpha_precheck_data(session, alpha_id, target_alpha)
-                elif work_type == "CHECK":
-                    self._run_check_submit(session, alpha_id, target_alpha)
-                elif work_type == "CORR":
-                    self._run_autocorrelation(session, alpha_id, target_alpha)
-                elif work_type == "FETCH":
-                    self._run_fetch_pnl_details(session, alpha_id, target_alpha)
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    executor.map(run_single_task, tasks)
             except Exception as e:
-                logger.error(f"[BackgroundInspector] Workflow failed for {alpha_id}: {e}")
+                logger.error(f"[BackgroundInspector] Tasks execution error: {e}")
             finally:
                 session.close()
  

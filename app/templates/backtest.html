@@ -126,20 +126,18 @@
                                     <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶最大 Prod 相关性上限</label>
                                     <input type="number" step="0.01" name="fo_max_prod_corr" value="{{ settings.fo_max_prod_corr or '0.7' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
                                 </div>
-                                <div class="form-group" style="margin-bottom: 5px;">
-                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶每个 Multi-Sim 包含 Alpha 数</label>
-                                    <input type="number" name="fo_backtest_children" value="{{ settings.fo_backtest_children or '6' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
-                                </div>
-                                <div class="form-group" style="margin-bottom: 5px;">
-                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶并发 Multi-Sim 请求线程数</label>
-                                    <input type="number" name="fo_backtest_threads" value="{{ settings.fo_backtest_threads or '10' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
-                                </div>
                             </div>
                         </div>
 
                         <!-- SO Tab Content -->
                         <div class="backtest-tab-content" id="tab-so" style="display: none;">
                             <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+                                <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 5px;">
+                                    <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
+                                        <input type="checkbox" name="so_filter_negative_sharpe" value="true" {% if settings.so_filter_negative_sharpe == '1' or settings.so_filter_negative_sharpe is not defined %}checked{% endif %}>
+                                        <span>启用二阶负夏普过滤 (直接清除负收益因子)</span>
+                                    </label>
+                                </div>
                                 <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 8px;">
                                     <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
                                         <input type="checkbox" name="so_corr_enable" value="true" {% if settings.so_corr_enable == '1' %}checked{% endif %}>
@@ -169,14 +167,6 @@
                                 <div class="form-group" style="margin-bottom: 5px;">
                                     <label style="font-size: 11px; margin-bottom: 3px; display: block;">一阶追踪候选上限数</label>
                                     <input type="number" name="fo_track_alpha_num" value="{{ settings.fo_track_alpha_num or '100' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
-                                </div>
-                                <div class="form-group" style="margin-bottom: 5px;">
-                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶每个 Multi-Sim 包含 Alpha 数</label>
-                                    <input type="number" name="so_backtest_children" value="{{ settings.so_backtest_children or '5' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
-                                </div>
-                                <div class="form-group" style="margin-bottom: 5px;">
-                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶并发 Multi-Sim 请求线程数</label>
-                                    <input type="number" name="so_backtest_threads" value="{{ settings.so_backtest_threads or '8' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
                                 </div>
                             </div>
                         </div>
@@ -214,14 +204,6 @@
                                     <label style="font-size: 11px; margin-bottom: 3px; display: block;">二阶追踪候选上限数</label>
                                     <input type="number" name="so_track_alpha_num" value="{{ settings.so_track_alpha_num or '100' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
                                 </div>
-                                <div class="form-group" style="margin-bottom: 5px;">
-                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">三阶每个 Multi-Sim 包含 Alpha 数</label>
-                                    <input type="number" name="th_backtest_children" value="{{ settings.th_backtest_children or '5' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
-                                </div>
-                                <div class="form-group" style="margin-bottom: 5px;">
-                                    <label style="font-size: 11px; margin-bottom: 3px; display: block;">三阶并发 Multi-Sim 请求线程数</label>
-                                    <input type="number" name="th_backtest_threads" value="{{ settings.th_backtest_threads or '8' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
-                                </div>
                             </div>
                         </div>
 
@@ -258,7 +240,11 @@
                     </div>
                 </div>
 
-                <button type="submit" class="btn btn-primary btn-block">启动批量回测流程</button>
+                <div style="display: flex; gap: 8px;">
+                    <button type="submit" class="btn btn-primary" style="flex: 2;">启动批量回测流程</button>
+                    <button type="button" class="btn btn-secondary" onclick="saveBacktestSettingsOnly()" style="flex: 1; font-size: 11px;">仅保存参数</button>
+                </div>
+                <input type="hidden" name="save_only" id="save_only_flag" value="false">
             </form>
         </div>
     </div>
@@ -626,6 +612,12 @@
         const color = btn.getAttribute("data-color") || "#4f46e5";
         btn.style.borderBottom = `2px solid ${color}`;
         btn.style.color = color;
+    }
+
+    function saveBacktestSettingsOnly() {
+        document.getElementById('save_only_flag').value = 'true';
+        document.getElementById('dataset_ids').removeAttribute('required');
+        document.querySelector('.backtest-launch-form').submit();
     }
 </script>
 {% endblock %}

@@ -513,8 +513,12 @@ def list_optimization_plans(limit: int = 200) -> list[OptimizationPlan]:
             SELECT
                 a.alpha_id,
                 a.name,
+                a.alpha_type,
+                a.sharpe,
                 a.fitness,
                 a.margin,
+                a.returns,
+                a.drawdown,
                 a.payload,
                 a.updated_at,
                 c.result AS check_result,
