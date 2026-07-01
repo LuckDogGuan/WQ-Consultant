@@ -903,7 +903,7 @@ def get_alphas(
     where = "1=1"
     params = []
     if show_hidden != "1":
-        where += " AND a.is_garbage = 0"
+        where += " AND a.is_garbage = 0 AND a.alpha_type != 'D'"
         
     # 只显示已经处理过的因子，即分数(Sharpe/Fitness)、利润率(Margin)、年化收益/回撤、相关性(PPA/Prod)均已补全且非空的因子
     where += " AND a.sharpe IS NOT NULL AND a.fitness IS NOT NULL AND a.margin IS NOT NULL AND a.returns IS NOT NULL AND a.drawdown IS NOT NULL AND a.ppa_corr IS NOT NULL AND a.prod_corr IS NOT NULL"
