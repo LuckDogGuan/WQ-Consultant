@@ -125,7 +125,9 @@ def run_optimization_job(job_id: int, params: dict[str, Any]) -> None:
     for neutralization, tasks in grouped_tasks.items():
         runner.check_paused(job_id)
         chunks = [tasks[i:i + child_count] for i in range(0, len(tasks), child_count)]
-        alpha_pools = [[chunk] for chunk in chunks]
+        threads_num = _positive_int(params.get("backtest_threads"), 10)
+        alpha_pools = [chunks[i:i + threads_num] for i in range(0, len(chunks), threads_num)]
+        
         log_path = LOG_DIR / f"optimization_progress_{job_id}_{neutralization}.jsonl"
         run_simulation_pool_with_control(
             job_id=job_id,

@@ -236,18 +236,23 @@
                 </div>
                 <div style="display: flex; gap: 10px;">
                     <div class="form-group" style="flex: 1;">
-                        <label for="children_per_request">并发子任务</label>
+                        <label for="children_per_request">并发子任务 (Children)</label>
                         <input type="number" id="children_per_request" name="children_per_request" min="1" value="{{ settings.optimization_children_per_request or '1' }}" style="width: 100%;">
                     </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label for="backtest_threads">并发槽数 (Threads)</label>
+                        <input type="number" id="backtest_threads" name="backtest_threads" min="1" max="20" value="{{ settings.optimization_backtest_threads or '10' }}" style="width: 100%;">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px;">
                     <div class="form-group" style="flex: 1;">
                         <label for="recent_days">最近扫描天数</label>
                         <input type="number" id="recent_days" name="recent_days" min="1" value="{{ settings.optimization_recent_days or '14' }}" style="width: 100%;">
                     </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="schedule_hour">自动运行小时</label>
-                    <input type="number" id="schedule_hour" name="schedule_hour" min="0" max="23" value="{{ settings.optimization_schedule_hour or '1' }}" style="width: 100%;">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="schedule_hour">自动运行小时</label>
+                        <input type="number" id="schedule_hour" name="schedule_hour" min="0" max="23" value="{{ settings.optimization_schedule_hour or '1' }}" style="width: 100%;">
+                    </div>
                 </div>
                 
                 <label class="checkbox-label" style="margin-top: 8px;">

@@ -25,6 +25,7 @@ def normalize_optimization_params(params: dict[str, Any] | None) -> dict[str, An
         "trade_std_threshold": float(raw.get("trade_std_threshold") or 0.01),
         "decay_windows": str(raw.get("decay_windows") or "5,10,20"),
         "max_variants": _positive_int(raw.get("max_variants"), 10),
+        "backtest_threads": _positive_int(raw.get("backtest_threads"), 10),
     }
 
 
