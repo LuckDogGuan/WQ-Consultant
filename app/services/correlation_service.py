@@ -193,7 +193,7 @@ def load_correlation_data(tag: str | None = None) -> tuple[dict[str, list[str]],
 
 
 def calc_self_corr_local(alpha_rets_series: pd.Series, os_alpha_rets: pd.DataFrame, os_alpha_ids: dict[str, list[str]], region: str) -> float:
-    """计算单个 alpha 与本地缓存库的最大相关性"""
+    """计算单个 alpha 与本地缓存库的最大相关性 (NumPy 向量化加速版)"""
     if os_alpha_rets.empty or alpha_rets_series.empty:
         return 0.0
         
@@ -209,8 +209,38 @@ def calc_self_corr_local(alpha_rets_series: pd.Series, os_alpha_rets: pd.DataFra
     if not valid_region_alphas:
         return 0.0
         
-    corrs = os_alpha_rets[valid_region_alphas].corrwith(alpha_rets_series)
-    self_corr = corrs.abs().max()
+    # 1. 快速取时间索引交集并对齐（inner join）
+    common_index = os_alpha_rets.index.intersection(alpha_rets_series.index)
+    if len(common_index) < 10:
+        return 0.0
+        
+    # 2. 提取 NumPy 数组
+    y_mat = os_alpha_rets.loc[common_index, valid_region_alphas].to_numpy()
+    x_vec = alpha_rets_series.loc[common_index].to_numpy()
+    
+    # 3. 向量化 Pearson 相关系数计算
+    import numpy as np
+    # 减去均值中心化
+    x_mean = np.nanmean(x_vec)
+    x_centered = x_vec - (x_mean if pd.notna(x_mean) else 0.0)
+    x_centered = np.nan_to_num(x_centered, nan=0.0)
+    
+    y_mean = np.nanmean(y_mat, axis=0)
+    y_mean = np.nan_to_num(y_mean, nan=0.0)
+    y_centered = y_mat - y_mean
+    y_centered = np.nan_to_num(y_centered, nan=0.0)
+    
+    # 计算协方差与方差
+    cov = np.dot(y_centered.T, x_centered)  # shape: (N,)
+    x_std = np.sqrt(np.sum(x_centered ** 2))
+    y_std = np.sqrt(np.sum(y_centered ** 2, axis=0))
+    
+    # 防止分母为 0
+    denominator = x_std * y_std
+    denominator[denominator == 0.0] = 1e-9
+    
+    corrs = cov / denominator
+    self_corr = np.max(np.abs(corrs))
     return float(self_corr) if pd.notna(self_corr) else 0.0
 
 
