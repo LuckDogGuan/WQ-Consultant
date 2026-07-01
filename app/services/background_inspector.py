@@ -318,20 +318,17 @@ class BackgroundInspector:
                 r_dict, w_type = task_item
                 aid = r_dict["alpha_id"]
                 logger.info(f"[BackgroundInspector] Auto trigger workflow for alpha {aid}: WorkType={w_type}")
-                local_session = login_with_credentials(username, password)
                 try:
                     if w_type == "FETCH_PRECHECK":
-                        self._fetch_alpha_precheck_data(local_session, aid, r_dict)
+                        self._fetch_alpha_precheck_data(session, aid, r_dict)
                     elif w_type == "CHECK":
-                        self._run_check_submit(local_session, aid, r_dict)
+                        self._run_check_submit(session, aid, r_dict)
                     elif w_type == "CORR":
-                        self._run_autocorrelation(local_session, aid, r_dict)
+                        self._run_autocorrelation(session, aid, r_dict)
                     elif w_type == "FETCH":
-                        self._run_fetch_pnl_details(local_session, aid, r_dict)
+                        self._run_fetch_pnl_details(session, aid, r_dict)
                 except Exception as e:
                     logger.error(f"[BackgroundInspector] Workflow failed for {aid} ({w_type}): {e}")
-                finally:
-                    local_session.close()
 
             try:
                 with ThreadPoolExecutor(max_workers=3) as executor:

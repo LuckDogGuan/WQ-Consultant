@@ -147,19 +147,39 @@ def init_db() -> None:
                     import logging
                     logging.getLogger(__name__).error(f"Failed to add column {col_name} to alpha_records: {e}")
 
-        # One-time migration to pre-populate alpha_class and optimization_strategy
-        cursor.execute("SELECT alpha_id FROM alpha_records WHERE alpha_class = '' OR optimization_strategy = ''")
-        empty_alphas = [r[0] for r in cursor.fetchall()]
-        if empty_alphas:
+        # One-time migration to pre-populate alpha_class, optimization_strategy and is_garbage column
+        cursor.execute("SELECT value FROM settings WHERE key = 'is_garbage_migration_done'")
+        migrated = cursor.fetchone()
+        if not migrated:
             import logging
             logger = logging.getLogger(__name__)
-            logger.info(f"Pre-tagging {len(empty_alphas)} existing alphas in database...")
-            for aid in empty_alphas:
+            cursor.execute("SELECT alpha_id FROM alpha_records")
+            all_alphas = [r[0] for r in cursor.fetchall()]
+            logger.info(f"Running one-time database migration to align tags and is_garbage flag for {len(all_alphas)} alphas...")
+            for aid in all_alphas:
                 try:
                     refresh_alpha_tags(conn, aid)
                 except Exception as e:
                     logger.error(f"Failed to pre-tag {aid}: {e}")
-            logger.info("Pre-tagging complete.")
+            try:
+                conn.execute("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('is_garbage_migration_done', '1', datetime('now'))")
+            except Exception as e:
+                logger.error(f"Failed to save settings for garbage migration: {e}")
+            logger.info("One-time database migration complete.")
+        else:
+            # Fallback check for new/empty alphas that were somehow not tagged
+            cursor.execute("SELECT alpha_id FROM alpha_records WHERE alpha_class = '' OR optimization_strategy = ''")
+            empty_alphas = [r[0] for r in cursor.fetchall()]
+            if empty_alphas:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Pre-tagging {len(empty_alphas)} existing untagged alphas in database...")
+                for aid in empty_alphas:
+                    try:
+                        refresh_alpha_tags(conn, aid)
+                    except Exception as e:
+                        logger.error(f"Failed to pre-tag {aid}: {e}")
+                logger.info("Pre-tagging complete.")
 
         seed_defaults(conn)
 
@@ -507,7 +527,7 @@ def refresh_alpha_tags(conn, alpha_id: str) -> None:
     check_message = chk_row["message"] if chk_row else ""
     check_payload = chk_row["payload"] if chk_row else "{}"
     
-    from .services.optimization_planner import build_optimization_plan
+    from .services.optimization_planner import build_optimization_plan, is_high_risk_garbage_alpha
     try:
         plan = build_optimization_plan(
             record,
@@ -519,9 +539,15 @@ def refresh_alpha_tags(conn, alpha_id: str) -> None:
         strategy = plan.strategy or ""
         economic_suggestion = plan.economic_suggestion or ""
         
+        is_garbage = 1 if is_high_risk_garbage_alpha(record, check_result) else 0
+        
         conn.execute(
-            "UPDATE alpha_records SET alpha_class = ?, optimization_strategy = ?, economic_suggestion = ? WHERE alpha_id = ?",
-            (alpha_class, strategy, economic_suggestion, alpha_id)
+            """
+            UPDATE alpha_records 
+            SET alpha_class = ?, optimization_strategy = ?, economic_suggestion = ?, is_garbage = ? 
+            WHERE alpha_id = ?
+            """,
+            (alpha_class, strategy, economic_suggestion, is_garbage, alpha_id)
         )
     except Exception as e:
         import logging

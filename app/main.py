@@ -984,15 +984,9 @@ def get_alphas(
         )
         row_dict.update(rating)
 
-        # 垃圾/高危因子默认隐藏
-        is_garbage = is_high_risk_garbage_alpha(
-            row_dict,
-            latest_check["result"] if latest_check else ""
-        )
+        # 垃圾/高危因子状态已在数据库 is_garbage 字段中维护，此处仅做读取展示即可，不再执行 python 内存过滤以防止破坏分页行数
+        is_garbage = (row_dict.get("is_garbage") == 1)
         row_dict["is_garbage"] = is_garbage
-        if show_hidden != "1" and is_garbage:
-            continue
-
         alphas.append(row_dict)
         
     total_pages = math.ceil(total / page_size) if total > 0 else 1
