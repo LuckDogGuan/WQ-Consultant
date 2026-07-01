@@ -114,7 +114,7 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             JobRunner().check_paused(job_id)
             update_job(
                 job_id,
-                message=f"正在同步 {st.strftime('%Y-%m-%d')} ({idx}/{len(chunks)}，已跳过成功分片 {skipped_count} 个)...",
+                message=f"正在同步 {st.strftime('%Y-%m-%d')} (当前第 {idx}/{len(chunks)} 个分片，其余 {skipped_count} 个历史分片已使用成功缓存跳过)...",
                 progress_current=30 + int((idx / max(1, len(chunks))) * 30),
                 progress_total=100,
             )
