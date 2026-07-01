@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import logging
 import math
@@ -118,9 +119,10 @@ def format_datetime(value: str) -> str:
     if not value:
         return ""
     try:
-        from datetime import datetime
-        dt = datetime.fromisoformat(value)
-        return dt.strftime("%m-%d %H:%M:%S")
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%m-%d %H:%M:%S")
     except Exception:
         return value
 
@@ -304,7 +306,7 @@ def get_optimization_page(
     status_filter: str = "",
     level_filter: str = "",
     strategy_filter: str = "",
-    limit: int = 500,
+    limit: int | None = None,
     admin: str = Depends(get_current_admin),
 ):
     from .services.optimization_planner import build_optimization_plan
@@ -318,7 +320,7 @@ def get_optimization_page(
     settings = get_settings()
     with connect() as conn:
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'optimization_run' ORDER BY id DESC LIMIT 5").fetchall()
-    query_limit = max(1, min(int(limit), 1000))
+    query_limit = max(1, min(int(limit or settings.get("optimization_scan_limit") or 200), 1000))
     plan_where = ["a.is_garbage = 0", "a.alpha_type IN ('S', 'A', 'B', 'C')"]
     plan_params: list[Any] = []
     if level_filter:
@@ -410,7 +412,7 @@ def get_optimization_page(
             "strategies": strategies,
             "optimizable": sum(1 for plan in plans if plan["should_optimize"]),
             "skipped": sum(1 for plan in plans if not plan["should_optimize"]),
-            "limit": limit,
+            "limit": query_limit,
             "settings": settings,
             "jobs": jobs,
             "success": success_msg,
@@ -677,6 +679,7 @@ def post_settings_page(
     submit_sharpe: str = Form("1.58"),
     submit_fitness: str = Form("1.0"),
     submit_alpha_num: str = Form("200"),
+    optimization_scan_limit: str = Form("200"),
     fo_track_lookback_days: str = Form("90"),
     fo_track_sharpe: str = Form("1.0"),
     fo_track_fitness: str = Form("0.7"),
@@ -724,6 +727,7 @@ def post_settings_page(
         "submit_sharpe": submit_sharpe,
         "submit_fitness": submit_fitness,
         "submit_alpha_num": submit_alpha_num,
+        "optimization_scan_limit": optimization_scan_limit,
         "fo_track_lookback_days": fo_track_lookback_days,
         "fo_track_sharpe": fo_track_sharpe,
         "fo_track_fitness": fo_track_fitness,
@@ -891,42 +895,43 @@ def get_alphas(
             tuple(params),
         ).fetchone()["n"]
         rows = conn.execute(
-            f"""
-            SELECT
-                a.*,
-                c.result AS latest_check_result,
-                c.payload AS latest_check_payload
-            FROM alpha_records a
-            LEFT JOIN (
-                SELECT cr.*
-                FROM check_results cr
+            f"SELECT a.* FROM alpha_records a {where_sql} ORDER BY a.created_at DESC LIMIT ? OFFSET ?",
+            tuple(params) + (page_size, offset)
+        ).fetchall()
+        alpha_ids = [row["alpha_id"] for row in rows]
+        latest_checks = {}
+        if alpha_ids:
+            placeholders = ",".join("?" for _ in alpha_ids)
+            check_rows = conn.execute(
+                f"""
+                SELECT c1.alpha_id, c1.result, c1.payload
+                FROM check_results c1
                 INNER JOIN (
                     SELECT alpha_id, MAX(id) AS max_id
                     FROM check_results
+                    WHERE alpha_id IN ({placeholders})
                     GROUP BY alpha_id
-                ) latest ON latest.max_id = cr.id
-            ) c ON c.alpha_id = a.alpha_id
-            {where_sql}
-            ORDER BY a.created_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            tuple(params) + (page_size, offset)
-        ).fetchall()
+                ) latest ON latest.max_id = c1.id
+                """,
+                tuple(alpha_ids),
+            ).fetchall()
+            latest_checks = {row["alpha_id"]: row for row in check_rows}
         
     from .services.optimization_planner import is_high_risk_garbage_alpha
     alphas = []
     for r in rows:
         row_dict = dict(r)
+        latest_check = latest_checks.get(row_dict["alpha_id"])
         rating = build_alpha_rating(
             row_dict,
-            {"result": row_dict.get("latest_check_result"), "payload": row_dict.get("latest_check_payload")},
+            {"result": latest_check["result"], "payload": latest_check["payload"]} if latest_check else None,
         )
         row_dict.update(rating)
 
         # 垃圾/高危因子默认隐藏
         is_garbage = is_high_risk_garbage_alpha(
             row_dict,
-            row_dict.get("latest_check_result") or ""
+            latest_check["result"] if latest_check else ""
         )
         row_dict["is_garbage"] = is_garbage
         if show_hidden != "1" and is_garbage:

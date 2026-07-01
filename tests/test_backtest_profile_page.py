@@ -26,8 +26,8 @@ class BacktestProfilePageTests(unittest.TestCase):
         self.assertIn("顾问等级", html)
         self.assertIn("槽位与线程", html)
         self.assertIn("运行效果统计", html)
-        self.assertIn("USA, ASI", html)
         self.assertIn("fo_backtest_children", html)
+        self.assertIn("backtest_launch_settings_open", html)
         self.assertNotIn('name="regions"', html)
         self.assertNotIn("usa_fo_children", html)
 

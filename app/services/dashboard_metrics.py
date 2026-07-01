@@ -4,9 +4,6 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from ..storage import connect, get_setting
-from .optimization_planner import list_optimization_plans
-
-
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
 
 
@@ -77,12 +74,24 @@ def get_dashboard_metrics(now: datetime | None = None) -> dict[str, int | str]:
         ).fetchone()[0]
 
     counts["submit_daily_total"] = int(counts["submit_daily_regular"]) + int(counts["submit_daily_super"])
-    plans = list_optimization_plans(limit=1000)
-    counts["optimization_total"] = len(plans)
-    counts["optimization_optimizable"] = sum(1 for plan in plans if plan.should_optimize)
-    counts["optimization_min_submit"] = sum(
-        1 for plan in plans if plan.should_optimize and plan.level in {"S", "A", "B", "C"}
-    )
+    with connect() as conn:
+        counts["optimization_total"] = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM alpha_records
+            WHERE COALESCE(is_garbage, 0) = 0
+              AND COALESCE(alpha_type, '') IN ('S', 'A', 'B', 'C')
+            """
+        ).fetchone()[0]
+        counts["optimization_optimizable"] = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM alpha_records
+            WHERE COALESCE(is_garbage, 0) = 0
+              AND COALESCE(alpha_type, '') IN ('A', 'B', 'C')
+            """
+        ).fetchone()[0]
+        counts["optimization_min_submit"] = counts["optimization_optimizable"]
     counts["backtest_daily_pct"] = _pct(int(counts["backtest_daily_done"]), backtest_limit)
     counts["check_daily_pct"] = _pct(int(counts["check_daily_done"]), check_limit)
     counts["submit_daily_pct"] = _pct(int(counts["submit_daily_total"]), int(counts["submit_daily_limit"]))

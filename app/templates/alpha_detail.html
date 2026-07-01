@@ -438,7 +438,7 @@
                 <tbody>
                     {% for h in check_history %}
                     <tr>
-                        <td style="font-size: 13px; color: var(--text-muted);">{{ h.created_at }}</td>
+                        <td style="font-size: 13px; color: var(--text-muted);">{{ h.created_at | format_datetime }}</td>
                         <td>
                             <span class="check-result-badge badge-{{ h.result }}">{{ h.result }}</span>
                         </td>

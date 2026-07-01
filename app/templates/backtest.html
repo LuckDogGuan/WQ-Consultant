@@ -4,6 +4,17 @@
 {% block header_title %}回测任务管理器{% endblock %}
 
 {% block content %}
+<style>
+.slot-thread-input {
+    width: 42px;
+    background: rgba(15, 23, 42, 0.95);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+</style>
+
 
 
 <div class="backtest-grid">
@@ -22,7 +33,7 @@
                         </div>
                         <span class="badge status-S">RA only</span>
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="advisor_level" style="font-size: 11px; margin-bottom: 3px; display: block;">顾问等级</label>
                             <select id="advisor_level" name="advisor_level" style="width: 100%; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
@@ -30,12 +41,6 @@
                                 <option value="gold" {% if settings.advisor_level == 'gold' or settings.advisor_level is not defined %}selected{% endif %}>Gold（常规顾问）</option>
                                 <option value="master" {% if settings.advisor_level == 'master' %}selected{% endif %}>Master（全部字段）</option>
                             </select>
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label style="font-size: 11px; margin-bottom: 3px; display: block;">地区组合</label>
-                            <div style="width: 100%; padding: 7px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.18); color: var(--text-main); font-size: 12px;">
-                                {{ backtest_regions | join(', ') }}
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -65,8 +70,8 @@
                 </div>
 
                 <!-- 详细的阶段参数配置 (折叠面板) -->
-                <div class="launch-details-accordion" style="margin-top: 15px; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; background: rgba(0,0,0,0.15);">
-                    <div class="accordion-trigger" style="padding: 10px 15px; background: rgba(255,255,255,0.03); cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600;" onclick="toggleLaunchSettingsAccordion()">
+                <div class="launch-details-accordion" style="margin-top: 15px; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; background: rgba(10,14,24,0.72);">
+                    <div class="accordion-trigger" style="padding: 10px 15px; background: rgba(17,24,39,0.92); cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600;" onclick="toggleLaunchSettingsAccordion()">
                         <span><i class="fa-solid fa-gears" style="margin-right: 6px;"></i> 配置各阶段筛选和参数 (可选)</span>
                         <i class="fa-solid fa-chevron-right launch-accordion-icon" style="transition: transform 0.2s; font-size: 11px;"></i>
                     </div>
@@ -78,14 +83,13 @@
             <div class="table-responsive">
                                 <table class="table table-sm" style="font-size: 11px;">
                                     <thead>
-                                        <tr><th>适用地区</th><th>FO 槽/线程</th><th>SO 槽/线程</th><th>TH 槽/线程</th></tr>
+                                        <tr><th>FO 槽/线程</th><th>SO 槽/线程</th><th>TH 槽/线程</th></tr>
                                     </thead>
                                     <tbody>
                                         <tr>
-                                            <td>{{ backtest_regions | join(', ') }}</td>
-                                            <td><input name="fo_backtest_children" value="{{ settings.fo_backtest_children or '6' }}" style="width:42px;"> / <input name="fo_backtest_threads" value="{{ settings.fo_backtest_threads or '10' }}" style="width:42px;"></td>
-                                            <td><input name="so_backtest_children" value="{{ settings.so_backtest_children or '5' }}" style="width:42px;"> / <input name="so_backtest_threads" value="{{ settings.so_backtest_threads or '8' }}" style="width:42px;"></td>
-                                            <td><input name="th_backtest_children" value="{{ settings.th_backtest_children or '5' }}" style="width:42px;"> / <input name="th_backtest_threads" value="{{ settings.th_backtest_threads or '8' }}" style="width:42px;"></td>
+                                            <td><input name="fo_backtest_children" value="{{ settings.fo_backtest_children or '6' }}" class="slot-thread-input"> / <input name="fo_backtest_threads" value="{{ settings.fo_backtest_threads or '10' }}" class="slot-thread-input"></td>
+                                            <td><input name="so_backtest_children" value="{{ settings.so_backtest_children or '5' }}" class="slot-thread-input"> / <input name="so_backtest_threads" value="{{ settings.so_backtest_threads or '8' }}" class="slot-thread-input"></td>
+                                            <td><input name="th_backtest_children" value="{{ settings.th_backtest_children or '5' }}" class="slot-thread-input"> / <input name="th_backtest_threads" value="{{ settings.th_backtest_threads or '8' }}" class="slot-thread-input"></td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -101,7 +105,7 @@
 
                         <!-- FO Tab Content -->
                         <div class="backtest-tab-content" id="tab-fo" style="display: block;">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
                                 <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 5px;">
                                     <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
                                         <input type="checkbox" name="fo_filter_negative_sharpe" value="true" {% if settings.fo_filter_negative_sharpe == '1' or settings.fo_filter_negative_sharpe is not defined %}checked{% endif %}>
@@ -135,7 +139,7 @@
 
                         <!-- SO Tab Content -->
                         <div class="backtest-tab-content" id="tab-so" style="display: none;">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
                                 <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 8px;">
                                     <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
                                         <input type="checkbox" name="so_corr_enable" value="true" {% if settings.so_corr_enable == '1' %}checked{% endif %}>
@@ -179,7 +183,7 @@
 
                         <!-- TH Tab Content -->
                         <div class="backtest-tab-content" id="tab-th" style="display: none;">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
                                 <div class="form-group checkbox-group" style="grid-column: span 2; margin-bottom: 8px;">
                                     <label class="checkbox-label" style="font-size: 11px; display: flex; align-items: center; gap: 6px;">
                                         <input type="checkbox" name="th_corr_enable" value="true" {% if settings.th_corr_enable == '1' %}checked{% endif %}>
@@ -223,7 +227,7 @@
 
                         <!-- Pruning & Advanced Tab Content -->
                         <div class="backtest-tab-content" id="tab-prune" style="display: none;">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
                                 <div class="form-group" style="margin-bottom: 5px;">
                                     <label style="font-size: 11px; margin-bottom: 3px; display: block;">Prune 保留前缀数</label>
                                     <input type="number" name="prune_keep_num" value="{{ settings.prune_keep_num or '5' }}" style="padding: 4px 8px; font-size: 11px; height: auto; width: 100%; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.3); color: var(--text-main);">
@@ -414,7 +418,7 @@
                         </tbody>
                     </table>
                 </div>
-                <div class="card" style="padding: 16px; background: rgba(0,0,0,0.15); min-height: 280px; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px dashed var(--border-color); box-shadow: none;" id="alpha-pnl-chart-container">
+                <div class="card" style="padding: 16px; background: rgba(10,14,24,0.72); min-height: 280px; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px dashed var(--border-color); box-shadow: none;" id="alpha-pnl-chart-container">
                     <span class="text-muted text-sm">点击左侧 Alpha ID 在此加载 PnL 走势图</span>
                 </div>
             </div>
@@ -469,6 +473,8 @@
             }
         };
         loadLatestJobSummary();
+        const launchOpen = localStorage.getItem("backtest_launch_settings_open") === "1";
+        setLaunchSettingsAccordion(launchOpen);
     });
 
     function loadLatestJobSummary() {
@@ -483,9 +489,9 @@
                 const passed = document.getElementById("run-summary-passed");
                 const hidden = document.getElementById("run-summary-hidden");
                 const efficiency = document.getElementById("run-summary-efficiency");
-                if (total) total.textContent = `${data.total} 个`;
-                if (passed) passed.textContent = `${data.passed} 个`;
-                if (hidden) hidden.textContent = `${data.hidden} 个`;
+                if (total) total.textContent = String(data.total);
+                if (passed) passed.textContent = String(data.passed);
+                if (hidden) hidden.textContent = String(data.hidden);
                 if (efficiency) efficiency.textContent = `${data.alphas_per_minute}/min`;
             })
             .catch(err => console.error("Error fetching job summary:", err));
@@ -587,17 +593,19 @@
             });
     }
 
-    // Toggle Backtest parameter settings accordion
-    function toggleLaunchSettingsAccordion() {
+    function setLaunchSettingsAccordion(open) {
         const content = document.getElementById("launch-settings-content");
         const icon = document.querySelector(".launch-accordion-icon");
-        if (content.style.display === "none" || !content.style.display) {
-            content.style.display = "block";
-            if (icon) icon.style.transform = "rotate(90deg)";
-        } else {
-            content.style.display = "none";
-            if (icon) icon.style.transform = "rotate(0deg)";
-        }
+        if (!content) return;
+        content.style.display = open ? "block" : "none";
+        if (icon) icon.style.transform = open ? "rotate(90deg)" : "rotate(0deg)";
+    }
+
+    function toggleLaunchSettingsAccordion() {
+        const content = document.getElementById("launch-settings-content");
+        const open = !(content && content.style.display === "block");
+        localStorage.setItem("backtest_launch_settings_open", open ? "1" : "0");
+        setLaunchSettingsAccordion(open);
     }
 
     // Switch between Backtest parameter tabs

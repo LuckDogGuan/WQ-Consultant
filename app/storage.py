@@ -118,6 +118,7 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_alpha_records_updated_at ON alpha_records(updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_alpha_records_created_at ON alpha_records(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_alpha_records_list_filters ON alpha_records(is_garbage, alpha_type, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_alpha_records_optimization_filters ON alpha_records(is_garbage, alpha_type, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_sync_chunks_status ON sync_chunks(kind, region, status);
             CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id);
             """
@@ -224,6 +225,7 @@ DEFAULT_SETTINGS = {
     "optimization_source_mode": "recent",
     "optimization_recent_days": "14",
     "optimization_candidate_limit": "20",
+    "optimization_scan_limit": "200",
     "optimization_children_per_request": "1",
     "optimization_schedule_enabled": "0",
     "optimization_schedule_hour": "1",

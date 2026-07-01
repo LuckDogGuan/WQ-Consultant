@@ -18,6 +18,23 @@ function escapeHtml(value) {
         .replace(/'/g, "&#039;");
 }
 
+
+function formatChinaTime(value) {
+    if (!value) return "";
+    const text = String(value);
+    const date = new Date(text.includes("T") || text.endsWith("Z") ? text : text.replace(" ", "T") + "Z");
+    if (Number.isNaN(date.getTime())) return text;
+    return date.toLocaleString("zh-CN", {
+        timeZone: "Asia/Shanghai",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+    }).replace(/\//g, "-");
+}
+
 // 启动页面初始挂载
 document.addEventListener("DOMContentLoaded", function() {
     restoreMobileMenuScroll();
@@ -487,7 +504,7 @@ function updateJobEvents() {
                     if (e.level === 'info') levelClass = 'info';
                     return `
                         <tr>
-                            <td class="text-xs text-muted">${escapeHtml(e.created_at || "")}</td>
+                            <td class="text-xs text-muted">${escapeHtml(formatChinaTime(e.created_at))}</td>
                             <td><span class="badge ${levelClass}">${escapeHtml(e.level)}</span></td>
                             <td class="text-sm">${escapeHtml(e.message)}</td>
                         </tr>
@@ -509,7 +526,7 @@ function updateJobEvents() {
             }
             
             tbody.innerHTML = data.map(e => {
-                const date = escapeHtml(e.created_at || "");
+                const date = escapeHtml(formatChinaTime(e.created_at));
                 let levelClass = 'secondary';
                 if (e.level === 'error') levelClass = 'danger';
                 if (e.level === 'warning') levelClass = 'warning';

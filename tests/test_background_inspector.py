@@ -14,6 +14,8 @@ class BackgroundInspectorTests(unittest.TestCase):
             conn.execute("DELETE FROM alpha_records")
             conn.execute("DELETE FROM check_results")
             conn.execute("DELETE FROM sync_chunks")
+            conn.execute("DELETE FROM job_events")
+            conn.execute("DELETE FROM jobs")
             conn.execute("DELETE FROM settings")
             
         # Put WQ credentials in Settings
@@ -248,7 +250,8 @@ class BackgroundInspectorTests(unittest.TestCase):
 
     @patch("app.services.sync_service.login_with_credentials")
     @patch("app.services.sync_service.get_alphas_full")
-    def test_run_sync_alphas_job_records_failed_day_for_retry(self, mock_get_alphas, mock_login):
+    @patch("app.services.sync_service.time.sleep")
+    def test_run_sync_alphas_job_records_failed_day_for_retry(self, mock_sleep, mock_get_alphas, mock_login):
         from app.services.sync_service import run_sync_alphas_job
 
         session_mock = MagicMock()
@@ -258,14 +261,17 @@ class BackgroundInspectorTests(unittest.TestCase):
         with connect() as conn:
             conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (890, 'sync_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
 
-        with self.assertRaises(RuntimeError):
-            run_sync_alphas_job(890, {"lookback_days": 0})
+        run_sync_alphas_job(890, {"lookback_days": 0})
 
         with connect() as conn:
             row = conn.execute("SELECT status, error FROM sync_chunks WHERE kind = 'wq_sync' AND region = 'USA'").fetchone()
+            job = conn.execute("SELECT status, message FROM jobs WHERE id = 890").fetchone()
 
         self.assertEqual(row["status"], "failed")
         self.assertIn("temporary disconnect", row["error"])
+        self.assertEqual(job["status"], "completed")
+        self.assertIn("重试", job["message"])
+        self.assertEqual(mock_get_alphas.call_count, 3)
 
     @patch("app.services.sync_service.login_with_credentials")
     @patch("app.services.background_inspector.BackgroundInspector._run_autocorrelation")

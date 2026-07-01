@@ -79,7 +79,7 @@
                     <tbody>
                         {% for err in errors %}
                         <tr>
-                            <td class="text-xs text-muted">{{ err.created_at[:19].replace('T', ' ') }}</td>
+                            <td class="text-xs text-muted">{{ err.created_at | format_datetime }}</td>
                             <td><span class="badge status-ATOM">{{ err.area }}</span></td>
                             <td class="text-sm text-danger font-mono font-bold">{{ err.message }}</td>
                             <td class="text-xs text-muted max-width-cell">

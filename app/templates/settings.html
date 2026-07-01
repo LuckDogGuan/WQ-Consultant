@@ -168,6 +168,10 @@
                     <input type="number" id="api_slow_threshold_ms" name="api_slow_threshold_ms" value="{{ settings.api_slow_threshold_ms or '1500' }}">
                 </div>
                 <div class="form-group">
+                    <label for="optimization_scan_limit">???????</label>
+                    <input type="number" id="optimization_scan_limit" name="optimization_scan_limit" min="1" max="1000" value="{{ settings.optimization_scan_limit or '200' }}">
+                </div>
+                <div class="form-group">
                     <label for="daily_alpha_count_usage">日使用量统计模式</label>
                     <select id="daily_alpha_count_usage" name="daily_alpha_count_usage">
                         <option value="track" {% if settings.daily_alpha_count_usage == 'track' %}selected{% endif %}>track（追踪统计）</option>

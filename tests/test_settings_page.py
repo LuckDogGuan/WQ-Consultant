@@ -32,7 +32,8 @@ class SettingsPageTests(unittest.TestCase):
             "region": "USA",
             "universe": "TOPSP500",
             "delay": "1",
-            "daily_alpha_count_usage": "track"
+            "daily_alpha_count_usage": "track",
+            "optimization_scan_limit": "123"
         }
         response = client.post("/settings", data=payload)
         self.assertEqual(response.status_code, 200)
@@ -45,6 +46,7 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(db_settings.get("region"), "USA")
         self.assertEqual(db_settings.get("universe"), "TOPSP500")
         self.assertEqual(db_settings.get("delay"), "1")
+        self.assertEqual(db_settings.get("optimization_scan_limit"), "123")
 
 
 if __name__ == "__main__":

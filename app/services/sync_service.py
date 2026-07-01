@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import json
 import requests
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -121,6 +122,7 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
                     logger.error(f"[SyncJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} attempt {attempt}/3 failed: {exc}")
                     _record_sync_chunk(region, st, ed, "failed", 0, last_error)
                     if attempt < 3:
+                        time.sleep(attempt * 5)
                         try:
                             session.close()
                         except Exception:
@@ -212,7 +214,14 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
 
         if failed_chunks:
             failed_days = ", ".join(st.strftime("%Y-%m-%d") for st, _, _ in failed_chunks[:5])
-            raise RuntimeError(f"{len(failed_chunks)} 个日期分片同步失败，已成功的日期不会重复拉取，下次同步会重试失败日期：{failed_days}")
+            add_job_event(job_id, "warning", f"{len(failed_chunks)} day chunk(s) failed and will be retried next sync: {failed_days}")
+            update_job(
+                job_id,
+                status="completed",
+                message=f"同步完成，但 {len(failed_chunks)} 个日期分片拉取失败；已成功分片不会重复，下次同步会重试：{failed_days}",
+                progress_current=100,
+                progress_total=100,
+            )
             
     except Exception as e:
         logger.error(f"[SyncJob] Sync failed: {e}", exc_info=True)
