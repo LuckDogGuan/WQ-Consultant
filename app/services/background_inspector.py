@@ -618,7 +618,7 @@ class BackgroundInspector:
         detail_payload: dict[str, Any] | None = None
     ) -> None:
         """运行诊断评级模型，更新数据库评级并将垃圾因子自动从平台物理退休隐藏"""
-        if detail_payload is None:
+        if not isinstance(detail_payload, dict):
             payload_str = row_dict.get("payload")
             detail_payload = {}
             if payload_str:
@@ -626,6 +626,8 @@ class BackgroundInspector:
                     detail_payload = json.loads(payload_str)
                 except Exception:
                     pass
+            if not isinstance(detail_payload, dict):
+                detail_payload = {}
  
         # 解析指标
         is_metrics = detail_payload.get("is", {})
