@@ -289,9 +289,8 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             candidates.append((row_dict, "RETIRE"))
             continue
             
-        # A. 自相关性检测缺失 (prod_corr IS NULL 或 0.0) -> 必须是已提交/已校验过 (status != 'UNSUBMITTED')
-        # 否则 UNSUBMITTED 没有 PNL 无法在本地算自相关，须先进行 CHECK 提交生成 PNL
-        if (prod_corr is None or prod_corr == 0.0) and status != 'UNSUBMITTED':
+        # A. 自相关性检测缺失 (prod_corr IS NULL 或 0.0) -> 优先本地补算自相关性
+        if prod_corr is None or prod_corr == 0.0:
             candidates.append((row_dict, "CORR"))
             continue
             
@@ -320,6 +319,8 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
     inspector = BackgroundInspector()
     
     try:
+        # 重置自相关比对缓存库，保证本轮任务手动运行能拉取最新数据
+        inspector.correlation_cache = None
         for idx, (row_dict, work_type) in enumerate(candidates, start=1):
             # 支持用户在界面上“暂停”任务
             JobRunner().check_paused(job_id)

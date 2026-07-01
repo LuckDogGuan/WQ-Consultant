@@ -33,6 +33,7 @@ class BackgroundInspector:
                 cls._instance = super().__new__(cls)
                 cls._instance.thread = None
                 cls._instance.stop_event = threading.Event()
+                cls._instance.correlation_cache = None
             return cls._instance
             
     def start(self) -> None:
@@ -152,8 +153,8 @@ class BackgroundInspector:
             # 如果目前没有处于退休状态的因子，我们才去查其他耗时的单体工作 (CORR, CHECK, FETCH)
             # 这样可以在有 Grade D 堆积时优先全速批量清理垃圾
             if not retire_candidates and not work_type:
-                # A. 自相关性检测缺失 (prod_corr IS NULL 或等于 0.0) -> 但必须是已提交/已校验过 (status != 'UNSUBMITTED')
-                if (prod_corr is None or prod_corr == 0.0) and status != 'UNSUBMITTED':
+                # A. 自相关性检测缺失 (prod_corr IS NULL 或等于 0.0) -> 优先本地补算自相关性
+                if prod_corr is None or prod_corr == 0.0:
                     target_alpha = row_dict
                     work_type = "CORR"
                     
@@ -259,10 +260,22 @@ class BackgroundInspector:
         """自动拉取远程 PNL 并在本地做自相关性分析"""
         logger.info(f"[BackgroundInspector] Downloading correlation data & PnL for {alpha_id}...")
         try:
-            # 1. 增量更新本地相关性缓存库
-            download_correlation_data(session, flag_increment=True)
-            all_ids, all_rets = load_correlation_data(tag=None)
-            ppa_ids, ppa_rets = load_correlation_data(tag='PPAC')
+            # 1. 增量更新并缓存自相关性比对库，避免每次循环重复下载和IO
+            if not getattr(self, "correlation_cache", None):
+                download_correlation_data(session, flag_increment=True)
+                all_ids, all_rets = load_correlation_data(tag=None)
+                ppa_ids, ppa_rets = load_correlation_data(tag='PPAC')
+                self.correlation_cache = {
+                    "all_ids": all_ids,
+                    "all_rets": all_rets,
+                    "ppa_ids": ppa_ids,
+                    "ppa_rets": ppa_rets
+                }
+            else:
+                all_ids = self.correlation_cache["all_ids"]
+                all_rets = self.correlation_cache["all_rets"]
+                ppa_ids = self.correlation_cache["ppa_ids"]
+                ppa_rets = self.correlation_cache["ppa_rets"]
             
             # 2. 获取该因子的 PnL 收益率明细
             target_pnl_df = get_alpha_pnl(session, alpha_id)
@@ -368,7 +381,11 @@ class BackgroundInspector:
             # 如果相关性也缺失，强制拉取并算一遍相关性
             if prod_corr_val == 0.0:
                 try:
-                    all_ids, all_rets = load_correlation_data(tag=None)
+                    if not getattr(self, "correlation_cache", None):
+                        all_ids, all_rets = load_correlation_data(tag=None)
+                    else:
+                        all_ids = self.correlation_cache["all_ids"]
+                        all_rets = self.correlation_cache["all_rets"]
                     target_pnl_df = get_alpha_pnl(session, alpha_id)
                     if not target_pnl_df.empty and alpha_id in target_pnl_df.columns:
                         target_pnl_series = target_pnl_df.set_index('Date')[alpha_id]
@@ -461,11 +478,12 @@ class BackgroundInspector:
                     (alpha_id,)
                 )
 
-        # C级及以上因子：若未改名，则自动触发符合平台格式规范的 Scheme A 远程重命名
+        # C级及以上因子：若未改名，且已完成 Checks 提交校验并获取了成绩，才自动触发 Scheme A 远程重命名
         target_name = detail_payload.get("name") or row_dict.get("name") or ""
         db_status = f"CHECKED_{chk_res}" if chk_res else row_dict.get("status")
 
-        if new_grade in {"S", "A", "B", "C"} and db_status != "RENAMED":
+        is_checked = (chk_res in {"PASS", "FAIL"}) or (row_dict.get("status") in {"CHECKED_PASS", "CHECKED_FAIL", "RENAMED"})
+        if new_grade in {"S", "A", "B", "C"} and db_status != "RENAMED" and is_checked:
             from app.services.wq_client import rename_wq_alpha_scheme_a
             region = detail_payload.get("settings", {}).get("region") or row_dict.get("region") or "USA"
             universe = detail_payload.get("settings", {}).get("universe") or row_dict.get("universe") or "TOP3000"
