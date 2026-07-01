@@ -15,7 +15,7 @@ class RemoteWaitDecision:
 def next_wait_seconds(
     failure_count: int,
     short_seconds: int = 30,
-    long_seconds: int = 600,
+    long_seconds: int = 300,
     cycle_size: int = 5,
 ) -> int:
     count = max(1, int(failure_count or 1))
@@ -29,7 +29,7 @@ def classify_post_exception(
     exc: Exception,
     failure_count: int,
     short_wait_seconds: int = 30,
-    long_wait_seconds: int = 600,
+    long_wait_seconds: int = 300,
 ) -> RemoteWaitDecision:
     if isinstance(exc, (requests.exceptions.RequestException, OSError, ConnectionResetError)):
         wait_seconds = int(long_wait_seconds) if int(failure_count or 1) >= 3 else int(short_wait_seconds)

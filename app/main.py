@@ -1700,7 +1700,7 @@ def get_network_status(admin: str = Depends(get_current_admin)):
     monitor = NetworkMonitor()
     return {
         "connected": monitor.is_connected,
-        "message": "网络连接正常" if monitor.is_connected else "网络连接已断开 (10分钟重连中...)"
+        "message": "网络连接正常" if monitor.is_connected else "网络连接已断开 (5分钟重连中...)"
     }
 
 
