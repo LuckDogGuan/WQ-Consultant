@@ -905,6 +905,9 @@ def get_alphas(
     if show_hidden != "1":
         where += " AND a.is_garbage = 0"
         
+    # 只显示已经处理过的因子，即分数(Sharpe/Fitness)、利润率(Margin)、年化收益/回撤、相关性(PPA/Prod)均已补全且非空的因子
+    where += " AND a.sharpe IS NOT NULL AND a.fitness IS NOT NULL AND a.margin IS NOT NULL AND a.returns IS NOT NULL AND a.drawdown IS NOT NULL AND a.ppa_corr IS NOT NULL AND a.prod_corr IS NOT NULL"
+        
     if type_filter:
         where += " AND a.alpha_type = ?"
         params.append(type_filter)
@@ -954,6 +957,17 @@ def get_alphas(
             f"SELECT a.* FROM alpha_records a {where_sql} ORDER BY a.created_at DESC LIMIT ? OFFSET ?",
             tuple(params) + (page_size, offset)
         ).fetchall()
+        
+        # 计算总因子数和待处理因子数（以 is_garbage = 0 为统计口径）
+        total_count = conn.execute("SELECT COUNT(*) AS n FROM alpha_records WHERE is_garbage = 0").fetchone()["n"]
+        pending_count = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM alpha_records 
+            WHERE is_garbage = 0 
+              AND (sharpe IS NULL OR fitness IS NULL OR margin IS NULL OR returns IS NULL OR drawdown IS NULL OR ppa_corr IS NULL OR prod_corr IS NULL)
+            """
+        ).fetchone()["n"]
+
         alpha_ids = [row["alpha_id"] for row in rows]
         latest_checks = {}
         if alpha_ids:
@@ -1002,7 +1016,9 @@ def get_alphas(
             "level_filter": level_filter,
             "date_filter": date_filter,
             "show_hidden": show_hidden,
-            "total": total
+            "total": total,
+            "total_count": total_count,
+            "pending_count": pending_count
         }
     )
 

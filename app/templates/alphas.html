@@ -38,7 +38,7 @@
                 </div>
             </div>
             <div class="filter-count" style="display: flex; align-items: center; gap: 10px;">
-                <span>总共记录: <strong>{{ total }}</strong> 个 Alpha</span>
+                <span>总共已处理: <strong>{{ total }}</strong> 个 | 总共记录: <strong>{{ total }}</strong> | 总因子: <strong>{{ total_count }}</strong> | 待处理: <strong style="color: #fbbf24;">{{ pending_count }}</strong></span>
                 <button class="btn btn-secondary btn-sm" id="sync-alphas-btn" onclick="syncAlphasFromWQ()" style="font-size: 11px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
                     <i class="fa-solid fa-rotate"></i> 同步云端因子
                 </button>

@@ -27,6 +27,8 @@ class AlphaPagePerformanceTests(unittest.TestCase):
                     "sharpe": 1.8,
                     "fitness": 1.8,
                     "margin": 0.002,
+                    "returns": 0.15,
+                    "drawdown": 0.08,
                     "prod_corr": 0.2,
                     "ppa_corr": 0.2,
                     "status": "UNSUBMITTED",
