@@ -71,9 +71,8 @@ flowchart TD
     LocalRetire --> End1([因子退休完结])
     
     %% 分支 B: S/A/B/C 但含有 Error 或 Fail (隔离改名)
-    RouteDecision -->|判定为 S/A/B/C 但包含 Error/Fail<br/>不进行 Checks 校验!| MarkError[本地标记 status = ERROR/FAIL<br/>payload 写入 TODO 待优化标记]
-    MarkError --> DocWrite[自动写入文档 doc/todo_optimization/factors_to_rescue.md]
-    DocWrite --> RenameWQError[执行 WQ 平台符合规范的<br/>Scheme A 远程重命名]
+    RouteDecision -->|判定为 S/A/B/C 但包含 Error/Fail<br/>不进行 Checks 校验!| MarkError[本地标记 status = ERROR/FAIL<br/>payload 写入 todo_category 分类与 todo=optimize_later 标记]
+    MarkError --> RenameWQError[执行 WQ 平台符合规范的<br/>Scheme A 远程重命名]
     RenameWQError --> End2([因子标记 ERROR & TODO 完结])
     
     %% 分支 C: S/A/B/C 且无 Error/Fail (提报 Checks)
