@@ -391,6 +391,55 @@ def get_optimization_page(
     if strategy_filter:
         plans = [plan for plan in plans if plan["strategy"] == strategy_filter]
 
+    class_a_count = sum(1 for plan in plans if plan.get("alpha_class") == "Class A" and plan.get("should_optimize"))
+    class_b_count = sum(1 for plan in plans if plan.get("alpha_class") == "Class B" and plan.get("should_optimize"))
+    class_c_count = sum(1 for plan in plans if plan.get("alpha_class") == "Class C" and plan.get("should_optimize"))
+
+    # 查询最近被救活/优化成功的因子数据
+    with connect() as conn:
+        result_rows = conn.execute(
+            """
+            SELECT
+                a.alpha_id,
+                a.name,
+                a.alpha_type,
+                a.sharpe,
+                a.fitness,
+                a.margin,
+                a.prod_corr,
+                a.status,
+                a.payload,
+                a.created_at,
+                c.result AS check_result
+            FROM alpha_records a
+            LEFT JOIN (
+                SELECT c1.alpha_id, c1.result
+                FROM check_results c1
+                INNER JOIN (
+                    SELECT alpha_id, MAX(id) AS max_id
+                    FROM check_results
+                    GROUP BY alpha_id
+                ) latest ON latest.max_id = c1.id
+            ) c ON c.alpha_id = a.alpha_id
+            WHERE a.is_garbage = 0
+              AND (a.status IN ('RENAMED', 'CHECKED_PASS', 'SUBMITTED', 'OS') OR a.name LIKE 'S_%')
+            ORDER BY a.created_at DESC
+            LIMIT 10
+            """
+        ).fetchall()
+
+    recent_results = []
+    for r in result_rows:
+        r_dict = dict(r)
+        expr = ""
+        try:
+            payload_data = json.loads(r_dict.get("payload") or "{}")
+            expr = payload_data.get("expression") or payload_data.get("regular", {}).get("code") or ""
+        except Exception:
+            pass
+        r_dict["expression"] = expr
+        recent_results.append(r_dict)
+
     total = len(plans)
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     page = max(1, min(page, total_pages))
@@ -412,6 +461,10 @@ def get_optimization_page(
             "strategies": strategies,
             "optimizable": sum(1 for plan in plans if plan["should_optimize"]),
             "skipped": sum(1 for plan in plans if not plan["should_optimize"]),
+            "class_a_count": class_a_count,
+            "class_b_count": class_b_count,
+            "class_c_count": class_c_count,
+            "recent_results": recent_results,
             "limit": query_limit,
             "settings": settings,
             "jobs": jobs,
@@ -1482,6 +1535,11 @@ def post_optimization_run(
     children_per_request: int = Form(1),
     schedule_enabled: str = Form("0"),
     schedule_hour: int = Form(1),
+    group_neutralization: list[str] = Form(default=["subindustry"]),
+    trade_std_window: int = Form(5),
+    trade_std_threshold: float = Form(0.01),
+    decay_windows: str = Form("5,10,20"),
+    max_variants: int = Form(10),
     admin: str = Depends(get_current_admin),
 ):
     from .services.optimization_run_service import parse_alpha_ids
@@ -1497,6 +1555,11 @@ def post_optimization_run(
             "optimization_children_per_request": children_per_request,
             "optimization_schedule_enabled": schedule_enabled_value,
             "optimization_schedule_hour": schedule_hour,
+            "optimization_group_neutralization": ",".join(group_neutralization),
+            "optimization_trade_std_window": str(trade_std_window),
+            "optimization_trade_std_threshold": str(trade_std_threshold),
+            "optimization_decay_windows": decay_windows,
+            "optimization_max_variants": str(max_variants),
         }
     )
 
@@ -1509,6 +1572,11 @@ def post_optimization_run(
         "end_date": end_date,
         "alpha_ids": "\n".join(parse_alpha_ids(alpha_ids)),
         "children_per_request": children_per_request,
+        "group_neutralization": group_neutralization,
+        "trade_std_window": trade_std_window,
+        "trade_std_threshold": trade_std_threshold,
+        "decay_windows": decay_windows,
+        "max_variants": max_variants,
     })
     if action == "save_schedule":
         return RedirectResponse(url="/optimization?success=optimization_schedule_saved", status_code=status.HTTP_303_SEE_OTHER)

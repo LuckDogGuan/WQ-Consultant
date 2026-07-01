@@ -83,7 +83,8 @@ def run_optimization_job(job_id: int, params: dict[str, Any]) -> None:
             progress_total=len(plans),
             message=f"Generating variants {index}/{len(plans)} for {plan.alpha_id}...",
         )
-        variants = generate_variants_for_plan(plan, max_variants=None)
+        max_v = _positive_int(params.get("max_variants"), 10)
+        variants = generate_variants_for_plan(plan, max_variants=max_v, params=params)
         neutralization = str(getattr(plan, "source_neutralization", "") or "SUBINDUSTRY")
         add_job_event(
             job_id,

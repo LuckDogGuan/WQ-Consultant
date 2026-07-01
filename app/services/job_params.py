@@ -20,6 +20,11 @@ def normalize_optimization_params(params: dict[str, Any] | None) -> dict[str, An
         "children_per_request": _positive_int(raw.get("children_per_request"), 1),
         "region": str(raw.get("region") or ""),
         "universe": str(raw.get("universe") or ""),
+        "group_neutralization": raw.get("group_neutralization") or ["subindustry"],
+        "trade_std_window": _positive_int(raw.get("trade_std_window"), 5),
+        "trade_std_threshold": float(raw.get("trade_std_threshold") or 0.01),
+        "decay_windows": str(raw.get("decay_windows") or "5,10,20"),
+        "max_variants": _positive_int(raw.get("max_variants"), 10),
     }
 
 

@@ -41,6 +41,7 @@ class OptimizationPlan:
     expression_valid: bool = True
     expression_errors: list[dict[str, Any]] | None = None
     expression_warnings: list[dict[str, Any]] | None = None
+    alpha_class: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -404,6 +405,7 @@ def build_optimization_plan(
         expression_valid=True,
         expression_errors=[],
         expression_warnings=expression_validation.warnings,
+        alpha_class=alpha_class,
     )
 
 
@@ -484,6 +486,14 @@ def _skip(
     expression_errors: list[dict[str, Any]] | None = None,
     expression_warnings: list[dict[str, Any]] | None = None,
 ) -> OptimizationPlan:
+    has_group = any(op in expression for op in ["group_neutralize", "group_zscore", "group_rank", "group_normalize", "group_scale"])
+    has_trade = "trade_when" in expression
+    alpha_class = "Class A"
+    if has_group and has_trade:
+        alpha_class = "Class C"
+    elif has_group:
+        alpha_class = "Class B"
+
     return OptimizationPlan(
         alpha_id=alpha_id,
         name=name,
@@ -500,6 +510,7 @@ def _skip(
         expression_valid=expression_valid,
         expression_errors=expression_errors or [],
         expression_warnings=expression_warnings or [],
+        alpha_class=alpha_class,
     )
 
 
