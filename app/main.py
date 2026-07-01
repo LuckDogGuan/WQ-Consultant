@@ -2064,3 +2064,19 @@ def local_correlation_check_endpoint(alpha_id: str, admin: str = Depends(get_cur
     except Exception as e:
         logger.error(f"Failed to perform local correlation check for {alpha_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/inspector/status")
+def get_inspector_status_endpoint(admin: str = Depends(get_current_admin)):
+    """获取后台自动巡检监视器的实时运行状态和详情"""
+    from app.services.background_inspector import BackgroundInspector
+    inspector = BackgroundInspector()
+    # If the thread is not running or stopped, we set status to stopped
+    thread_active = inspector.thread is not None and inspector.thread.is_alive()
+    state = dict(inspector.current_state)
+    state["thread_active"] = thread_active
+    if not thread_active:
+        state["status"] = "stopped"
+        state["message"] = "后台巡检守护线程未启动"
+    return state
+

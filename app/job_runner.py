@@ -248,8 +248,13 @@ class JobRunner:
                         update_job(job_id, status="paused", message="任务已暂停。")
                         add_job_event(job_id, "info", "Job execution suspended successfully.")
                 else:
-                    update_job(job_id, status="completed", message="Job completed successfully.", progress_current=100, progress_total=100)
-                    add_job_event(job_id, "info", "Job execution finished.")
+                    if kind == "alpha_inspection":
+                        with connect() as conn:
+                            conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+                            conn.execute("DELETE FROM job_events WHERE job_id = ?", (job_id,))
+                    else:
+                        update_job(job_id, status="completed", message="Job completed successfully.", progress_current=100, progress_total=100)
+                        add_job_event(job_id, "info", "Job execution finished.")
         
         except JobPausedException:
             # 捕获主动暂停异常

@@ -34,6 +34,14 @@ class BackgroundInspector:
                 cls._instance.thread = None
                 cls._instance.stop_event = threading.Event()
                 cls._instance.correlation_cache = None
+                cls._instance.state_lock = threading.Lock()
+                cls._instance.current_state = {
+                    "status": "idle",
+                    "active_alphas": [],
+                    "total_count": 0,
+                    "last_run": "",
+                    "message": "巡检组件初始化完成，待机中"
+                }
             return cls._instance
             
     def start(self) -> None:
@@ -45,6 +53,11 @@ class BackgroundInspector:
                 self.thread.start()
                 logger.info("BackgroundInspector daemon thread started.")
                 
+    def update_state(self, **kwargs) -> None:
+        with self.state_lock:
+            for k, v in kwargs.items():
+                self.current_state[k] = v
+
     def stop(self) -> None:
         """停止后台自动巡检核查服务"""
         with self._lock:
@@ -66,6 +79,7 @@ class BackgroundInspector:
                 # 检查网络是否连接
                 if not NetworkMonitor().is_connected:
                     logger.debug("[BackgroundInspector] Network offline, skipping this cycle.")
+                    self.update_state(status="offline", message="网络连接已断开，暂停巡检")
                     self._sleep_seconds(10)
                     continue
                     
@@ -73,14 +87,27 @@ class BackgroundInspector:
                 password = get_setting("wq_password")
                 if not username or not password:
                     logger.debug("[BackgroundInspector] WorldQuant credentials missing in Settings, skipping.")
+                    self.update_state(status="idle", message="未配置 WQ 账号和密码，暂停巡检")
                     self._sleep_seconds(30)
                     continue
                 
-                # 开始本次巡检处理
+                self.update_state(
+                    status="running", 
+                    last_run=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    message="正在扫描待评估和待自相关校验的因子..."
+                )
                 self._process_candidates(username.strip(), password.strip())
+                
+                self.update_state(
+                    status="idle",
+                    active_alphas=[],
+                    total_count=0,
+                    message=f"巡检空闲中，上次扫描于 {self.current_state['last_run']} 完成。"
+                )
                 
             except Exception as e:
                 logger.error(f"[BackgroundInspector] Error in loop: {e}", exc_info=True)
+                self.update_state(status="error", message=f"巡检发生异常: {str(e)}")
                 
             # 每 30 秒轮询一次，降低对 WQ 平台的请求负荷
             self._sleep_seconds(30)
@@ -269,6 +296,10 @@ class BackgroundInspector:
  
         # 如果有需要退休的垃圾因子，执行批量退休
         if retire_candidates:
+            self.update_state(
+                message=f"发现 {len(retire_candidates)} 个 D 级垃圾因子，正在进行批量清理/物理退休...",
+                total_count=len(retire_candidates)
+            )
             logger.info(f"[BackgroundInspector] Found {len(retire_candidates)} Grade D alphas. Starting batch retire...")
             session = login_with_credentials(username, password)
             try:
@@ -277,6 +308,10 @@ class BackgroundInspector:
                     if self.stop_event.is_set():
                         break
                     aid = alpha["alpha_id"]
+                    self.update_state(
+                        active_alphas=[f"{aid} (D级物理退休 {idx}/{len(retire_candidates)})"],
+                        message=f"正在物理退休垃圾因子: {aid} ({idx}/{len(retire_candidates)})"
+                    )
                     logger.info(f"[BackgroundInspector] Batch retiring ({idx}/{len(retire_candidates)}): {aid}")
                     self._run_retire(session, aid, alpha)
                     # 适当增加休眠防平台限流与 429 阻断
@@ -289,6 +324,10 @@ class BackgroundInspector:
  
         # 如果有待执行任务，使用线程池并发处理
         if tasks:
+            self.update_state(
+                message=f"扫描到 {len(tasks)} 个因子检验任务，准备进行多线程批处理...",
+                total_count=len(tasks)
+            )
             logger.info(f"[BackgroundInspector] Found {len(tasks)} workflow tasks to run in this cycle.")
             session = login_with_credentials(username, password)
             
@@ -296,6 +335,7 @@ class BackgroundInspector:
             if any(w_type == "CORR" for _, w_type in tasks):
                 try:
                     if not getattr(self, "correlation_cache", None):
+                        self.update_state(message="正在加载本地自相关历史数据缓存库...")
                         logger.info("[BackgroundInspector] Pre-loading correlation cache synchronously...")
                         from app.services.background_inspector import download_correlation_data, load_correlation_data
                         download_correlation_data(session, flag_increment=True)
@@ -317,6 +357,22 @@ class BackgroundInspector:
                     return
                 r_dict, w_type = task_item
                 aid = r_dict["alpha_id"]
+                
+                action_name = ""
+                if w_type == "FETCH_PRECHECK":
+                    action_name = "拉取详情时序"
+                elif w_type == "CHECK":
+                    action_name = "Checks提交核验"
+                elif w_type == "CORR":
+                    action_name = "自相关性补算"
+                elif w_type == "FETCH":
+                    action_name = "获取年度数据"
+                
+                with self.state_lock:
+                    if f"{aid} ({action_name})" not in self.current_state["active_alphas"]:
+                        self.current_state["active_alphas"].append(f"{aid} ({action_name})")
+                    self.current_state["message"] = f"正在核查因子: " + ", ".join(self.current_state["active_alphas"])
+                
                 logger.info(f"[BackgroundInspector] Auto trigger workflow for alpha {aid}: WorkType={w_type}")
                 try:
                     if w_type == "FETCH_PRECHECK":
@@ -329,7 +385,15 @@ class BackgroundInspector:
                         self._run_fetch_pnl_details(session, aid, r_dict)
                 except Exception as e:
                     logger.error(f"[BackgroundInspector] Workflow failed for {aid} ({w_type}): {e}")
-
+                finally:
+                    with self.state_lock:
+                        if f"{aid} ({action_name})" in self.current_state["active_alphas"]:
+                            self.current_state["active_alphas"].remove(f"{aid} ({action_name})")
+                        if self.current_state["active_alphas"]:
+                            self.current_state["message"] = f"正在核查因子: " + ", ".join(self.current_state["active_alphas"])
+                        else:
+                            self.current_state["message"] = "批处理任务已完成，收尾中..."
+                            
             try:
                 with ThreadPoolExecutor(max_workers=3) as executor:
                     executor.map(run_single_task, tasks)

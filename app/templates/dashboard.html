@@ -257,6 +257,90 @@
                 </div>
             </div>
         </div>
+
+        <!-- Background Inspector Status Card -->
+        <div class="card side-card" style="margin-top: 16px;">
+            <div class="card-header">
+                <h2><i class="fa-solid fa-microchip"></i> 后台巡检监视器</h2>
+            </div>
+            <div class="card-body">
+                <div class="cache-status-container">
+                    <div id="inspector-status-alert" class="alert alert-success">
+                        <i id="inspector-status-icon" class="fa-solid fa-circle-notch fa-spin"></i>
+                        <span id="inspector-status-text">待机中</span>
+                    </div>
+                </div>
+                <ul class="info-list">
+                    <li>
+                        <span class="info-label">运行状态:</span>
+                        <span class="info-value" id="inspector-state-val" style="font-weight: bold;">就绪待机</span>
+                    </li>
+                    <li>
+                        <span class="info-label">最近扫描:</span>
+                        <span class="info-value" id="inspector-last-run-val">-</span>
+                    </li>
+                    <li style="flex-direction: column; align-items: flex-start; gap: 4px;">
+                        <span class="info-label">当前活动与详情:</span>
+                        <span class="info-value" id="inspector-msg-val" style="font-size: 11px; word-break: break-all; color: var(--text-muted); line-height: 1.4;">暂无活动</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
     </div>
 </div>
+
+<script>
+    function updateInspectorStatus() {
+        fetch('/api/inspector/status')
+            .then(res => res.json())
+            .then(data => {
+                const alertEl = document.getElementById('inspector-status-alert');
+                const iconEl = document.getElementById('inspector-status-icon');
+                const textEl = document.getElementById('inspector-status-text');
+                const stateEl = document.getElementById('inspector-state-val');
+                const lastRunEl = document.getElementById('inspector-last-run-val');
+                const msgEl = document.getElementById('inspector-msg-val');
+                
+                if (!alertEl) return;
+                
+                lastRunEl.innerText = data.last_run || '暂无扫描记录';
+                msgEl.innerText = data.message || '空闲状态';
+                
+                if (data.status === 'running') {
+                    alertEl.className = 'alert alert-info';
+                    iconEl.className = 'fa-solid fa-circle-notch fa-spin';
+                    textEl.innerText = '运行中';
+                    stateEl.innerHTML = '<span style="color: #60a5fa;">扫描分析中</span>';
+                } else if (data.status === 'offline') {
+                    alertEl.className = 'alert alert-warning';
+                    iconEl.className = 'fa-solid fa-plane-slash';
+                    textEl.innerText = '离线';
+                    stateEl.innerHTML = '<span style="color: #fbbf24;">网络断开</span>';
+                } else if (data.status === 'stopped') {
+                    alertEl.className = 'alert alert-danger';
+                    iconEl.className = 'fa-solid fa-circle-stop';
+                    textEl.innerText = '已停止';
+                    stateEl.innerHTML = '<span style="color: #f87171;">未启动</span>';
+                } else if (data.status === 'error') {
+                    alertEl.className = 'alert alert-danger';
+                    iconEl.className = 'fa-solid fa-triangle-exclamation';
+                    textEl.innerText = '异常';
+                    stateEl.innerHTML = '<span style="color: #f87171;">发生错误</span>';
+                } else {
+                    alertEl.className = 'alert alert-success';
+                    iconEl.className = 'fa-solid fa-circle-check';
+                    textEl.innerText = '空闲';
+                    stateEl.innerHTML = '<span style="color: #34d399;">就绪待机</span>';
+                }
+            })
+            .catch(err => {
+                console.error('Failed to fetch inspector status:', err);
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        updateInspectorStatus();
+        setInterval(updateInspectorStatus, 5000);
+    });
+</script>
 {% endblock %}
