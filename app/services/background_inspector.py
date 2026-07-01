@@ -184,8 +184,8 @@ class BackgroundInspector:
                     aid = alpha["alpha_id"]
                     logger.info(f"[BackgroundInspector] Batch retiring ({idx}/{len(retire_candidates)}): {aid}")
                     self._run_retire(session, aid, alpha)
-                    # 适当小休眠防平台限流
-                    time.sleep(0.1)
+                    # 适当增加休眠防平台限流与 429 阻断
+                    time.sleep(0.8)
             except Exception as e:
                 logger.error(f"[BackgroundInspector] Batch retirement error: {e}")
             finally:

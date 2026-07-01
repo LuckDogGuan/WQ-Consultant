@@ -349,6 +349,9 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             elif work_type == "FETCH":
                 inspector._run_fetch_pnl_details(session, alpha_id, row_dict)
                 
+            # 引入自适应休眠延迟，避免短时高频请求 WQ API 触发 429 频控限制
+            time.sleep(1.0)
+                
         update_job(
             job_id, 
             status="completed", 
@@ -454,6 +457,9 @@ def run_sync_local_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             except Exception as e:
                 logger.error(f"[SyncLocalAlphas] Autocorrelation check failed for {alpha_id}: {e}")
                 add_job_event(job_id, "warning", f"Alpha {alpha_id} correlation calculation failed: {e}")
+                
+            # 引入自适应休眠延迟，避免短时高频请求 WQ API 触发 429 频控限制
+            time.sleep(1.0)
                 
         update_job(
             job_id, 
