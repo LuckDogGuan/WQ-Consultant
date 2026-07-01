@@ -143,3 +143,15 @@
 * 默认情况下，巡检器在每轮扫描处理完之后会进行 **30 秒** 的休眠（低碳节能）。
 * **自适应变频**：若当前批次处理后，返回的工作任务数达到了单批并发上限（$\ge 10$ 个），系统会判定当前队列中还有任务积压，会自动将下一次检测的休眠等待时间由 30 秒缩短为 **3 秒**，从而进入“连轴转”状态以秒级速度消化积压，直至所有积压全部被消化干净后自动退回 30 秒睡眠。
 
+### 7.4 静态指标拉取前置与批量增量修补
+* **同步阶段前置拉取**：
+  * 对底层核心客户端 `consultant_core/machine_lib.py` 中的 `_alpha_query_url` 函数进行了修改，显式请求了字段投影：
+    `fields=id,name,dateCreated,regular.code,is.sharpe,is.fitness,is.turnover,is.margin,is.returns,is.drawdown,is.longCount,is.shortCount,settings.region,settings.universe,settings.neutralization,settings.decay`
+  * 这确保了未来进行“同步云端因子”时，年化收益 (`returns`) 和回撤 (`drawdown`) 等静态属性在同步阶段就直接完成拉取并入库，不再留空。
+* **存量缺失数据的高效批量修补 (`fix_missing_metrics`)**：
+  * 在 `app/services/sync_service.py` 中新增并集成了 `fix_missing_metrics(session)` 函数。
+  * 该函数会在云端同步任务快要结束（关闭会话前）自动触发。它会检索本地数据库中所有 `returns` 或 `drawdown` 缺失的活跃因子，并使用 WQ 的 Unit Separator `%1F`（多 ID 批量过滤）特性，以 **50 个 ID 为一组** 拼接后进行批量查询：
+    `https://api.worldquantbrain.com/users/self/alphas?id=A1%1FA2%1FA3...&fields=...`
+  * 该机制能够在不到 1 分钟的极短时间内（只需几百次请求即可处理 2.2 万因子），完全自动补齐所有存量因子的缺失静态指标，从而大幅度减轻后台巡检器的负载。
+
+

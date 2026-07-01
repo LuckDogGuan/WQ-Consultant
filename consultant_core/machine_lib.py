@@ -1310,7 +1310,7 @@ def _alpha_query_url(
         url += f"&is.sharpe{sign}{sharpe_th}"
     if region:
         url += f"&settings.region={region}"
-    url += f"&order={order}&hidden=false&type!=SUPER"
+    url += f"&order={order}&hidden=false&type!=SUPER&fields=id,name,dateCreated,regular.code,is.sharpe,is.fitness,is.turnover,is.margin,is.returns,is.drawdown,is.longCount,is.shortCount,settings.region,settings.universe,settings.neutralization,settings.decay"
     return url
 
 

@@ -43,6 +43,68 @@ def _record_sync_chunk(region: str, st: Any, ed: Any, status: str, fetched_count
             (region, st.isoformat(), ed.isoformat(), status, int(fetched_count), str(error)[:1000], utc_now()),
         )
 
+def fix_missing_metrics(session: requests.Session) -> None:
+    """批量从 WQ 平台拉取和修补本地数据库中缺失 returns/drawdown 等静态指标的非垃圾因子"""
+    logger.info("[SyncJob] Starting fix_missing_metrics execution...")
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT alpha_id FROM alpha_records 
+            WHERE is_garbage = 0 
+              AND (returns IS NULL OR drawdown IS NULL OR fitness IS NULL)
+            """
+        ).fetchall()
+    
+    missing_ids = [row["alpha_id"] for row in rows]
+    if not missing_ids:
+        logger.info("[SyncJob] No alphas with missing metrics found.")
+        return
+        
+    logger.info(f"[SyncJob] Found {len(missing_ids)} alphas with missing metrics. Starting batch fetch...")
+    
+    batch_size = 50
+    for i in range(0, len(missing_ids), batch_size):
+        batch = missing_ids[i:i+batch_size]
+        id_filter = "%1F".join(batch)
+        url = f"https://api.worldquantbrain.com/users/self/alphas?id={id_filter}&fields=id,is.sharpe,is.fitness,is.margin,is.returns,is.drawdown"
+        
+        try:
+            resp = session.get(url)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 5))
+                logger.warning(f"[SyncJob] Rate limited during metrics repair. Sleeping for {retry_after}s...")
+                time.sleep(retry_after)
+                resp = session.get(url)
+                
+            results = resp.json().get("results", [])
+            with connect() as conn:
+                for alpha in results:
+                    aid = alpha.get("id")
+                    metrics = alpha.get("is") or {}
+                    sharpe = metrics.get("sharpe")
+                    fitness = metrics.get("fitness")
+                    margin = metrics.get("margin")
+                    returns = metrics.get("returns")
+                    drawdown = metrics.get("drawdown")
+                    
+                    conn.execute(
+                        """
+                        UPDATE alpha_records 
+                        SET sharpe = COALESCE(?, sharpe),
+                            fitness = COALESCE(?, fitness),
+                            margin = COALESCE(?, margin),
+                            returns = COALESCE(?, returns),
+                            drawdown = COALESCE(?, drawdown),
+                            updated_at = datetime('now')
+                        WHERE alpha_id = ?
+                        """,
+                        (sharpe, fitness, margin, returns, drawdown, aid)
+                    )
+            logger.info(f"[SyncJob] Successfully repaired metrics for batch {i//batch_size + 1}/{(len(missing_ids)-1)//batch_size + 1}")
+            time.sleep(0.5)
+        except Exception as e:
+            logger.error(f"[SyncJob] Error repairing metrics batch: {e}")
+
 def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
     """同步云端因子任务：拉取最近 30 天因子，将未记录的新增因子添加入库，并自动触发评估"""
     lookback_days = int(params.get("lookback_days", 30))
@@ -144,6 +206,13 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             else:
                 failed_chunks.append((st, ed, last_error))
                     
+        # 在关闭会话前，增量修补数据库中缺失 returns/drawdown/fitness 静态属性的历史因子
+        try:
+            update_job(job_id, message="正在从 WQ 平台增量修补缺失静态属性的因子...", progress_current=55, progress_total=100)
+            fix_missing_metrics(session)
+        except Exception as e:
+            logger.error(f"[SyncJob] Failed to execute metrics repair: {e}")
+
         session.close()
         
         if dfs:
