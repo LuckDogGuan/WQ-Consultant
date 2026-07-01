@@ -22,6 +22,7 @@ class NetworkMonitor:
                 cls._instance.is_connected = True
                 cls._instance.thread = None
                 cls._instance.stop_event = threading.Event()
+                cls._instance.consecutive_failures = 0
             return cls._instance
             
     def start(self) -> None:
@@ -57,6 +58,11 @@ class NetworkMonitor:
                 connected = True
             except Exception:
                 connected = False
+                
+            if connected:
+                self.consecutive_failures = 0
+            else:
+                self.consecutive_failures += 1
                 
             if connected != self.is_connected:
                 self.is_connected = connected
@@ -107,8 +113,18 @@ class NetworkMonitor:
                                 (job_id, utc_now())
                             )
                             
-            # 每 10 分钟 (600 秒) 进行一次扫描检测
+            # 根据是否连接以及连续失败次数确定下一次扫描延迟时间 (1分钟/5分钟自适应模式)
+            if self.is_connected:
+                sleep_interval = 60  # 正常状态：1 分钟扫描一次
+            else:
+                if self.consecutive_failures >= 5:
+                    sleep_interval = 300  # 连续 5 次及以上重试失败：降低频率为 5 分钟
+                else:
+                    sleep_interval = 60  # 连续失败前 5 次：每 1 分钟尝试一次
+            
+            logger.debug(f"NetworkMonitor sleeping for {sleep_interval}s. Consecutive failures: {self.consecutive_failures}")
+            
             slept = 0
-            while slept < 600 and not self.stop_event.is_set():
+            while slept < sleep_interval and not self.stop_event.is_set():
                 time.sleep(1)
                 slept += 1
