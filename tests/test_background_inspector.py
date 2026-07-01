@@ -233,7 +233,8 @@ class BackgroundInspectorTests(unittest.TestCase):
         mock_get_alphas.return_value = pd.DataFrame()
 
         today = datetime.now().date()
-        yesterday = today - timedelta(days=1)
+        yesterday = today - timedelta(days=10)
+        yesterday_end = yesterday + timedelta(days=1)
         with connect() as conn:
             conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (889, 'sync_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
             conn.execute(
@@ -241,12 +242,12 @@ class BackgroundInspectorTests(unittest.TestCase):
                 INSERT INTO sync_chunks(kind, region, chunk_start, chunk_end, status, fetched_count, error, updated_at)
                 VALUES ('wq_sync', 'USA', ?, ?, 'success', 0, '', datetime('now'))
                 """,
-                (yesterday.isoformat(), today.isoformat()),
+                (yesterday.isoformat(), yesterday_end.isoformat()),
             )
 
-        run_sync_alphas_job(889, {"lookback_days": 1})
+        run_sync_alphas_job(889, {"lookback_days": 10})
 
-        self.assertEqual(mock_get_alphas.call_count, 1)
+        self.assertEqual(mock_get_alphas.call_count, 10)
 
     @patch("app.services.sync_service.login_with_credentials")
     @patch("app.services.sync_service.get_alphas_full")

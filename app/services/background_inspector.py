@@ -425,7 +425,10 @@ class BackgroundInspector:
             if resp.status_code == 200:
                 try:
                     stats_json = resp.json()
-                    yearly_stats = stats_json.get('records', [])
+                    if isinstance(stats_json, dict):
+                        yearly_stats = stats_json.get('records', [])
+                    elif isinstance(stats_json, list):
+                        yearly_stats = stats_json
                 except Exception as e:
                     logger.warning(f"[BackgroundInspector] Failed to parse yearly-stats JSON for {alpha_id}: {e}")
                 
@@ -437,7 +440,11 @@ class BackgroundInspector:
             if resp_pnl.status_code == 200:
                 try:
                     pnl_json = resp_pnl.json()
-                    pnl_records = pnl_json.get('records', [])
+                    if isinstance(pnl_json, dict):
+                        pnl_records = pnl_json.get('records', [])
+                    elif isinstance(pnl_json, list):
+                        pnl_records = pnl_json
+                    
                     if pnl_records:
                         import pandas as pd
                         pnl_df = pd.DataFrame(pnl_records)

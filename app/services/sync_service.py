@@ -73,6 +73,18 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
         import pandas as pd
         
         today = datetime.now().date()
+        
+        # 允许对最近 7 天的分片进行强制刷新，避免云端新提交的因子被缓存跳过
+        delete_threshold_date = today - timedelta(days=7)
+        with connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM sync_chunks
+                WHERE kind = 'wq_sync' AND region = ? AND chunk_end >= ?
+                """,
+                (region, delete_threshold_date.isoformat())
+            )
+            
         all_chunks = []
         for i in range(lookback_days + 1):
             st = today - timedelta(days=lookback_days - i)
