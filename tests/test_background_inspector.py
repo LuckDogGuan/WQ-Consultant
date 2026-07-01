@@ -293,32 +293,8 @@ class BackgroundInspectorTests(unittest.TestCase):
             "margin": 0.0012,
             "prod_corr": 0.0,
             "status": "CHECKED_PASS",
-            "source": "wq_sync"
-        })
-        
-        # Create job in DB
-
-    @patch("app.services.sync_service.login_with_credentials")
-    @patch("app.services.background_inspector.BackgroundInspector._run_autocorrelation")
-    def test_run_alpha_inspection_job(self, mock_run_auto, mock_login):
-        from app.services.sync_service import run_alpha_inspection_job
-        
-        session_mock = MagicMock()
-        mock_login.return_value = session_mock
-        
-        # Pre-insert one alpha with missing correlation
-        upsert_alpha({
-            "alpha_id": "A_INSP_1",
-            "alpha_type": "",
-            "name": "Inspection Alpha 1",
-            "region": "USA",
-            "universe": "TOP3000",
-            "sharpe": 1.45,
-            "fitness": 1.0,
-            "margin": 0.0012,
-            "prod_corr": 0.0,
-            "status": "CHECKED_PASS",
-            "source": "wq_sync"
+            "source": "wq_sync",
+            "payload": json.dumps({"pnl_fetched": True})
         })
         
         # Create job in DB
@@ -401,7 +377,8 @@ class BackgroundInspectorTests(unittest.TestCase):
             "margin": 0.0012,
             "prod_corr": 0.0,
             "status": "UNSUBMITTED",
-            "source": "wq_sync"
+            "source": "wq_sync",
+            "payload": json.dumps({"pnl_fetched": True})
         })
         upsert_alpha({
             "alpha_id": "A_INSP_OLD",
@@ -414,7 +391,8 @@ class BackgroundInspectorTests(unittest.TestCase):
             "margin": 0.0012,
             "prod_corr": 0.0,
             "status": "UNSUBMITTED",
-            "source": "wq_sync"
+            "source": "wq_sync",
+            "payload": json.dumps({"pnl_fetched": True})
         })
         
         # Create job in DB
