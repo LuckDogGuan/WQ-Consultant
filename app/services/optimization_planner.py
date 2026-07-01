@@ -366,29 +366,52 @@ def build_optimization_plan(
     has_group = any(op in expression for op in ["group_neutralize", "group_zscore", "group_rank", "group_normalize", "group_scale"])
     has_trade = "trade_when" in expression
     
-    alpha_class = "Class A"
-    if has_group and has_trade:
-        alpha_class = "Class C"
-    elif has_group:
-        alpha_class = "Class B"
+    alpha_class = alpha_record.get("alpha_class")
+    if not alpha_class:
+        alpha_class = "Class A"
+        if has_group and has_trade:
+            alpha_class = "Class C"
+        elif has_group:
+            alpha_class = "Class B"
         
     is_corr_fail = (status_val == "CORR_FAIL") or any(str(chk.get("name")).upper() in ["SELF_CORRELATION", "PROD_CORRELATION"] for chk in failed_checks)
     
-    if is_corr_fail:
-        strategy = "decorrelate"
-        if alpha_class == "Class A":
-            modes = ["decorrelate", "group", "stable"]
-            reason = "Class A: 未消偏特征因子，自相关性过高"
-        elif alpha_class == "Class B":
-            modes = ["decorrelate", "trade", "stable"]
-            reason = "Class B: 中性化风控因子，自相关性过高"
-        else:
-            strategy = "settings_only"
+    pre_strategy = alpha_record.get("optimization_strategy")
+    if pre_strategy:
+        strategy = pre_strategy
+        if strategy == "decorrelate":
+            if alpha_class == "Class A":
+                modes = ["decorrelate", "group", "stable"]
+                reason = "Class A: 未消偏特征因子，自相关性过高"
+            elif alpha_class == "Class B":
+                modes = ["decorrelate", "trade", "stable"]
+                reason = "Class B: 中性化风控因子，自相关性过高"
+            else:
+                strategy = "settings_only"
+                modes = []
+                reason = "Class C: 满载完成因子，不建议添加算子优化"
+        elif strategy == "settings_only":
             modes = []
-            reason = "Class C: 满载完成因子，不建议添加算子优化"
+            reason = f"{alpha_class}: 满载完成因子，不建议添加算子优化"
+        else:
+            _, modes, raw_reason = choose_strategy(failed_checks, level, check_result)
+            reason = f"{alpha_class}: {raw_reason}"
     else:
-        strategy, modes, raw_reason = choose_strategy(failed_checks, level, check_result)
-        reason = f"{alpha_class}: {raw_reason}"
+        if is_corr_fail:
+            strategy = "decorrelate"
+            if alpha_class == "Class A":
+                modes = ["decorrelate", "group", "stable"]
+                reason = "Class A: 未消偏特征因子，自相关性过高"
+            elif alpha_class == "Class B":
+                modes = ["decorrelate", "trade", "stable"]
+                reason = "Class B: 中性化风控因子，自相关性过高"
+            else:
+                strategy = "settings_only"
+                modes = []
+                reason = "Class C: 满载完成因子，不建议添加算子优化"
+        else:
+            strategy, modes, raw_reason = choose_strategy(failed_checks, level, check_result)
+            reason = f"{alpha_class}: {raw_reason}"
     return OptimizationPlan(
         alpha_id=alpha_id,
         name=name,
@@ -430,7 +453,7 @@ def choose_strategy(
 
 
 def list_optimization_plans(limit: int = 200) -> list[OptimizationPlan]:
-    limit = max(1, min(int(limit), 1000))
+    limit = max(1, min(int(limit), 5000))
     with connect() as conn:
         rows = conn.execute(
             """

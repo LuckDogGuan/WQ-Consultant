@@ -320,7 +320,7 @@ def get_optimization_page(
     settings = get_settings()
     with connect() as conn:
         jobs = conn.execute("SELECT * FROM jobs WHERE kind = 'optimization_run' ORDER BY id DESC LIMIT 5").fetchall()
-    query_limit = max(1, min(int(limit or settings.get("optimization_scan_limit") or 200), 1000))
+    query_limit = max(1, min(int(limit or settings.get("optimization_scan_limit") or 200), 5000))
     plan_where = ["a.is_garbage = 0", "a.alpha_type IN ('S', 'A', 'B', 'C')"]
     plan_params: list[Any] = []
     if level_filter:

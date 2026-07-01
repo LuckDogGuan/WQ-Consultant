@@ -135,6 +135,8 @@ def init_db() -> None:
             ("is_garbage", "INTEGER NOT NULL DEFAULT 0"),
             ("skip_reason", "TEXT NOT NULL DEFAULT ''"),
             ("remote_validation_note", "TEXT NOT NULL DEFAULT ''"),
+            ("alpha_class", "TEXT NOT NULL DEFAULT ''"),
+            ("optimization_strategy", "TEXT NOT NULL DEFAULT ''"),
         ]
         for col_name, col_type in new_columns:
             if col_name not in existing_cols:
@@ -144,7 +146,20 @@ def init_db() -> None:
                     import logging
                     logging.getLogger(__name__).error(f"Failed to add column {col_name} to alpha_records: {e}")
 
-                    
+        # One-time migration to pre-populate alpha_class and optimization_strategy
+        cursor.execute("SELECT alpha_id FROM alpha_records WHERE alpha_class = '' OR optimization_strategy = ''")
+        empty_alphas = [r[0] for r in cursor.fetchall()]
+        if empty_alphas:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Pre-tagging {len(empty_alphas)} existing alphas in database...")
+            for aid in empty_alphas:
+                try:
+                    refresh_alpha_tags(conn, aid)
+                except Exception as e:
+                    logger.error(f"Failed to pre-tag {aid}: {e}")
+            logger.info("Pre-tagging complete.")
+
         seed_defaults(conn)
 
 
@@ -391,6 +406,7 @@ def upsert_alpha(record: dict[str, Any]) -> None:
                 now,
             ),
         )
+        refresh_alpha_tags(conn, alpha_id)
 
 
 def add_check_result(alpha_id: str, result: str, prod_corr: float | None, message: str, source: str = "", payload: dict[str, Any] | None = None) -> None:
@@ -402,6 +418,7 @@ def add_check_result(alpha_id: str, result: str, prod_corr: float | None, messag
             """,
             (alpha_id, result, prod_corr, source, message, json.dumps(payload or {}, ensure_ascii=False), utc_now()),
         )
+        refresh_alpha_tags(conn, alpha_id)
 
 
 def list_rows(table: str, page: int = 1, page_size: int = 50, where: str = "", params: Iterable[Any] = (), order_by: str = "id DESC") -> tuple[list[sqlite3.Row], int]:
@@ -448,4 +465,40 @@ def read_log_tail(path: Path, max_lines: int = 200) -> list[str]:
         return []
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     return lines[-max_lines:]
+
+
+def refresh_alpha_tags(conn, alpha_id: str) -> None:
+    row = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
+    if not row:
+        return
+        
+    record = dict(row)
+    
+    chk_row = conn.execute(
+        "SELECT result, message, payload FROM check_results WHERE alpha_id = ? ORDER BY id DESC LIMIT 1",
+        (alpha_id,)
+    ).fetchone()
+    
+    check_result = chk_row["result"] if chk_row else ""
+    check_message = chk_row["message"] if chk_row else ""
+    check_payload = chk_row["payload"] if chk_row else "{}"
+    
+    from .services.optimization_planner import build_optimization_plan
+    try:
+        plan = build_optimization_plan(
+            record,
+            check_payload=check_payload,
+            check_message=check_message,
+            check_result=check_result
+        )
+        alpha_class = plan.alpha_class or ""
+        strategy = plan.strategy or ""
+        
+        conn.execute(
+            "UPDATE alpha_records SET alpha_class = ?, optimization_strategy = ? WHERE alpha_id = ?",
+            (alpha_class, strategy, alpha_id)
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to refresh tags for {alpha_id}: {e}")
 

@@ -285,13 +285,36 @@
             </div>
             <div class="card-body" style="padding-top: 10px;">
                 <!-- 快速过滤 Tabs -->
-                <div class="filter-bar" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 14px;">
-                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <div class="filter-bar" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 14px;">
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-right: auto;">
                         <a href="/optimization?page=1&status_filter=&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == '' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
                         <a href="/optimization?page=1&status_filter=optimizable&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'optimizable' %}btn-primary{% else %}btn-secondary{% endif %}">待优化候选</a>
                         <a href="/optimization?page=1&status_filter=corr_fail&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'corr_fail' %}btn-primary{% else %}btn-secondary{% endif %}"><i class="fa-solid fa-triangle-exclamation text-danger"></i> 自相关性超标</a>
                         <a href="/optimization?page=1&status_filter=other_opt&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'other_opt' %}btn-primary{% else %}btn-secondary{% endif %}"><i class="fa-solid fa-chart-line text-info"></i> 性能表现优化</a>
                         <a href="/optimization?page=1&status_filter=skipped&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit={{ limit }}" class="btn btn-sm {% if status_filter == 'skipped' %}btn-primary{% else %}btn-secondary{% endif %}">已跳过</a>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label for="level_filter_select" style="font-size: 12px; color: var(--text-muted); white-space: nowrap;">评级</label>
+                        <select id="level_filter_select" onchange="window.location.href=this.value" class="filter-select" style="padding: 4px 8px; font-size: 12px;">
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == '' %}selected{% endif %}>全部</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=S&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'S' %}selected{% endif %}>S级</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=A&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'A' %}selected{% endif %}>A级</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=B&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'B' %}selected{% endif %}>B级</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=C&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'C' %}selected{% endif %}>C级</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter=D&strategy_filter={{ strategy_filter }}&limit={{ limit }}" {% if level_filter == 'D' %}selected{% endif %}>D级</option>
+                        </select>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label for="limit_select" style="font-size: 12px; color: var(--text-muted); white-space: nowrap;">扫描上限</label>
+                        <select id="limit_select" onchange="window.location.href=this.value" class="filter-select" style="padding: 4px 8px; font-size: 12px;">
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit=200" {% if limit == 200 %}selected{% endif %}>200 个</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit=500" {% if limit == 500 %}selected{% endif %}>500 个</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit=1000" {% if limit == 1000 %}selected{% endif %}>1000 个</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit=2000" {% if limit == 2000 %}selected{% endif %}>2000 个</option>
+                            <option value="/optimization?page=1&status_filter={{ status_filter }}&level_filter={{ level_filter }}&strategy_filter={{ strategy_filter }}&limit=5000" {% if limit == 5000 %}selected{% endif %}>5000 个</option>
+                        </select>
                     </div>
                 </div>
 
