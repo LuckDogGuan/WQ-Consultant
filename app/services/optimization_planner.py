@@ -43,6 +43,7 @@ class OptimizationPlan:
     expression_warnings: list[dict[str, Any]] | None = None
     alpha_class: str = ""
     confidence_score: float = 0.0
+    economic_suggestion: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -447,6 +448,21 @@ def build_optimization_plan(
             
     confidence_score = max(0.0, min(100.0, confidence_score))
 
+    # 映射物理与经济学优化建议 (Physical & Economic Salvage Meanings)
+    economic_suggestion = ""
+    if strategy == "decorrelate":
+        economic_suggestion = "剥离行业风格共性。从经济学来看，该因子暴露了行业风格 Beta，利用 group_neutralize 强制进行板块中性化，可将持仓完全对称于各子板块，从而过滤宏观冲击以提取特异性超额收益 (Pure Idiosyncratic Alpha)。"
+    elif strategy == "improve_performance":
+        economic_suggestion = "资产估值截面比较。从微观结构来看，因子的绝对强度较弱。通过 ts_rank 时序/截面均匀分位化，可抹平异常绝对值暴露，使策略能够更稳健地基于全市场进行相对强弱比较，显著提升夏普与拟合度。"
+    elif strategy == "adjust_turnover":
+        economic_suggestion = "流动性平滑与信息显著度门槛。从微观结构来看，频繁的调仓产生高昂的交易滑点与冲击成本 (Slippage)。利用 trade_when 算子仅在波动率偏离显著时换仓，可锁定核心信号，实现换手率大幅骤减。"
+    elif strategy == "improve_margin":
+        economic_suggestion = "交易滑点摩擦平摊。从执行层面看，每笔交易的盈利空间无法抵抗交易摩擦。在最外层叠加 ts_decay_linear 时序线性衰减，能将单日突发信号在时序上进行平滑平摊，从而平滑持仓并大幅改善成交 Margin。"
+    elif strategy == "settings_only":
+        economic_suggestion = "已达满载极限，不宜继续叠加算子。当前因子表达式的算子数量过多，继续添加算子易导致过拟合。建议在 Settings 层面调参，利用 Universe 或 Decay 进行网格扫频优化。"
+    else:
+        economic_suggestion = "基础优化诊断中，建议结合 Settings 网格参数扫频来降低 Turnover 并改善绩效。"
+
     return OptimizationPlan(
         alpha_id=alpha_id,
         name=name,
@@ -465,6 +481,7 @@ def build_optimization_plan(
         expression_warnings=expression_validation.warnings,
         alpha_class=alpha_class,
         confidence_score=confidence_score,
+        economic_suggestion=economic_suggestion,
     )
 
 
@@ -571,6 +588,7 @@ def _skip(
         expression_warnings=expression_warnings or [],
         alpha_class=alpha_class,
         confidence_score=0.0,
+        economic_suggestion="",
     )
 
 

@@ -375,6 +375,11 @@
                                         <span class="text-xs text-light" style="margin-left: 6px;">{{ plan.reason or plan.skip_reason }}</span>
                                     </div>
                                     <div class="text-xs text-muted" style="margin-top: 4px; font-family: monospace; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ plan.expression }}">{{ plan.expression }}</div>
+                                    {% if plan.economic_suggestion %}
+                                    <div class="text-xs" style="margin-top: 6px; color: #a3be8c; line-height: 1.4; border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 4px; max-width: 380px; white-space: normal;">
+                                        <i class="fa-solid fa-lightbulb text-warning"></i> <strong>物理/经济意义:</strong> {{ plan.economic_suggestion }}
+                                    </div>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     {% if plan.should_optimize %}

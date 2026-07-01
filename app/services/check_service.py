@@ -314,16 +314,12 @@ def run_check_job(job_id: int, params: dict[str, Any]) -> None:
             
     check_queue = list(id_sources)
     
-    # 增量断点恢复：过滤自当前 Job 创建时间以来，已写入 check_results 的记录
+    # 增量断点恢复：全局过滤所有已成功执行 checks 校验的因子记录，避免重复提交
     with connect() as conn:
-        job_row = conn.execute("SELECT created_at FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        job_created_at = job_row["created_at"] if job_row else "1970-01-01 00:00:00"
-        
         finished_ids = {
             r["alpha_id"] 
             for r in conn.execute(
-                "SELECT alpha_id FROM check_results WHERE created_at >= ? AND result != 'ERROR'", 
-                (job_created_at,)
+                "SELECT alpha_id FROM check_results WHERE result != 'ERROR'"
             ).fetchall()
         }
         

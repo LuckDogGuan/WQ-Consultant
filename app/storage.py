@@ -137,6 +137,7 @@ def init_db() -> None:
             ("remote_validation_note", "TEXT NOT NULL DEFAULT ''"),
             ("alpha_class", "TEXT NOT NULL DEFAULT ''"),
             ("optimization_strategy", "TEXT NOT NULL DEFAULT ''"),
+            ("economic_suggestion", "TEXT NOT NULL DEFAULT ''"),
         ]
         for col_name, col_type in new_columns:
             if col_name not in existing_cols:
@@ -493,10 +494,11 @@ def refresh_alpha_tags(conn, alpha_id: str) -> None:
         )
         alpha_class = plan.alpha_class or ""
         strategy = plan.strategy or ""
+        economic_suggestion = plan.economic_suggestion or ""
         
         conn.execute(
-            "UPDATE alpha_records SET alpha_class = ?, optimization_strategy = ? WHERE alpha_id = ?",
-            (alpha_class, strategy, alpha_id)
+            "UPDATE alpha_records SET alpha_class = ?, optimization_strategy = ?, economic_suggestion = ? WHERE alpha_id = ?",
+            (alpha_class, strategy, economic_suggestion, alpha_id)
         )
     except Exception as e:
         import logging
