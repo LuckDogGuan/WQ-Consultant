@@ -96,7 +96,7 @@ class BackgroundInspector:
                     last_run=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     message="正在扫描待评估和待自相关校验的因子..."
                 )
-                self._process_candidates(username.strip(), password.strip())
+                processed_count = self._process_candidates(username.strip(), password.strip())
                 
                 self.update_state(
                     status="idle",
@@ -104,6 +104,12 @@ class BackgroundInspector:
                     total_count=0,
                     message=f"巡检空闲中，上次扫描于 {self.current_state['last_run']} 完成。"
                 )
+                
+                # 如果当前批次处理满了（说明队列中可能还有待处理因子），仅休眠 3 秒后立即进行下一轮，实现自适应加速
+                if processed_count and processed_count >= 10:
+                    logger.info(f"[BackgroundInspector] Batch fully loaded ({processed_count} tasks). Scheduling next loop in 3 seconds to clear backlog.")
+                    self._sleep_seconds(3)
+                    continue
                 
             except Exception as e:
                 logger.error(f"[BackgroundInspector] Error in loop: {e}", exc_info=True)
@@ -206,7 +212,7 @@ class BackgroundInspector:
         
         return existing_payload
 
-    def _process_candidates(self, username: str, password: str) -> None:
+    def _process_candidates(self, username: str, password: str) -> int:
         # 从本地数据库读取所有未标记为 garbage 的因子
         with connect() as conn:
             rows = conn.execute(
@@ -214,7 +220,7 @@ class BackgroundInspector:
             ).fetchall()
             
         if not rows:
-            return
+            return 0
             
         retire_candidates = []
         tasks = []
@@ -320,7 +326,7 @@ class BackgroundInspector:
                 logger.error(f"[BackgroundInspector] Batch retirement error: {e}")
             finally:
                 session.close()
-            return
+            return len(retire_candidates)
  
         # 如果有待执行任务，使用线程池并发处理
         if tasks:
@@ -401,6 +407,8 @@ class BackgroundInspector:
                 logger.error(f"[BackgroundInspector] Tasks execution error: {e}")
             finally:
                 session.close()
+            return len(tasks)
+        return 0
  
     def _run_check_submit(self, session: requests.Session, alpha_id: str, row_dict: dict[str, Any]) -> None:
         """自动触发 WQ 平台 Checks 进行核验评估"""
