@@ -42,6 +42,7 @@ class OptimizationPlan:
     expression_errors: list[dict[str, Any]] | None = None
     expression_warnings: list[dict[str, Any]] | None = None
     alpha_class: str = ""
+    confidence_score: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -412,6 +413,40 @@ def build_optimization_plan(
         else:
             strategy, modes, raw_reason = choose_strategy(failed_checks, level, check_result)
             reason = f"{alpha_class}: {raw_reason}"
+    # 计算确定性得分 (Certainty/Confidence Score)
+    confidence_score = 50.0
+    sharpe_val = float(alpha_record.get("sharpe") or 0.0)
+    fitness_val = float(alpha_record.get("fitness") or 0.0)
+    margin_val = float(alpha_record.get("margin") or 0.0)
+    
+    if sharpe_val >= 1.50:
+        confidence_score += 15.0
+    elif sharpe_val >= 1.25:
+        confidence_score += 5.0
+        
+    if fitness_val >= 1.50:
+        confidence_score += 10.0
+        
+    if margin_val >= 0.0020:
+        confidence_score += 10.0
+        
+    for chk in failed_checks:
+        chk_name = str(chk.get("name")).upper()
+        if chk_name in ["SELF_CORRELATION", "PROD_CORRELATION"]:
+            prod_corr = float(alpha_record.get("prod_corr") or 0.0)
+            if prod_corr > 0.85:
+                confidence_score -= 25.0
+            else:
+                confidence_score -= 10.0
+        elif chk_name == "PASTEURIZATION":
+            confidence_score += 10.0  # 极易通过 rank 拯救
+        elif chk_name == "HIGH_TURNOVER":
+            confidence_score -= 10.0
+        elif chk_name in ["LOW_SHARPE", "LOW_FITNESS"]:
+            confidence_score -= 15.0
+            
+    confidence_score = max(0.0, min(100.0, confidence_score))
+
     return OptimizationPlan(
         alpha_id=alpha_id,
         name=name,
@@ -429,6 +464,7 @@ def build_optimization_plan(
         expression_errors=[],
         expression_warnings=expression_validation.warnings,
         alpha_class=alpha_class,
+        confidence_score=confidence_score,
     )
 
 
@@ -534,6 +570,7 @@ def _skip(
         expression_errors=expression_errors or [],
         expression_warnings=expression_warnings or [],
         alpha_class=alpha_class,
+        confidence_score=0.0,
     )
 
 

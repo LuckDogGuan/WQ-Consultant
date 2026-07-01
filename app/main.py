@@ -391,6 +391,9 @@ def get_optimization_page(
     if strategy_filter:
         plans = [plan for plan in plans if plan["strategy"] == strategy_filter]
 
+    # 优先显示可优化因子，并按照确定性得分从高到低排序
+    plans.sort(key=lambda p: (1 if p.get("should_optimize") else 0, p.get("confidence_score") or 0.0), reverse=True)
+
     class_a_count = sum(1 for plan in plans if plan.get("alpha_class") == "Class A" and plan.get("should_optimize"))
     class_b_count = sum(1 for plan in plans if plan.get("alpha_class") == "Class B" and plan.get("should_optimize"))
     class_c_count = sum(1 for plan in plans if plan.get("alpha_class") == "Class C" and plan.get("should_optimize"))

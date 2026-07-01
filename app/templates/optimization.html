@@ -326,6 +326,7 @@
                                 <th>优化诊断</th>
                                 <th>自相关</th>
                                 <th>指标 (S/F/M)</th>
+                                <th>确定性得分</th>
                                 <th>诊断与建议动作</th>
                                 <th>操作</th>
                             </tr>
@@ -357,6 +358,16 @@
                                     <div class="text-xs text-muted">
                                         Sharpe: <span class="text-light font-bold">{{ plan.sharpe or '-' }}</span> | Fit: <span class="text-light">{{ plan.fitness or '-' }}</span> | Marg: <span class="text-light">{{ plan.margin or '-' }}</span>
                                     </div>
+                                </td>
+                                <td>
+                                    {% set score = plan.confidence_score | round | int %}
+                                    {% if score >= 80 %}
+                                    <span class="badge status-PASS" style="background: #a3be8c; color: #1e222b;" title="极易救活，高确定性推荐">高 ({{ score }}分)</span>
+                                    {% elif score >= 50 %}
+                                    <span class="badge status-PASS" style="background: #ebcb8b; color: #1e222b;" title="中等成功率，建议中性化或时序平滑">中 ({{ score }}分)</span>
+                                    {% else %}
+                                    <span class="badge status-FAIL" style="background: #bf616a; color: #eceff4;" title="拯救难度高，存在严重性能或过多碰撞">低 ({{ score }}分)</span>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     <div>
