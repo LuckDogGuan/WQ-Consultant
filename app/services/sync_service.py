@@ -229,7 +229,7 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
 
 
 def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
-    """批量对未做自相关性检测、核查或缺失 IS/OS 统计的因子进行自动校验与优化"""
+    """批量对未做自相关性检测、核查或静态指标缺失的因子进行自动校验与优化"""
     from app.services.background_inspector import BackgroundInspector
     from app.services.template_iteration import grade_candidate_result
     from app.services.optimization_planner import _extract_yearly_stats
@@ -243,9 +243,18 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
         
     update_job(job_id, status="running", message="正在分析待评估的因子列表...", progress_current=5, progress_total=100)
     
-    # 1. 查找所有未被标记为 garbage 的因子
+    only_new = params.get("only_new", False) if isinstance(params, dict) else False
+    
+    # 1. 根据 only_new 分支读取待处理因子
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM alpha_records WHERE is_garbage = 0").fetchall()
+        if only_new:
+            # 仅处理最近同步且未评级的因子
+            rows = conn.execute(
+                "SELECT * FROM alpha_records WHERE is_garbage = 0 AND (alpha_type IS NULL OR alpha_type = '')"
+            ).fetchall()
+        else:
+            # 全量巡检正常因子
+            rows = conn.execute("SELECT * FROM alpha_records WHERE is_garbage = 0").fetchall()
         
     candidates = []
     
@@ -263,7 +272,10 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             except Exception:
                 pass
                 
-        # 计算当前因子的评级以校验其他缺失指标
+        pnl_fetched = payload.get("pnl_fetched", False)
+        self_corr_checked = payload.get("self_corr_checked", False)
+        
+        # 计算当前因子的评级以校验其他指标
         sharpe = row_dict.get("sharpe")
         fitness = row_dict.get("fitness")
         margin = row_dict.get("margin")
@@ -289,12 +301,24 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             candidates.append((row_dict, "RETIRE"))
             continue
             
-        # A. 自相关性检测缺失 (prod_corr IS NULL 或 0.0) -> 优先本地补算自相关性
-        if prod_corr is None or prod_corr == 0.0:
+        # 1. 检查 Checkpoint 1: pnl_fetched
+        if not pnl_fetched:
+            candidates.append((row_dict, "FETCH_PRECHECK"))
+            continue
+            
+        # 2. 检查 Checkpoint 2: self_corr_checked (自相关性检测)
+        if not self_corr_checked:
             candidates.append((row_dict, "CORR"))
             continue
             
-        # B. 评级 C 级及以上，状态为 UNSUBMITTED，且没有本地 check 记录 -> 自动远程 Checks 校验
+        sim_status = str(payload.get("status") or "").upper()
+        if sim_status in {"ERROR", "FAIL"}:
+            # 如果是仿真 Error/Fail 因子，且数据库中的状态还没打上 ERROR/FAIL，需要触发 CORR 来自动标记并改名
+            if status not in {"ERROR", "FAIL"}:
+                candidates.append((row_dict, "CORR"))
+            continue
+            
+        # 3. 评级 C 级及以上，状态为 UNSUBMITTED，且没有本地 check 记录 -> 自动远程 Checks 校验
         if grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
             with connect() as conn:
                 chk_row = conn.execute("SELECT id FROM check_results WHERE alpha_id = ?", (alpha_id,)).fetchone()
@@ -302,7 +326,7 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
                 candidates.append((row_dict, "CHECK"))
                 continue
                 
-        # C. 评级 C 级及以上，但缺少年度分解数据 (yearly-stats) -> 补充明细数据
+        # 4. 评级 C 级及以上，但缺少年度分解数据 (yearly-stats) -> 补充明细数据并最终评级重命名
         if grade in {"S", "A", "B", "C"}:
             if not yearly_stats:
                 candidates.append((row_dict, "FETCH"))
@@ -329,6 +353,8 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             action_desc = ""
             if work_type == "RETIRE":
                 action_desc = "垃圾因子物理退休"
+            elif work_type == "FETCH_PRECHECK":
+                action_desc = "拉取详情与时序"
             elif work_type == "CORR":
                 action_desc = "自相关性补算"
             elif work_type == "CHECK":
@@ -342,6 +368,8 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
             
             if work_type == "RETIRE":
                 inspector._run_retire(session, alpha_id, row_dict)
+            elif work_type == "FETCH_PRECHECK":
+                inspector._fetch_alpha_precheck_data(session, alpha_id, row_dict)
             elif work_type == "CHECK":
                 inspector._run_check_submit(session, alpha_id, row_dict)
             elif work_type == "CORR":

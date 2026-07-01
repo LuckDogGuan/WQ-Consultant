@@ -91,6 +91,94 @@ class BackgroundInspector:
             time.sleep(1)
             slept += 1
  
+    def classify_simulation_error(self, payload: dict[str, Any]) -> str:
+        """根据仿真详情日志或状态，将因子错误归类"""
+        status = str(payload.get("status") or "").upper()
+        message = str(payload.get("message") or "").lower()
+        if "error" in payload and isinstance(payload["error"], dict):
+            message += " " + str(payload["error"].get("message") or "").lower()
+        if "log" in payload:
+            message += " " + str(payload.get("log") or "").lower()
+            
+        if "parentheses" in message or "syntax" in message or "operator" in message or "parse" in message:
+            return "TODO_SYNTAX"
+        elif "datafield" in message or "restricted" in message or "invalid field" in message or "unauthorized" in message:
+            return "TODO_DATAFIELD"
+        elif "zero book" in message or "instrumentcount" in message or "longcount" in message or "shortcount" in message or "instruments" in message:
+            return "TODO_CONSTRAINTS"
+        elif "self-correlation" in message or "self corr" in message or "decay" in message:
+            return "TODO_DECAY"
+        else:
+            return "TODO_GENERIC"
+
+    def _fetch_alpha_precheck_data(self, session: requests.Session, alpha_id: str, row_dict: dict[str, Any]) -> dict[str, Any]:
+        """前置拉取 WQ 因子基本信息和 PnL 数据，模拟“加载时序与图标数据”"""
+        from consultant_core.machine_lib import get_alpha_detail
+        logger.info(f"[BackgroundInspector] Pre-fetching details and PnL for {alpha_id}...")
+        
+        detail = {}
+        try:
+            detail = get_alpha_detail(alpha_id, session=session)
+            if not detail:
+                detail = {}
+        except Exception as e:
+            logger.warning(f"[BackgroundInspector] Failed to pre-fetch detail for {alpha_id}: {e}")
+            
+        target_pnl_df = pd.DataFrame()
+        try:
+            target_pnl_df = get_alpha_pnl(session, alpha_id)
+        except Exception as e:
+            logger.warning(f"[BackgroundInspector] Failed to pre-fetch PnL for {alpha_id}: {e}")
+            
+        pnl_coverage_rate = 1.0
+        pnl_records = []
+        if not target_pnl_df.empty and alpha_id in target_pnl_df.columns:
+            target_pnl_series = target_pnl_df.set_index('Date')[alpha_id]
+            alpha_rets_series = target_pnl_series - target_pnl_series.ffill().shift(1)
+            total_days = len(alpha_rets_series)
+            non_zero_days = (alpha_rets_series != 0).sum()
+            pnl_coverage_rate = non_zero_days / total_days if total_days > 0 else 1.0
+            pnl_records = target_pnl_df.reset_index().to_dict(orient="records")
+            
+        payload_str = row_dict.get("payload")
+        existing_payload = {}
+        if payload_str:
+            try:
+                existing_payload = json.loads(payload_str)
+            except Exception:
+                pass
+                
+        for k, v in detail.items():
+            existing_payload[k] = v
+            
+        if "recordsets_data" not in existing_payload or not isinstance(existing_payload["recordsets_data"], dict):
+            existing_payload["recordsets_data"] = {}
+        if pnl_records:
+            existing_payload["recordsets_data"]["pnl"] = pnl_records
+            
+        existing_payload["pnl_coverage_rate"] = pnl_coverage_rate
+        existing_payload["pnl_fetched"] = True
+        
+        is_metrics = existing_payload.get("is", {})
+        settings_dict = existing_payload.get("settings", {})
+        upsert_alpha({
+            "alpha_id": alpha_id,
+            "alpha_type": row_dict.get("alpha_type") or "",
+            "name": existing_payload.get("name") or row_dict.get("name") or "",
+            "region": settings_dict.get("region") or row_dict.get("region") or "USA",
+            "universe": settings_dict.get("universe") or row_dict.get("universe") or "TOP3000",
+            "sharpe": is_metrics.get("sharpe") or row_dict.get("sharpe"),
+            "fitness": is_metrics.get("fitness") or row_dict.get("fitness"),
+            "margin": is_metrics.get("margin") or row_dict.get("margin"),
+            "returns": is_metrics.get("returns") or row_dict.get("returns"),
+            "drawdown": is_metrics.get("drawdown") or row_dict.get("drawdown"),
+            "status": existing_payload.get("status") or row_dict.get("status") or "UNSUBMITTED",
+            "source": row_dict.get("source") or "wq_sync",
+            "payload": existing_payload
+        })
+        
+        return existing_payload
+
     def _process_candidates(self, username: str, password: str) -> None:
         # 从本地数据库读取所有未标记为 garbage 的因子
         with connect() as conn:
@@ -103,7 +191,7 @@ class BackgroundInspector:
             
         retire_candidates = []
         target_alpha = None
-        work_type = None  # "CORR", "CHECK", "FETCH"
+        work_type = None  # "FETCH_PRECHECK", "CORR", "CHECK", "FETCH"
         
         for row in rows:
             row_dict = dict(row)
@@ -119,6 +207,9 @@ class BackgroundInspector:
                     payload = json.loads(payload_str)
                 except Exception:
                     pass
+            
+            pnl_fetched = payload.get("pnl_fetched", False)
+            self_corr_checked = payload.get("self_corr_checked", False)
             
             # 计算当前因子的初步评级
             sharpe = row_dict.get("sharpe")
@@ -142,7 +233,7 @@ class BackgroundInspector:
                 "payload": payload,
             })
             grade = grading.get("grade", "C")
-
+ 
             # 0. 垃圾/D级因子发现 -> 收集到批量退休列表中
             if grade == "D":
                 retire_candidates.append(row_dict)
@@ -150,28 +241,38 @@ class BackgroundInspector:
                     break
                 continue
             
-            # 如果目前没有处于退休状态的因子，我们才去查其他耗时的单体工作 (CORR, CHECK, FETCH)
-            # 这样可以在有 Grade D 堆积时优先全速批量清理垃圾
+            # 如果目前没有处于退休状态的因子，我们才去查其他耗时的单体工作
             if not retire_candidates and not work_type:
-                # A. 自相关性检测缺失 (prod_corr IS NULL 或等于 0.0) -> 优先本地补算自相关性
-                if prod_corr is None or prod_corr == 0.0:
+                # 检查 Checkpoint 1: pnl_fetched
+                if not pnl_fetched:
+                    target_alpha = row_dict
+                    work_type = "FETCH_PRECHECK"
+                # 检查 Checkpoint 2: self_corr_checked (自相关性检测)
+                elif not self_corr_checked:
                     target_alpha = row_dict
                     work_type = "CORR"
-                    
-                # B. 评级 C 级及以上，但状态为 UNSUBMITTED，且没有本地 check_results 历史 -> 自动 check submit
-                elif grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
-                    # 查询本地是否已有该因子的 check 结果
-                    with connect() as conn:
-                        chk_row = conn.execute("SELECT id FROM check_results WHERE alpha_id = ?", (alpha_id,)).fetchone()
-                    if not chk_row:
-                        target_alpha = row_dict
-                        work_type = "CHECK"
-                        
-                # C. 评级 C 级及以上，但 payload 中缺少年度分解统计 (yearly-stats) 或没有 recordsets_data
-                elif grade in {"S", "A", "B", "C"} and not yearly_stats:
-                    target_alpha = row_dict
-                    work_type = "FETCH"
-
+                else:
+                    sim_status = str(payload.get("status") or "").upper()
+                    if sim_status in {"ERROR", "FAIL"}:
+                        # 如果是 ERROR/FAIL 因子且未标记隔离，需要运行一次 CORR 来标记和重命名
+                        if status not in {"ERROR", "FAIL"}:
+                            target_alpha = row_dict
+                            work_type = "CORR"
+                    else:
+                        # B. 评级 C 级及以上，但状态为 UNSUBMITTED，且没有本地 check_results 历史 -> 自动 check submit
+                        if grade in {"S", "A", "B", "C"} and status == "UNSUBMITTED":
+                            # 查询本地是否已有该因子的 check 结果
+                            with connect() as conn:
+                                chk_row = conn.execute("SELECT id FROM check_results WHERE alpha_id = ?", (alpha_id,)).fetchone()
+                            if not chk_row:
+                                target_alpha = row_dict
+                                work_type = "CHECK"
+                                
+                        # C. 评级 C 级及以上，但 payload 中缺少年度分解统计 (yearly-stats) 或没有 recordsets_data
+                        elif grade in {"S", "A", "B", "C"} and not yearly_stats:
+                            target_alpha = row_dict
+                            work_type = "FETCH"
+ 
         # 如果有需要退休的垃圾因子，执行批量退休
         if retire_candidates:
             logger.info(f"[BackgroundInspector] Found {len(retire_candidates)} Grade D alphas. Starting batch retire...")
@@ -191,14 +292,16 @@ class BackgroundInspector:
             finally:
                 session.close()
             return
-
+ 
         # 如果是其他单体任务
         if target_alpha and work_type:
             alpha_id = target_alpha["alpha_id"]
             logger.info(f"[BackgroundInspector] Auto trigger workflow for alpha {alpha_id}: WorkType={work_type}")
             session = login_with_credentials(username, password)
             try:
-                if work_type == "CHECK":
+                if work_type == "FETCH_PRECHECK":
+                    self._fetch_alpha_precheck_data(session, alpha_id, target_alpha)
+                elif work_type == "CHECK":
                     self._run_check_submit(session, alpha_id, target_alpha)
                 elif work_type == "CORR":
                     self._run_autocorrelation(session, alpha_id, target_alpha)
@@ -298,6 +401,7 @@ class BackgroundInspector:
             except Exception:
                 detail_payload = {}
             detail_payload["pnl_coverage_rate"] = pnl_coverage_rate
+            detail_payload["self_corr_checked"] = True
             
             # 3. 本地计算相关性
             region = row_dict.get("region") or "USA"
@@ -478,12 +582,24 @@ class BackgroundInspector:
                     (alpha_id,)
                 )
 
-        # C级及以上因子：若未改名，且已完成 Checks 提交校验并获取了成绩，才自动触发 Scheme A 远程重命名
+        # C级及以上因子：判断是否完成 Checks 校验或仿真发生 ERROR/FAIL，才自动触发 Scheme A 远程重命名
         target_name = detail_payload.get("name") or row_dict.get("name") or ""
-        db_status = f"CHECKED_{chk_res}" if chk_res else row_dict.get("status")
+        
+        sim_status = str(detail_payload.get("status") or "").upper()
+        is_sim_error_or_fail = sim_status in {"ERROR", "FAIL"}
+        
+        if is_sim_error_or_fail and new_grade in {"S", "A", "B", "C"}:
+            db_status = sim_status
+            detail_payload["todo"] = "optimize_later"
+            detail_payload["todo_category"] = self.classify_simulation_error(detail_payload)
+            detail_payload["error_message"] = detail_payload.get("message") or detail_payload.get("error", {}).get("message") or "Simulation error/fail"
+        else:
+            db_status = f"CHECKED_{chk_res}" if chk_res else row_dict.get("status")
 
         is_checked = (chk_res in {"PASS", "FAIL"}) or (row_dict.get("status") in {"CHECKED_PASS", "CHECKED_FAIL", "RENAMED"})
-        if new_grade in {"S", "A", "B", "C"} and db_status != "RENAMED" and is_checked:
+        should_rename = (is_checked or is_sim_error_or_fail)
+        
+        if new_grade in {"S", "A", "B", "C"} and db_status != "RENAMED" and should_rename:
             from app.services.wq_client import rename_wq_alpha_scheme_a
             region = detail_payload.get("settings", {}).get("region") or row_dict.get("region") or "USA"
             universe = detail_payload.get("settings", {}).get("universe") or row_dict.get("universe") or "TOP3000"
@@ -500,7 +616,8 @@ class BackgroundInspector:
             )
             if rename_res:
                 target_name = rename_res
-                db_status = "RENAMED"
+                if not is_sim_error_or_fail:
+                    db_status = "RENAMED"
 
         # 写入数据库，更新 alpha_type 和相关指标
         upsert_alpha({

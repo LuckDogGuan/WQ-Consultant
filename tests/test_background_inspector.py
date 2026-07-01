@@ -297,6 +297,31 @@ class BackgroundInspectorTests(unittest.TestCase):
         })
         
         # Create job in DB
+
+    @patch("app.services.sync_service.login_with_credentials")
+    @patch("app.services.background_inspector.BackgroundInspector._run_autocorrelation")
+    def test_run_alpha_inspection_job(self, mock_run_auto, mock_login):
+        from app.services.sync_service import run_alpha_inspection_job
+        
+        session_mock = MagicMock()
+        mock_login.return_value = session_mock
+        
+        # Pre-insert one alpha with missing correlation
+        upsert_alpha({
+            "alpha_id": "A_INSP_1",
+            "alpha_type": "",
+            "name": "Inspection Alpha 1",
+            "region": "USA",
+            "universe": "TOP3000",
+            "sharpe": 1.45,
+            "fitness": 1.0,
+            "margin": 0.0012,
+            "prod_corr": 0.0,
+            "status": "CHECKED_PASS",
+            "source": "wq_sync"
+        })
+        
+        # Create job in DB
         with connect() as conn:
             conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (777, 'alpha_inspection', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
             
@@ -305,6 +330,103 @@ class BackgroundInspectorTests(unittest.TestCase):
         # Verify that autocorrelation run was triggered for A_INSP_1
         mock_run_auto.assert_called_once()
         self.assertEqual(mock_run_auto.call_args[0][1], "A_INSP_1")
+
+    @patch("app.services.background_inspector.login_with_credentials")
+    @patch("app.services.background_inspector.get_alpha_pnl")
+    @patch("app.services.background_inspector.calc_self_corr_local")
+    @patch("app.services.background_inspector.rename_wq_alpha_scheme_a")
+    def test_process_candidates_error_fail_bypass_and_todo(
+        self, mock_rename, mock_calc_self_corr, mock_get_pnl, mock_login
+    ):
+        # Insert a factor that is graded S/A/B/C but WQ simulation status is ERROR
+        upsert_alpha({
+            "alpha_id": "A_ERR_999",
+            "alpha_type": "",
+            "name": "Error Alpha",
+            "region": "USA",
+            "universe": "TOP3000",
+            "sharpe": 1.6,
+            "fitness": 1.1,
+            "margin": 0.0015,
+            "prod_corr": 0.0,
+            "status": "UNSUBMITTED",
+            "source": "wq_sync",
+            "payload": json.dumps({
+                "pnl_fetched": True,
+                "status": "ERROR",
+                "message": "syntax error: mismatched parentheses"
+            })
+        })
+
+        session_mock = MagicMock()
+        mock_login.return_value = session_mock
+        mock_rename.return_value = "S_USA_TOP3000_1P60_ERROR"
+        
+        inspector = BackgroundInspector()
+        inspector._process_candidates("test_user", "test_pass")
+        
+        # Verify that _run_autocorrelation was run (work_type = "CORR" because status is not "ERROR" in DB yet)
+        mock_rename.assert_called_once()
+        
+        # Verify that the DB status was updated to ERROR and renamed name was saved
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", ("A_ERR_999",)).fetchone()
+            
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "ERROR")
+        self.assertEqual(row["name"], "S_USA_TOP3000_1P60_ERROR")
+        
+        # Verify payload contains TODO and todo_category
+        payload = json.loads(row["payload"])
+        self.assertEqual(payload["todo"], "optimize_later")
+        self.assertEqual(payload["todo_category"], "TODO_SYNTAX")
+
+    @patch("app.services.sync_service.login_with_credentials")
+    @patch("app.services.background_inspector.BackgroundInspector._run_autocorrelation")
+    def test_run_alpha_inspection_job_only_new(self, mock_run_auto, mock_login):
+        from app.services.sync_service import run_alpha_inspection_job
+        
+        session_mock = MagicMock()
+        mock_login.return_value = session_mock
+        
+        # Pre-insert two alphas: A_INSP_NEW (type is empty) and A_INSP_OLD (type is B)
+        upsert_alpha({
+            "alpha_id": "A_INSP_NEW",
+            "alpha_type": "",
+            "name": "New Inspection Alpha",
+            "region": "USA",
+            "universe": "TOP3000",
+            "sharpe": 1.45,
+            "fitness": 1.0,
+            "margin": 0.0012,
+            "prod_corr": 0.0,
+            "status": "UNSUBMITTED",
+            "source": "wq_sync"
+        })
+        upsert_alpha({
+            "alpha_id": "A_INSP_OLD",
+            "alpha_type": "B",
+            "name": "Old Inspection Alpha",
+            "region": "USA",
+            "universe": "TOP3000",
+            "sharpe": 1.45,
+            "fitness": 1.0,
+            "margin": 0.0012,
+            "prod_corr": 0.0,
+            "status": "UNSUBMITTED",
+            "source": "wq_sync"
+        })
+        
+        # Create job in DB
+        with connect() as conn:
+            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (778, 'alpha_inspection', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
+            
+        # Run with only_new = True
+        run_alpha_inspection_job(778, {"only_new": True})
+        
+        # Verify that autocorrelation run was triggered ONLY for A_INSP_NEW, not for A_INSP_OLD
+        self.assertEqual(mock_run_auto.call_count, 1)
+        self.assertEqual(mock_run_auto.call_args[0][1], "A_INSP_NEW")
 
 
 if __name__ == "__main__":
