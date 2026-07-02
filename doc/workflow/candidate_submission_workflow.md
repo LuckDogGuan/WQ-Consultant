@@ -49,7 +49,7 @@
 | P0 | 模板 job 基础 adapter 文档同步 | 已完成实现，文档本次修正 | 文档不再写“job 待接入”为主状态 |
 | P1 | 独立 expression runner | 待实现 | 新增 `run_expression_candidate_job`，输入 expression candidates，不吃 dataset_id 三阶段参数 |
 | P1 | 模板结果 JSONL/Markdown 导出 | 待实现 | job 结果可按 `job_id/template_id/reason_code` 导出 |
-| P1 | 动态 S/A/B/C/D 分档接真实结果 | 已有本地函数，待接 job 结果 | 回测结果包含 Sharpe/Fitness/Margin/Turnover/SC/PC 后自动分档，只展示建议，不自动提交 |
+| P1 | 动态 S/A/B/C 分档接真实结果 | 已有本地函数，待接 job 结果 | 回测结果包含 Sharpe/Fitness/Margin/Turnover/SC/PC 后自动分档，只展示建议，不自动提交 |
 | P2 | 平台 settings 可用性过滤 | 待平台数据接入 | unavailable settings 产生 `SETTING_UNAVAILABLE`，不提交该候选 |
 
 ### 0.4 王哥/黄金顾问修正规则
@@ -111,7 +111,7 @@ flowchart TD
     K --> L["阶段 3: TH 收敛<br/>稳定性/相关性/回撤/提交分档"]
     L --> M["读取 IS 指标与 checks"]
     M --> N["读取 OS 池<br/>只做 self/prod corr 与泛化观察"]
-    N --> O{"S/A/B/C/D 分档"}
+    N --> O{"S/A/B/C 分档"}
     O -->|S/A| P["显示为可提交候选<br/>用户手动选择"]
     O -->|B| Q["人工复核<br/>临界相关性/年份/PC 风险"]
     O -->|C| R["优化队列<br/>只修明确病因"]
@@ -147,7 +147,7 @@ flowchart LR
     IS --> EVAL["CandidateEvaluator"]
     CORR --> EVAL
 
-    EVAL --> REP["CandidateReport<br/>S/A/B/C/D"]
+    EVAL --> REP["CandidateReport<br/>S/A/B/C"]
     API --> LOG["LogService<br/>structured events + export"]
     REP --> UI
     LOG --> UI
@@ -204,16 +204,16 @@ flowchart TD
     H --> I{"self_corr <= 0.68?"}
     I -->|是| J{"prod_corr < 0.50?"}
     I -->|0.68-0.70| I1["B 档<br/>人工复核"]
-    I -->|>0.70| I2["D 档隐藏<br/>SC_RISK"]
+    I -->|>0.70| I2["C 档（致命缺陷）隐藏<br/>SC_RISK"]
     J -->|是| K["S/A 档<br/>可人工提交候选"]
     J -->|0.50-0.70| J1["A/B 档<br/>标注 PC 风险"]
-    J -->|>=0.70| J2["D 档隐藏<br/>PC_RISK"]
+    J -->|>=0.70| J2["C 档（致命缺陷）隐藏<br/>PC_RISK"]
 ```
 
 规则：
 - IS 是候选筛选，不是最终证明。
 - OS 不用于反复调参，只用于自相关、产品相关、年份泛化观察。
-- self-corr 提交红线是 `0.70`；本地安全线建议 `0.68-0.70`，超过 0.70 直接 D 档。
+- self-corr 提交红线是 `0.70`；本地安全线建议 `0.68-0.70`，超过 0.70 直接 C 档（致命缺陷）。
 - product correlation 资料中常见经验阈值有 0.50、0.70；当前文档按分档建议使用，不把它写成官方硬规则。
 
 
@@ -254,7 +254,7 @@ flowchart TD
 - 每个 field 限制候选数量，防止同字段重复浪费。
 - 每个模板设置最大失败次数。
 - 每个 Alpha 只允许有限次 settings 修正。
-- 每天结束生成预算报告：消耗、失败、可提交候选、D 档原因排行。
+- 每天结束生成预算报告：消耗、失败、可提交候选、C 档（致命缺陷）原因排行。
 
 
 ## 13. Check Submission 与资源规划
@@ -268,7 +268,7 @@ flowchart TD
 - 不把 check submission 当无限资源。
 - 本地能算的先本地算：self-corr、PnL shape、yearly stats、重复表达式、字段画像。
 - 只允许 S/A 和部分 B 档进入 check 队列。
-- C/D 档不消耗 check submission。
+- C/C 档（致命缺陷）不消耗 check submission。
 - check submission 返回的每个 FAIL 必须结构化保存。
 
 建议队列：
@@ -279,7 +279,7 @@ flowchart TD
 | `check_ready` | S/A 档 | 用户可选择是否触发 check |
 | `manual_review` | B 档与临界项 | 人工看表达式、PnL、风险 |
 | `optimize_queue` | C 档 | 只优化明确问题 |
-| `discarded` | D 档 | 不再消耗资源 |
+| `discarded` | C 档（致命缺陷） | 不再消耗资源 |
 
 
 ## 14. 日志栏与导出
@@ -327,7 +327,7 @@ GUI 必须有日志栏，后续方便复盘、导出和定位错误。
 第一层：页面/面板。
 - 地区选择：`USA / ASI / EUR` checkbox。
 - Catalog：字段表、刷新按钮、隐藏坏字段开关。
-- Candidate Report：S/A/B/C/D 候选。
+- Candidate Report：S/A/B/C 候选。
 - Optimization Queue：C 档问题与建议动作。
 - Logs：运行日志、过滤、导出。
 
@@ -350,7 +350,7 @@ GUI 必须有日志栏，后续方便复盘、导出和定位错误。
 ## 16. GUI 展示字段建议
 
 候选列表必须能一眼看出为什么能交、为什么不能交：
-- 档位：S/A/B/C/D。
+- 档位：S/A/B/C。
 - 主风险标签：`SC_RISK`、`PC_RISK`、`TURNOVER_RISK`、`DATA_RISK`、`SHAPE_RISK`、`SETTING_ERROR`、`PLATFORM_LIMIT`。
 - 核心指标：Sharpe、Fitness、Returns、Margin、Turnover、Drawdown。
 - 稳定性：Decay sweep、中性化 sweep、yearly min/median/max Sharpe。
@@ -430,7 +430,7 @@ GUI 必须有日志栏，后续方便复盘、导出和定位错误。
 | 7 | Preview 页面 | 参数输入、候选表格、选中复制、JSON 报表 | 已完成基础版 | 页面 200、API 结果、字段质量模式、去重 |
 | 8 | 任务创建 | 用户选择候选后手动创建 expression 回测任务 | 已完成参数构造 | 只生成 `template_iteration` job params，不自动提交 |
 | 9 | Expression 回测执行 | 独立于 dataset 三阶段，复用 WQ client / wqb 能力 | 待设计 | mock session / dry-run 测试 |
-| 10 | 结果分档 | S/A/B/C/D + 隐藏坏数据 | 已完成本地建议版 | S 候选与高 self-corr D 档测试 |
+| 10 | 结果分档 | S/A/B/C + 隐藏坏数据 | 已完成本地建议版 | S 候选与高 self-corr C 档致命缺陷测试 |
 | 11 | 日志导出 | JSONL/CSV/Markdown 导出模板候选和结果 | 部分完成 | 页面 CSV 导出已完成；JSONL/Markdown 待结果 job 后接入 |
 | 12 | check submission | 只对用户手动选择的 S/A 候选触发 | 待实现 | 不自动触发测试 |
 

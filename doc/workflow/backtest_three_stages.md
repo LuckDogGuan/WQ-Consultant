@@ -77,18 +77,18 @@
 
 动作：
 - 复核 self-corr、prod-corr、sub-universe、drawdown、yearly stats、PnL shape。
-- 对 S/A/B/C/D 分档。
+- 对 S/A/B/C 分档。
 - 对 C 档只做单病因修复：高 turnover、回撤高、sub-universe fail、weight concentration、margin 低等。
 - 对临界候选只生成少量变体，不做大规模爬山。
 
 过滤：
-- self-corr > 0.70：D 档，不再优化。
-- product correlation 高且没有新数据源或新经济逻辑：D 档或人工放弃。
-- 回撤来自少数极端日期且无法解释：D 档。
-- 年份表现严重断层：D 档或 B 档人工复核。
+- self-corr > 0.70：C 档致命缺陷（原 D 档），不再优化。
+- product correlation 高且没有新数据源或新经济逻辑：C 档致命缺陷或人工放弃。
+- 回撤来自少数极端日期且无法解释：C 档致命缺陷。
+- 年份表现严重断层：C 档致命缺陷或 B 档人工复核。
 
 输出：
 - S/A：可人工提交候选。
 - B：人工复核候选。
-- C：优化队列。
-- D：隐藏坏 alpha，并保留失败原因。
+- C（一般缺陷）：优化队列。
+- C（致命缺陷）：隐藏坏 alpha，执行 WQ 平台物理删除。

@@ -47,6 +47,6 @@
 
 1.  **大循环引入强制 Pacing 延迟**：
     *   在 `sync_service.py` 的手动巡检 `run_alpha_inspection_job` 与本地同步 `run_sync_local_alphas_job` 循环体内均新增了 **`time.sleep(1.0)`** 强制防频控延迟。
-    *   在 `background_inspector.py` 执行批量退休 Grade D 垃圾因子循环中，将 sleep 间隔从 `0.1s` 调大至 **`0.8s`**，确保官方服务端有充足的连接重置缓冲。
+    *   在 `background_inspector.py` 执行批量退休 Grade C 垃圾因子循环中，将 sleep 间隔从 `0.1s` 调大至 **`0.8s`**，确保官方服务端有充足的连接重置缓冲。
 2.  **双层节流缓冲**：
     *   通过将自相关参考库缓存于 `correlation_cache` 内存中（前述优化），将每个因子计算自相关的网络 API 依赖数降到了物理最低，配合强制 Pacing 延迟，让后台巡检流量趋于平缓。

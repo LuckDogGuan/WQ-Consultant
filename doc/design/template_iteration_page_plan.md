@@ -41,8 +41,8 @@ Done 标准：
 - 用户从 `/template-iteration` 预览候选。
 - 用户手动选择候选并创建 `template_iteration` job。
 - job 使用 expression candidate runner 或明确的 `custom_alphas` adapter，且不携带 PPA/SA/submit 字段。
-- job 结果能生成 S/A/B/C/D 建议。
-- D 档和坏数据默认隐藏但保留原因。
+- job 结果能生成 S/A/B/C 建议（原D档已废除并入C档）。
+- C 档致命缺陷和坏数据默认隐藏并执行平台物理删除，保留失败原因。
 - 用户手动决定是否 check / submit。
 - **与回测三阶段参数联动**：任务运行中关于 FO/SO/TH 的各小阶段控制（如相关性过滤启用、Sharpe/Fitness 阈值设置、Prune 保留参数等）支持作业层面的定制化 `params` 传入，运行时优先使用作业特有配置而非全局配置，实现完全的优先级重载。
 
@@ -241,7 +241,7 @@ flowchart TD
     K --> L["User starts job manually"]
     L --> M["JobRunner template_iteration"]
     M --> N["SimulationService / existing WQ runner"]
-    N --> O["Result Report<br/>S/A/B/C/D"]
+    N --> O["Result Report<br/>S/A/B/C"]
     M --> P["LogService<br/>events/export"]
 ```
 

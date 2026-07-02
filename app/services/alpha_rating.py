@@ -20,7 +20,6 @@ CORRELATION_LABELS = {
     "A": "A级 标准候选",
     "B": "B级 需要审核",
     "C": "C级 需要优化",
-    "D": "D级 垃圾隐藏",
     "PPA": "PPA 优秀因子",
     "RA": "RA 优秀因子",
     "ATOM": "ATOM 优秀因子",
@@ -233,7 +232,6 @@ def _build_alpha_rating_impl(
         "A": "A级: 标准候选",
         "B": "B级: 需要审核",
         "C": "C级: 需要优化",
-        "D": "D级: 垃圾隐藏",
     }
 
     # 因子评级是在S级别里面分类的，分三个等级：Premium(优质), Standard(一般), Marginal(边际)

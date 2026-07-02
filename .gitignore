@@ -8,6 +8,8 @@ data/
 !data/webdatascope/
 !data/webdatascope/*
 logs/
+*.db
+*.sqlite*
 
 # Environments
 .venv/

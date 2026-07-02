@@ -4,7 +4,7 @@ import json
 import pandas as pd
 
 from app.storage import connect, init_db, upsert_alpha, create_job
-from app.services.sync_service import run_sync_local_alphas_job
+from app.services.sync_service import run_refresh_correlation_job
 
 class LocalSyncJobTests(unittest.TestCase):
     def setUp(self):
@@ -23,11 +23,11 @@ class LocalSyncJobTests(unittest.TestCase):
     @patch("app.services.sync_service.login_with_credentials")
     @patch("app.services.background_inspector.download_correlation_data")
     @patch("app.services.background_inspector.BackgroundInspector")
-    def test_run_sync_local_alphas_job_success(self, mock_inspector_cls, mock_download_corr, mock_login):
-        # Insert a local alpha that should be processed (grade C/above, status not UNSUBMITTED, not garbage)
+    def test_run_refresh_correlation_job_success(self, mock_inspector_cls, mock_download_corr, mock_login):
+        # Insert a local alpha that should be processed (grade S, not garbage)
         upsert_alpha({
             "alpha_id": "LOC123",
-            "alpha_type": "C",
+            "alpha_type": "S",
             "name": "Alpha Local",
             "region": "USA",
             "universe": "TOP3000",
@@ -46,9 +46,9 @@ class LocalSyncJobTests(unittest.TestCase):
         inspector_mock = MagicMock()
         mock_inspector_cls.return_value = inspector_mock
 
-        job_id = create_job("sync_local_alphas", "Sync local", {})
+        job_id = create_job("refresh_correlation", "Refresh correlation", {})
         
-        run_sync_local_alphas_job(job_id, {})
+        run_refresh_correlation_job(job_id, {})
         
         # Verify login was called
         mock_login.assert_called_once_with("test_user", "test_pass")
@@ -63,10 +63,10 @@ class LocalSyncJobTests(unittest.TestCase):
             self.assertEqual(job["status"], "completed")
 
     @patch("app.services.sync_service.login_with_credentials")
-    def test_run_sync_local_alphas_job_no_candidates(self, mock_login):
+    def test_run_refresh_correlation_job_no_candidates(self, mock_login):
         # No candidate alphas in DB
-        job_id = create_job("sync_local_alphas", "Sync local empty", {})
-        run_sync_local_alphas_job(job_id, {})
+        job_id = create_job("refresh_correlation", "Refresh empty", {})
+        run_refresh_correlation_job(job_id, {})
         
         mock_login.assert_not_called()
         

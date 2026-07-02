@@ -223,15 +223,15 @@ class JobRunner:
                 elif kind == "reference_fetch":
                     from .services.reference_service import run_reference_fetch_job
                     run_reference_fetch_job(job_id, params)
-                elif kind == "sync_alphas":
-                    from .services.sync_service import run_sync_alphas_job
-                    run_sync_alphas_job(job_id, params)
+                elif kind == "get_server_alphas":
+                    from .services.sync_service import run_get_server_alphas_job
+                    run_get_server_alphas_job(job_id, params)
                 elif kind == "alpha_inspection":
                     from .services.sync_service import run_alpha_inspection_job
                     run_alpha_inspection_job(job_id, params)
-                elif kind == "sync_local_alphas":
-                    from .services.sync_service import run_sync_local_alphas_job
-                    run_sync_local_alphas_job(job_id, params)
+                elif kind == "refresh_correlation":
+                    from .services.sync_service import run_refresh_correlation_job
+                    run_refresh_correlation_job(job_id, params)
                 else:
                     raise ValueError(f"Unknown job kind: {kind}")
             

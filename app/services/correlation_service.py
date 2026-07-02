@@ -433,7 +433,7 @@ def run_correlation_job(job_id: int, params: dict[str, Any]) -> None:
                     logger.error(f"Failed to fetch checks for correlation analysis of {alpha_id}: {e}")
                     
                 # 判定后续类型：统一使用系统级评级系统，并为 C 级及以上因子构造符合平台合规要求的 Scheme A 名称
-                from .optimization_planner import grade_candidate_result
+                from .template_iteration import grade_candidate_result
                 grading = grade_candidate_result({
                     "sharpe": sharpe,
                     "fitness": fitness,

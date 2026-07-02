@@ -38,11 +38,11 @@
             </div>
             <div class="filter-count" style="display: flex; align-items: center; gap: 10px;">
                 <span>总共已处理: <strong>{{ total }}</strong> 个 | 总共记录: <strong>{{ total }}</strong> | 总因子: <strong>{{ total_count }}</strong> | 待处理: <strong style="color: #fbbf24;">{{ pending_count }}</strong></span>
-                <button class="btn btn-secondary btn-sm" id="sync-alphas-btn" onclick="syncAlphasFromWQ()" style="font-size: 11px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
-                    <i class="fa-solid fa-rotate"></i> 同步云端因子
+                <button class="btn btn-secondary btn-sm" id="get-server-btn" onclick="getServerAlphas()" style="font-size: 11px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
+                    <i class="fa-solid fa-download"></i> 获取服务器因子
                 </button>
-                <button class="btn btn-secondary btn-sm" id="sync-local-btn" onclick="syncLocalAlphas()" style="font-size: 11px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
-                    <i class="fa-solid fa-calculator"></i> 同步本地因子 (自相关)
+                <button class="btn btn-secondary btn-sm" id="refresh-corr-btn" onclick="refreshCorrelation()" style="font-size: 11px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
+                    <i class="fa-solid fa-rotate-right"></i> 刷新自相关性
                 </button>
             </div>
         </div>
@@ -269,16 +269,16 @@
         });
     }
 
-    function syncAlphasFromWQ() {
-        const btn = document.getElementById("sync-alphas-btn");
+    function getServerAlphas() {
+        const btn = document.getElementById("get-server-btn");
         const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 正在同步...`;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 正在拉取...`;
         
-        fetch('/api/alphas/sync', { method: 'POST' })
+        fetch('/api/alphas/get_server', { method: 'POST' })
             .then(res => {
                 if (!res.ok) {
-                    return res.json().then(data => { throw new Error(data.detail || "同步失败"); });
+                    return res.json().then(data => { throw new Error(data.detail || "拉取失败"); });
                 }
                 return res.json();
             })
@@ -287,7 +287,7 @@
                 window.location.reload();
             })
             .catch(err => {
-                alert("同步失败: " + err.message);
+                alert("获取服务器因子失败: " + err.message);
             })
             .finally(() => {
                 btn.disabled = false;
@@ -295,16 +295,16 @@
             });
     }
 
-    function syncLocalAlphas() {
-        const btn = document.getElementById("sync-local-btn");
+    function refreshCorrelation() {
+        const btn = document.getElementById("refresh-corr-btn");
         const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 正在计算...`;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 正在刷新...`;
         
-        fetch('/api/alphas/sync_local', { method: 'POST' })
+        fetch('/api/alphas/refresh_correlation', { method: 'POST' })
             .then(res => {
                 if (!res.ok) {
-                    return res.json().then(data => { throw new Error(data.detail || "同步失败"); });
+                    return res.json().then(data => { throw new Error(data.detail || "刷新失败"); });
                 }
                 return res.json();
             })
@@ -313,7 +313,7 @@
                 window.location.reload();
             })
             .catch(err => {
-                alert("同步本地因子失败: " + err.message);
+                alert("刷新自相关性失败: " + err.message);
             })
             .finally(() => {
                 btn.disabled = false;

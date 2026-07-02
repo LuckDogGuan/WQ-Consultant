@@ -1957,9 +1957,9 @@ def get_alpha_pnl_chart(alpha_id: str, admin: str = Depends(get_current_admin)):
     return {"status": "empty", "message": "该因子暂无可用的 PnL 数据。"}
 
 
-@app.post("/api/alphas/sync")
-def sync_alphas_from_wq(admin: str = Depends(get_current_admin)):
-    """从 WQ 平台拉取最近 30 天所有已回测因子记录同步至本地数据库（后台任务化）"""
+@app.post("/api/alphas/get_server")
+def get_server_alphas_endpoint(admin: str = Depends(get_current_admin)):
+    """向服务器获取近 30 天满足 Sharpe >= 1.25, Fitness >= 0.60, Margin >= 0.0005 的新因子 (后台任务)"""
     from app.storage import create_job
     from app.job_runner import JobRunner
     
@@ -1970,30 +1970,25 @@ def sync_alphas_from_wq(admin: str = Depends(get_current_admin)):
         raise HTTPException(status_code=400, detail="请先在设置中配置 WQ 账号和密码。")
         
     try:
-        # 创建同步任务，默认回看最近 30 天
         job_id = create_job(
-            kind="sync_alphas",
-            title="同步云端因子 (最近 30 天)",
+            kind="get_server_alphas",
+            title="获取服务器因子",
             params={"lookback_days": 30}
         )
-        
-        # 启动任务
-        JobRunner().start_job(job_id, "sync_alphas", {"lookback_days": 30})
-        
+        JobRunner().start_job(job_id, "get_server_alphas", {"lookback_days": 30})
         return {
-            "status": "ok", 
-            "message": f"云端因子同步任务已成功启动，已加入后台队列。Job ID: #{job_id}",
+            "status": "ok",
+            "message": f"获取服务器因子任务已成功启动，已加入后台队列。Job ID: #{job_id}",
             "job_id": job_id
         }
-        
     except Exception as e:
-        logger.error(f"Failed to start sync alphas job: {e}")
-        raise HTTPException(status_code=500, detail=f"启动同步任务失败: {e}")
+        logger.error(f"Failed to start get server alphas job: {e}")
+        raise HTTPException(status_code=500, detail=f"启动获取服务器因子任务失败: {e}")
 
 
-@app.post("/api/alphas/sync_local")
-def sync_local_alphas_endpoint(admin: str = Depends(get_current_admin)):
-    """计算本地所有非垃圾且已提交因子的自相关性 (后台任务)"""
+@app.post("/api/alphas/refresh_correlation")
+def refresh_correlation_endpoint(admin: str = Depends(get_current_admin)):
+    """刷新本地 S 级因子的自相关性 (后台任务)"""
     from app.storage import create_job
     from app.job_runner import JobRunner
     
@@ -2005,19 +2000,19 @@ def sync_local_alphas_endpoint(admin: str = Depends(get_current_admin)):
         
     try:
         job_id = create_job(
-            kind="sync_local_alphas",
-            title="同步本地因子 (自相关计算)",
+            kind="refresh_correlation",
+            title="刷新自相关性 (限S级)",
             params={}
         )
-        JobRunner().start_job(job_id, "sync_local_alphas", {})
+        JobRunner().start_job(job_id, "refresh_correlation", {})
         return {
             "status": "ok",
-            "message": f"本地因子自相关同步任务已成功启动，已加入后台队列。Job ID: #{job_id}",
+            "message": f"本地自相关性刷新任务已成功启动，已加入后台队列。Job ID: #{job_id}",
             "job_id": job_id
         }
     except Exception as e:
-        logger.error(f"Failed to start sync local alphas job: {e}")
-        raise HTTPException(status_code=500, detail=f"启动同步任务失败: {e}")
+        logger.error(f"Failed to start refresh correlation job: {e}")
+        raise HTTPException(status_code=500, detail=f"启动自相关刷新任务失败: {e}")
 
 
 @app.post("/api/alphas/retire")

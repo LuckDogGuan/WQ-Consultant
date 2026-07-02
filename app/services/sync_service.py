@@ -135,8 +135,8 @@ def fix_missing_metrics(session: requests.Session) -> None:
         logger.info(f"[SyncJob] Successfully repaired metrics for batch {i//batch_size + 1}/{(len(missing_ids)-1)//batch_size + 1} (Fetched {len(results)} records)")
         time.sleep(0.8)
 
-def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
-    """同步云端因子任务：拉取最近 30 天因子，将未记录的新增因子添加入库，并自动触发评估"""
+def run_get_server_alphas_job(job_id: int, params: dict[str, Any]) -> None:
+    """获取服务器因子任务：拉取最近 30 天满足 Sharpe >= 1.25, Fitness >= 0.60, Margin >= 0.0005 的新因子，并对其中的 S 级因子进行自相关计算"""
     lookback_days = int(params.get("lookback_days", 30))
     
     settings = get_settings()
@@ -146,28 +146,28 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
     if not username or not password:
         raise ValueError("请先在设置中配置 WQ 账号和密码。")
         
+    def to_float(val):
+        try: return float(val) if val is not None else None
+        except: return None
+        
     update_job(job_id, status="running", message="正在连接 WorldQuant Brain 平台...", progress_current=10, progress_total=100)
     add_job_event(job_id, "info", f"Logging in to WQ platform as {username}...")
     
     session = login_with_credentials(username.strip(), password.strip())
     
     try:
-        update_job(job_id, message=f"正在拉取最近 {lookback_days} 天的已回测因子记录...", progress_current=30, progress_total=100)
+        update_job(job_id, message=f"正在拉取最近 {lookback_days} 天的云端因子记录...", progress_current=30, progress_total=100)
         
-        # 拉取时间区间
         end_date = datetime.now()
         start_date = end_date - timedelta(days=lookback_days)
         region = settings.get("region", "USA")
         
-        logger.info(f"[SyncJob] Fetching all alphas for region {region} from {start_date.isoformat()} to {end_date.isoformat()} concurrently in chunks.")
+        logger.info(f"[GetServerAlphasJob] Fetching alphas for region {region} from {start_date.isoformat()} to {end_date.isoformat()} in chunks.")
         
-        # 将天数切分为 1 天的分片以绕过 WQ 10k offset 截断限制。成功分片会落库，后续同步不重复拉取。
         import pandas as pd
-        
         today = datetime.now().date()
         
-        # 只清除今天和昨天的同步缓存。因为历史日期的因子在云端一旦生成便不会改变，无须重复拉取。
-        # 仅清除最近 1 天（即昨天和今天）的记录以防跨时区或日切交界造成的遗漏。
+        # 清除今天和昨天的同步分片缓存以防遗漏
         delete_threshold_date = today - timedelta(days=1)
         with connect() as conn:
             conn.execute(
@@ -191,7 +191,6 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
         skipped_count = len(all_chunks) - len(chunks)
         
         def fetch_chunk(st, ed):
-            logger.info(f"[SyncJob] Thread starting chunk fetch: {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')}")
             return get_alphas_full(
                 start_date=st,
                 end_date=ed,
@@ -207,8 +206,8 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             JobRunner().check_paused(job_id)
             update_job(
                 job_id,
-                message=f"正在同步 {st.strftime('%Y-%m-%d')} (当前第 {idx}/{len(chunks)} 个分片，其余 {skipped_count} 个历史分片已使用成功缓存跳过)...",
-                progress_current=30 + int((idx / max(1, len(chunks))) * 30),
+                message=f"正在拉取服务器因子 {st.strftime('%Y-%m-%d')} (分片 {idx}/{len(chunks)})...",
+                progress_current=30 + int((idx / max(1, len(chunks))) * 25),
                 progress_total=100,
             )
             last_error = ""
@@ -216,15 +215,12 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
                 try:
                     df_chunk = fetch_chunk(st, ed)
                     if not df_chunk.empty:
-                        logger.info(f"[SyncJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} fetched {len(df_chunk)} alphas.")
                         dfs.append(df_chunk)
-                    else:
-                        logger.info(f"[SyncJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} empty.")
                     _record_sync_chunk(region, st, ed, "success", len(df_chunk), "")
                     break
                 except Exception as exc:
                     last_error = str(exc)
-                    logger.error(f"[SyncJob] Chunk {st.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')} attempt {attempt}/3 failed: {exc}")
+                    logger.error(f"[GetServerAlphasJob] Chunk {st.strftime('%Y-%m-%d')} attempt {attempt}/3 failed: {exc}")
                     _record_sync_chunk(region, st, ed, "failed", 0, last_error)
                     if attempt < 3:
                         time.sleep(attempt * 5)
@@ -236,107 +232,150 @@ def run_sync_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             else:
                 failed_chunks.append((st, ed, last_error))
                     
-        # 在关闭会话前，增量修补数据库中缺失 returns/drawdown/fitness 静态属性的历史因子
+        # 增量修补缺失 metrics
         try:
-            update_job(job_id, message="正在从 WQ 平台增量修补缺失静态属性的因子...", progress_current=55, progress_total=100)
+            update_job(job_id, message="正在从 WQ 平台修补静态属性...", progress_current=55, progress_total=100)
             fix_missing_metrics(session)
         except Exception as e:
-            logger.error(f"[SyncJob] Failed to execute metrics repair: {e}")
-
-        session.close()
-        
+            logger.error(f"[GetServerAlphasJob] Metrics repair failed: {e}")
+            
         if dfs:
             alphas_df = pd.concat(dfs, ignore_index=True)
             alphas_df = alphas_df.drop_duplicates(subset=["alpha_id"])
         else:
             alphas_df = pd.DataFrame()
-        
+            
         if alphas_df.empty and not failed_chunks:
-            update_job(job_id, status="completed", message="云端没有查询到最近 30 天的回测因子记录。", progress_current=100, progress_total=100)
-            add_job_event(job_id, "info", f"No simulated alphas found; skipped {skipped_count} already-synced day chunk(s).")
+            update_job(job_id, status="completed", message="服务器没有查询到最近 30 天的因子记录。", progress_current=100, progress_total=100)
             return
             
-        update_job(job_id, message="正在比对本地数据库，过滤重复因子...", progress_current=60, progress_total=100)
+        update_job(job_id, message="正在过滤不满足条件或重复的因子...", progress_current=60, progress_total=100)
         
-        # 获取本地已有的所有 alpha_id
+        # 1. 过滤：Sharpe >= 1.25, Fitness >= 0.60, Margin >= 0.0005
+        def filter_row(row):
+            sh = to_float(row.get("sharpe"))
+            fit = to_float(row.get("fitness"))
+            marg = to_float(row.get("margin"))
+            return (sh is not None and sh >= 1.25) and (fit is not None and fit >= 0.60) and (marg is not None and marg >= 0.0005)
+            
+        filtered_rows = [row for _, row in alphas_df.iterrows() if filter_row(row)]
+        
+        # 2. 与本地查重
         with connect() as conn:
             existing_rows = conn.execute("SELECT alpha_id FROM alpha_records").fetchall()
             existing_ids = {r["alpha_id"] for r in existing_rows}
             
-        synced_count = 0
-        new_count = 0
-        
-        for _, row in alphas_df.iterrows():
+        new_candidates = []
+        for row in filtered_rows:
             alpha_id = row.get("alpha_id")
-            if not alpha_id:
-                continue
+            if alpha_id and alpha_id not in existing_ids:
+                new_candidates.append(row)
                 
-            synced_count += 1
+        if not new_candidates:
+            update_job(job_id, status="completed", message="过滤完成，未发现符合阈值要求的新增因子。", progress_current=100, progress_total=100)
+            return
             
-            # 仅新增没有添加到记录中的因子
-            if alpha_id in existing_ids:
-                logger.debug(f"[SyncJob] Alpha {alpha_id} already exists in database, skipping.")
-                continue
-                
+        # 3. 入库并筛选出定级为 S 级的因子
+        from app.services.background_inspector import BackgroundInspector
+        from app.services.template_iteration import grade_candidate_result
+        from app.services.optimization_planner import _extract_yearly_stats
+        
+        s_candidates = []
+        for idx, row in enumerate(new_candidates, start=1):
+            alpha_id = row.get("alpha_id")
+            payload = dict(row)
+            
+            sharpe = to_float(row.get("sharpe"))
+            fitness = to_float(row.get("fitness"))
+            margin = to_float(row.get("margin"))
+            yearly_stats = _extract_yearly_stats(payload)
+            turnover = to_float(row.get("turnover")) or (yearly_stats[0].get("turnover") if yearly_stats else None)
+            
+            # 实时评级判定
+            grading = grade_candidate_result({
+                "sharpe": sharpe,
+                "fitness": fitness,
+                "margin": margin,
+                "turnover": turnover,
+                "self_corr": 0.0,
+                "prod_corr": 0.0,
+                "status": row.get("status") or "UNSUBMITTED",
+                "payload": payload,
+            })
+            grade = grading.get("grade", "C")
+            
+            # 入库
             upsert_alpha({
                 "alpha_id": alpha_id,
-                "alpha_type": "",  # 初始留空，由下一阶段评估任务评级
+                "alpha_type": grade,
                 "name": row.get("name") or "",
                 "region": region,
                 "universe": row.get("universe") or settings.get("universe", "TOP3000"),
-                "sharpe": row.get("sharpe"),
-                "fitness": row.get("fitness"),
-                "margin": row.get("margin"),
-                "returns": row.get("returns"),
-                "drawdown": row.get("drawdown"),
+                "sharpe": sharpe,
+                "fitness": fitness,
+                "margin": margin,
+                "returns": to_float(row.get("returns")),
+                "drawdown": to_float(row.get("drawdown")),
                 "status": row.get("status") or "UNSUBMITTED",
-                "source": "wq_sync",
-                "payload": dict(row)
+                "source": "get_server_alphas",
+                "payload": payload
             })
-            new_count += 1
             
-        add_job_event(job_id, "info", f"Fetched {synced_count} alphas; added {new_count} new alphas to database; skipped {skipped_count} completed day chunk(s).")
+            if grade == "S":
+                with connect() as conn:
+                    inserted_row = conn.execute("SELECT * FROM alpha_records WHERE alpha_id = ?", (alpha_id,)).fetchone()
+                    if inserted_row:
+                        s_candidates.append(dict(inserted_row))
+                        
+        total_new = len(new_candidates)
+        total_s = len(s_candidates)
+        add_job_event(job_id, "info", f"Successfully synced {total_new} new alphas. Found {total_s} S-grade alphas.")
         
-        if new_count > 0:
-            update_job(job_id, message=f"同步完成，共新增 {new_count} 个因子。正在启动评估校验任务...", progress_current=85, progress_total=100)
+        # 4. 对新因子中 S 级的因子进行本地自相关性计算
+        if total_s > 0:
+            inspector = BackgroundInspector()
+            update_job(job_id, message="正在更新本地 OS/PPA 因子 PnL 缓存库...", progress_current=70, progress_total=100)
+            from app.services.background_inspector import download_correlation_data
+            download_correlation_data(session, flag_increment=True)
             
-            # 自动创建并触发本地评估与校验任务
-            new_job_id = create_job(
-                "alpha_inspection", 
-                f"自动评估新增云端因子 ({new_count} 个)", 
-                {"only_new": True}
-            )
-            JobRunner().start_job(new_job_id, "alpha_inspection", {"only_new": True})
-            
-            update_job(
-                job_id, 
-                status="completed", 
-                message=f"同步完成，新增 {new_count} 个因子。已自动触发评估任务 Job #{new_job_id}。", 
-                progress_current=100, 
-                progress_total=100
-            )
-        else:
-            update_job(
-                job_id, 
-                status="completed", 
-                message="同步完成，云端最近 30 天的因子均已存在于本地数据库中，无需新增。", 
-                progress_current=100, 
-                progress_total=100
-            )
-
+            for s_idx, row_dict in enumerate(s_candidates, start=1):
+                JobRunner().check_paused(job_id)
+                alpha_id = row_dict["alpha_id"]
+                progress_pct = 70 + int((s_idx / total_s) * 30)
+                
+                update_job(
+                    job_id,
+                    message=f"[{s_idx}/{total_s}] 正在计算 S 级因子 {alpha_id} 的自相关...",
+                    progress_current=progress_pct,
+                    progress_total=100
+                )
+                try:
+                    inspector._run_autocorrelation(session, alpha_id, row_dict)
+                except Exception as e:
+                    logger.error(f"[GetServerAlphasJob] Autocorrelation failed for {alpha_id}: {e}")
+                    add_job_event(job_id, "warning", f"S-grade Alpha {alpha_id} correlation failed: {e}")
+                time.sleep(1.0)
+                
+        update_job(
+            job_id, 
+            status="completed", 
+            message=f"获取服务器因子任务已全部完成！共新增入库 {total_new} 个因子，并对其中 {total_s} 个 S 级因子计算了自相关性。", 
+            progress_current=100, 
+            progress_total=100
+        )
+        
         if failed_chunks:
             failed_days = ", ".join(st.strftime("%Y-%m-%d") for st, _, _ in failed_chunks[:5])
             add_job_event(job_id, "warning", f"{len(failed_chunks)} day chunk(s) failed and will be retried next sync: {failed_days}")
             update_job(
                 job_id,
                 status="completed",
-                message=f"同步完成，但 {len(failed_chunks)} 个日期分片拉取失败；已成功分片不会重复，下次同步会重试：{failed_days}",
+                message=f"获取完毕，但 {len(failed_chunks)} 个日期分片拉取失败，下次会自动重试：{failed_days}",
                 progress_current=100,
                 progress_total=100,
             )
-            
     except Exception as e:
-        logger.error(f"[SyncJob] Sync failed: {e}", exc_info=True)
+        logger.error(f"[GetServerAlphasJob] Job failed: {e}", exc_info=True)
         raise e
 
 
@@ -508,11 +547,9 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
         session.close()
 
 
-def run_sync_local_alphas_job(job_id: int, params: dict[str, Any]) -> None:
-    """同步本地因子任务：计算本地所有 C 级别及以上已回测因子的自相关性"""
+def run_refresh_correlation_job(job_id: int, params: dict[str, Any]) -> None:
+    """刷新自相关性任务：只对本地 S 级别的因子进行本地自相关性计算"""
     from app.services.background_inspector import BackgroundInspector
-    from app.services.template_iteration import grade_candidate_result
-    from app.services.optimization_planner import _extract_yearly_stats
     
     settings = get_settings()
     username = settings.get("wq_username")
@@ -521,60 +558,26 @@ def run_sync_local_alphas_job(job_id: int, params: dict[str, Any]) -> None:
     if not username or not password:
         raise ValueError("请先在设置中配置 WQ 账号和密码。")
         
-    update_job(job_id, status="running", message="正在获取本地已提交因子列表...", progress_current=5, progress_total=100)
+    update_job(job_id, status="running", message="正在获取本地 S 级因子列表...", progress_current=5, progress_total=100)
     
-    # 查找所有未被标记为 garbage 且不是 UNSUBMITTED 的因子（因为 UNSUBMITTED 没有 PNL，无法在本地算自相关）
+    # 仅查找本地评级为 S 级且非垃圾的因子
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM alpha_records WHERE is_garbage = 0 AND status != 'UNSUBMITTED'").fetchall()
+        rows = conn.execute("SELECT * FROM alpha_records WHERE is_garbage = 0 AND alpha_type = 'S'").fetchall()
         
-    candidates = []
-    for row in rows:
-        row_dict = dict(row)
-        payload_str = row_dict.get("payload")
-        payload = {}
-        if payload_str:
-            try:
-                payload = json.loads(payload_str)
-            except Exception:
-                pass
-                
-        sharpe = row_dict.get("sharpe")
-        fitness = row_dict.get("fitness")
-        margin = row_dict.get("margin")
-        yearly_stats = _extract_yearly_stats(payload)
-        turnover = row_dict.get("turnover") or (yearly_stats[0].get("turnover") if yearly_stats else None)
-        self_corr = row_dict.get("ppa_corr") or 0.0
-        prod_corr_val = row_dict.get("prod_corr") or 0.0
-        
-        # 实时判定级别
-        grading = grade_candidate_result({
-            "sharpe": sharpe,
-            "fitness": fitness,
-            "margin": margin,
-            "turnover": turnover,
-            "self_corr": self_corr,
-            "prod_corr": prod_corr_val,
-            "status": row_dict.get("status") or "",
-            "payload": payload,
-        })
-        grade = grading.get("grade", "C")
-        
-        # 仅同步 C 级别及以上的因子
-        if grade in {"S", "A", "B", "C"}:
-            candidates.append(row_dict)
-            
+    candidates = [dict(row) for row in rows]
     total_candidates = len(candidates)
+    
     if total_candidates == 0:
-        update_job(job_id, status="completed", message="同步完成，本地没有发现需要计算自相关的 C 级及以上因子。", progress_current=100, progress_total=100)
+        update_job(job_id, status="completed", message="刷新完成，本地未发现 S 等级的因子。", progress_current=100, progress_total=100)
         return
         
-    add_job_event(job_id, "info", f"Found {total_candidates} local C-and-above alphas for correlation check.")
+    add_job_event(job_id, "info", f"Found {total_candidates} local S-grade alphas for autocorrelation check.")
     
     session = login_with_credentials(username.strip(), password.strip())
     inspector = BackgroundInspector()
     
     try:
-        # 预先跑一次 download_correlation_data 以拉取最新 OS/PPA 收益率缓存
+        # 预先拉取最新 OS/PPA 收益率缓存
         update_job(job_id, message="正在更新本地 OS/PPA 因子 PnL 缓存库...", progress_current=10, progress_total=100)
         from app.services.background_inspector import download_correlation_data
         download_correlation_data(session, flag_increment=True)
@@ -586,30 +589,28 @@ def run_sync_local_alphas_job(job_id: int, params: dict[str, Any]) -> None:
             
             update_job(
                 job_id, 
-                message=f"[{idx}/{total_candidates}] 正在更新 {alpha_id} 的自相关与评级/改名...", 
+                message=f"[{idx}/{total_candidates}] 正在更新 S 级因子 {alpha_id} 的自相关与评级...", 
                 progress_current=progress_pct, 
                 progress_total=100
             )
             
             try:
-                # _run_autocorrelation 会做: 1.算相关性 2._update_alpha_grade_and_status 3.远程改名
                 inspector._run_autocorrelation(session, alpha_id, row_dict)
             except Exception as e:
-                logger.error(f"[SyncLocalAlphas] Autocorrelation check failed for {alpha_id}: {e}")
+                logger.error(f"[RefreshCorrelation] Autocorrelation failed for {alpha_id}: {e}")
                 add_job_event(job_id, "warning", f"Alpha {alpha_id} correlation calculation failed: {e}")
                 
-            # 引入自适应休眠延迟，避免短时高频请求 WQ API 触发 429 频控限制
             time.sleep(1.0)
                 
         update_job(
             job_id, 
             status="completed", 
-            message=f"本地因子自相关同步计算已全部完成！共处理了 {total_candidates} 个因子。", 
+            message=f"本地 S 级因子自相关刷新计算已全部完成！共处理了 {total_candidates} 个 S 级因子。", 
             progress_current=100, 
             progress_total=100
         )
     except Exception as e:
-        logger.error(f"[SyncLocalAlphasJob] Job failed: {e}", exc_info=True)
+        logger.error(f"[RefreshCorrelationJob] Job failed: {e}", exc_info=True)
         raise e
     finally:
         session.close()

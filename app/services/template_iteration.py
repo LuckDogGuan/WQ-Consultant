@@ -388,11 +388,13 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     if "SKIP" in status or "SKIP" in alpha_type:
         reasons.append("SKIP_STATUS")
 
-    # 检测年化收益与换手率是否在任意年份出现归零情况 (厂字/停牌死因子)
-    payload = metrics.get("payload") or {}
+    # ── 远端统计与死因子严格排查层（已按需求放松） ──────────────────────────
+    # [说明：原逻辑对覆盖率、交易股票数(<30)、远端年度统计层等进行严格排查，容易导致有效候选因子被定为死因子或C级。现按要求将其放松暂停，代码注释保留供后续参考]
+    ENABLE_STRICT_DEAD_ALPHA_CHECK = False
     
     # 检测 PnL 收益率交易日覆盖率 (低于 60% 判定为厂字死因子)
-    if isinstance(payload, dict):
+    payload = metrics.get("payload") or {}
+    if ENABLE_STRICT_DEAD_ALPHA_CHECK and isinstance(payload, dict):
         pnl_cov = payload.get("pnl_coverage_rate")
         if pnl_cov is not None:
             try:
@@ -401,17 +403,18 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
             except (ValueError, TypeError):
                 pass
     
-    # 3.5. 表达式未来函数泄漏检测 (如直接引用 \breturns\b)
-    expression = metrics.get("expression") or ""
-    if not expression and isinstance(payload, dict):
-        from .optimization_planner import extract_alpha_expression
-        expression = extract_alpha_expression(payload)
-        
-    if expression and re.search(r'\breturns\b', expression):
-        reasons.append("DEAD_ALPHA_RISK")
+    # 3.5. 表达式未来函数泄漏检测 (如直接引用 \breturns\b，已按需求暂停严格拦截)
+    if ENABLE_STRICT_DEAD_ALPHA_CHECK:
+        expression = metrics.get("expression") or ""
+        if not expression and isinstance(payload, dict):
+            from .optimization_planner import extract_alpha_expression
+            expression = extract_alpha_expression(payload)
+            
+        if expression and re.search(r'\breturns\b', expression):
+            reasons.append("DEAD_ALPHA_RISK")
         
     # 3.6. 交易股票数量检测 (防范超低样本过拟合)
-    if isinstance(payload, dict):
+    if ENABLE_STRICT_DEAD_ALPHA_CHECK and isinstance(payload, dict):
         raw_payload = payload.get("raw_payload", {}) if "raw_payload" in payload else payload
         inst_count = raw_payload.get("instrumentCount") or raw_payload.get("instrument_count")
         if inst_count is not None:
@@ -421,7 +424,9 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
             except (ValueError, TypeError):
                 pass
                 
-    if isinstance(payload, dict):
+    # ── 远端年度统计层检测（已放松） ──────────────────────────────────────
+    # [说明：原远端年度统计层检测（如年数<3、任意年多空归零、L2Y夏普低等）要求过于严格，导致大量有潜力的候选因子被误定为死因子/C级。现根据要求放松该层检测，暂停启用此处校验，保留代码以供后续评估思考]
+    if ENABLE_STRICT_DEAD_ALPHA_CHECK and isinstance(payload, dict):
         years = _extract_yearly_stats(payload)
         if isinstance(years, list) and len(years) > 0:
             # 增加 Long Count 和 Short Count 检测，如果任意一年为 0 则判定为厂字/停牌死因子
@@ -493,15 +498,12 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
 
     if turnover and (turnover < 0.01 or turnover > 0.70):
         reasons.append("TURNOVER_RISK")
-    if sharpe is None or sharpe < 1.25 or fitness < 1.0 or margin <= 0:
+    if sharpe is None or sharpe < 1.25 or fitness < 0.60 or (margin is not None and margin < 0.0005):
         reasons.append("METRIC_WEAK")
 
-    if any(reason in reasons for reason in {"NEGATIVE_SHARPE", "SKIP_STATUS", "DEAD_ALPHA_RISK"}):
-        grade = "D"
-        action = "discard"
-    elif reasons:
+    if any(reason in reasons for reason in {"NEGATIVE_SHARPE", "SKIP_STATUS", "DEAD_ALPHA_RISK", "CHECK_FAIL"}):
         grade = "C"
-        action = "optimize"
+        action = "discard"
     elif self_corr <= 0.68 and prod_corr < 0.50 and sharpe >= 1.58 and fitness >= 1.0 and (margin is not None and margin >= 0.0010):
         grade = "S"
         action = "manual_submit_candidate"
@@ -511,6 +513,9 @@ def grade_candidate_result(metrics: dict[str, Any]) -> dict[str, Any]:
     elif self_corr <= 0.70 and prod_corr < 0.70 and sharpe >= 1.25 and fitness >= 0.60 and (margin is not None and margin >= 0.0005):
         grade = "B"
         action = "manual_review"
+    elif reasons:
+        grade = "C"
+        action = "optimize"
     else:
         grade = "C"
         action = "optimize"

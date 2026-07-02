@@ -6,14 +6,14 @@
 
 ### 21.1 垃圾因子定义与识别逻辑
  
-垃圾因子（Garbage Alphas / Grade D）指表现极差或存在严重相关性、有效性缺陷的因子。判定规则如下：
+垃圾因子（Garbage Alphas / Grade C）指表现极差或存在严重相关性、有效性缺陷的因子。判定规则如下：
 1. **负夏普因子**：`sharpe < 0` 的因子（无实际经济含义且表现极差）。
 2. **厂字因子 / 相关性冲突因子**：在本地相关性检测或平台结果中被标记为 `alpha_type == 'SKIP'` 或 `status == 'SKIP'` 的因子。
 3. **硬性失败因子**：运行结果或最新检查状态为 `FAIL`、`FAILED`、`ERROR`。
 4. **停牌死因子 (DEAD_ALPHA_RISK)**：
    - 满足任一特征（全零、跨度不足5年、末端250天等值、中途250天冻结、3年零值断带）。
    - 年度 Turnover 极低：在年度分解数据中存在某年 `turnover < 0.0001` 且 `returns < 0.00001` 的情形，即 PnL 曲线变平。
-   - **多头/空头零值拦截**：年度统计数据中**任意年份的 `longCount` (多头股票数量) 或 `shortCount` (空头股票数量) 为 0**。这表明因子在某些年份处于单边买入/完全不交易状态，属于未来函数退化厂字因子的典型表现，直接拦截并标记为 Grade D 垃圾因子。
+   - **多头/空头零值拦截**：年度统计数据中**任意年份的 `longCount` (多头股票数量) 或 `shortCount` (空头股票数量) 为 0**。这表明因子在某些年份处于单边买入/完全不交易状态，属于未来函数退化厂字因子的典型表现，直接拦截并标记为 Grade C 垃圾因子。
 5. **未来数据/未来函数泄漏检测**：表达式中含有独立的 `returns` 变量（独立词边界 `\breturns\b`，排除 `ts_returns` 等内置函数）。在回测中引入此类变量会导致严重的 Look-ahead Leakage（前瞻性偏差），平台校验必挂，因此在本地会被识别为 DEAD_ALPHA_RISK 并标记为垃圾因子。
 6. **交易样本过低**：因子在整个回测区间内覆盖的标的股票数量过低（如 `instrumentCount < 30`）。极低股票覆盖度通常表明条件过于苛刻或逻辑过拟合到少数个股上，线上检验将触发 LOW_INSTRUMENT_COUNT 或 MIN_INSTRUMENTS 失败，因此直接判定为 DEAD_ALPHA_RISK 并标记为垃圾因子。
 
@@ -34,7 +34,7 @@ graph TD
     F -->|是| G[判定为表现极差因子]
     F -->|否| H[正常评估分档 S/A/B/C 级]
 
-    C --> I[Grade D: should_optimize = False]
+    C --> I["Grade C (致命缺陷/垃圾): should_optimize = False"]
     E --> I
     E2 --> I
     E3 --> I
@@ -45,7 +45,7 @@ graph TD
     J --> L[在 /optimization 优化列表中隐藏]
     J --> M[在三阶段优化中物理退休删除]
     
-    H --> N[Grade C 及以上: 送入优化候选/诊断流程]
+    H --> N["Grade S/A/B/C (普通缺陷及以上): 送入优化候选/诊断流程"]
 ```
 
 ### 21.3 系统表现与操作规程
@@ -60,15 +60,14 @@ graph TD
 
 ### 22.1 因子决断分类体系 (Decision & Grading Matrix)
 
-系统基于 **S/A/B/C/D 五档等级** 进行因子的底层诊断和后台任务控制。同时为了给用户提供细致的筛选维度，系统对 **B级及以上（高表现）因子划分了三个评级（Premium, Standard, Marginal）**：
+系统基于 **S/A/B/C 四档等级** 进行因子的底层诊断和后台任务控制。同时为了给用户提供细致的筛选维度，系统对 **B级及以上（高表现）因子划分了三个评级（Premium, Standard, Marginal）**：
 
 | 因子级别 (Grade) | 核心指标定义 | 诊断与成因分析 | 因子评级 (Rating Sub-class) | 处置动作 (Action) |
 | :--- | :--- | :--- | :--- | :--- |
 | **黄金优秀因子**<br/>**(Grade S)** | - 极高 Sharpe: `sharpe >= 1.58`<br/>- 极高适配: `fitness >= 1.0`<br/>- 极高收益: `margin >= 0.001` (10 bps)<br/>- 极强正交: `self_corr <= 0.68` 且 `prod_corr < 0.50` | - 代码逻辑极其精简，未产生过度拟合。<br/>- 蕴含独特的阿尔法源，与已提交的 OS 资产相关度低。 | **优质因子 (Premium)** | **直接提交 (Direct Submit)**。<br/>- 立即进入平台 Check 队列。<br/>- 后台巡检服务会自动优先保障提交。 |
 | **标准候选因子**<br/>**(Grade A)** | - 高 Sharpe: `sharpe >= 1.50`<br/>- 高适配: `fitness >= 0.80`<br/>- 高收益: `margin >= 0.0008` (8 bps)<br/>- 较强正交: `self_corr <= 0.70` 且 `prod_corr < 0.70` | - 拥有良好的 Sharpe 和拟合度，属于核心可提交候选。 | **不合格 (Substandard)** | **自动触发远端核验，核验通过进入提交**。<br/>- 属于高级候选，后台巡检服务会自动提交检查并补充时序。 |
 | **需要审核因子**<br/>**(Grade B)** | - 临界表现: `1.25 <= sharpe < 1.50`<br/>- 适配度: `fitness >= 0.60`<br/>- 收益率: `margin >= 0.0005` (5 bps)<br/>- 自相关与总相关满足: `self_corr <= 0.70` 且 `prod_corr < 0.70` | - 无硬伤的常规有效因子，具有一定的样本内预测价值，适合结合中性化进一步打磨。 | **不合格 (Substandard)** | **本地保留，允许运行优化规划**。<br/>- 允许自动补充拉取时序，人工审核优化。 |
-| **需要优化因子**<br/>**(Grade C)** | - 存在任何警告与指标硬伤（如 `turnover` 超标、近年表现衰退 `os_decay_warning` 等） | - 因子蕴含了有效的预测特征，但由于未中性化，导致风格/行业暴露过重。 | **不合格 (Substandard)** | **进入优化规划中心 (Go to Optimization)**。<br/>- 允许补充拉取时序图。<br/>- 允许根据评级筛选自动参与优化运行。 |
-| **高危垃圾因子**<br/>**(Grade D)** | - 负夏普: `sharpe < 0`<br/>- **多空数量归零**: 任意年份 `longCount == 0` 或 `shortCount == 0`<br/>- 厂字特征 (Flat PnL): 满足任一特征（全零、跨度不足5年等）<br/>- 极致相关: `self_corr > 0.70` 或 `prod_corr >= 0.70`<br/>- 检查失败: `FAIL/FAILED/ERROR` | - 厂字因子/多空归零属于未来函数漏洞引发的“假因子”，线上必挂。<br/>- 负夏普没有任何预测价值。 | **不合格 (Substandard)** | **直接丢弃，本地隐藏 + 平台物理删除**。<br/>- 不在优化中心展示。<br/>- 彻底屏蔽自动或人工重回测，避免浪费平台配额。 |
+| **需要优化或退休因子**<br/>**(Grade C)** | - 存在普通指标警告硬伤（如 `turnover` 超标、近年表现衰退等）或包含致命严重硬伤（如负夏普 `sharpe < 0`、多空归零、厂字停牌特征、ERROR/FAIL 等） | - 普通警告因子包含潜在预测价值但有风格行业暴露风险；致命硬伤因子属于废弃无价值，线上检验必挂。 | **不合格 (Substandard)** | **分流处置动作**：<br/>1. 无致命缺陷者：进入优化规划中心进行重写优化。<br/>2. 有致命缺陷者：直接丢弃，本地标记 `is_garbage = 1` 并在平台物理退休删除。 |
 
 ### 22.2 多维指标针对性优化动作 (ATLAS-based Optimization Tactics)
 
@@ -117,7 +116,7 @@ graph TD
 flowchart TD
     Start[Alpha 回测结果输出] --> CheckGarbage{满足垃圾/高危因子条件?<br/>- sharpe < 0<br/>- 厂字特征/SKIP 状态<br/>- FAIL/FAILED/ERROR 状态}
     
-    CheckGarbage -->|是| GarbagePath[Grade D: 垃圾因子]
+    CheckGarbage -->|是| GarbagePath[Grade C: 垃圾因子]
     CheckGarbage -->|否| CheckPremium{满足黄金因子条件?<br/>- sharpe >= 1.58<br/>- fitness >= 1.0<br/>- margin >= 0.001<br/>- self_corr <= 0.68<br/>- prod_corr < 0.50}
     
     GarbagePath --> ActionHide["【丢弃并隐藏】<br/>1. 优化中心屏蔽，不消耗回测<br/>2. /alphas 默认过滤，禁止提交"]
@@ -260,11 +259,11 @@ def compute_remote_validation_score(yearly_stats: list[dict], is_sharpe: float =
 
 ```mermaid
 flowchart TD
-    A["Alpha 评级结果"] --> B{Grade = S, A, B, C?}
-    B -->|否 D| Z[跳过远端验证，维持原评级 D]
+    A["Alpha 评级结果"] --> B{是否为有效可优化因子\n(S/A/B 级且无致命缺陷)?}
+    B -->|否: 致命硬伤 C 级| Z[跳过验证, 维持 C 级并执行平台退休]
     B -->|是| C["拉取 yearly-stats\n GET /alphas/id/recordsets/yearly-stats"]
     C --> D{有效年份 < 3?}
-    D -->|是| DEAD["降级 D\ninsufficient_years"]
+    D -->|是| DEAD["降级为 C 级垃圾\ninsufficient_years"]
     D -->|否| D2{任意年份 longCount == 0\n 或 shortCount == 0?}
     D2 -->|是| DEAD
     D2 -->|否| E{零换手/零收益年份\n占比 > 40%?}

@@ -441,8 +441,8 @@ class BackgroundInspector:
             logger.error(f"[BackgroundInspector] Check submission failed for {alpha_id}: {e}")
 
     def _run_retire(self, session: requests.Session, alpha_id: str, row_dict: dict[str, Any]) -> None:
-        """自动物理退休 Grade D 垃圾因子"""
-        logger.info(f"[BackgroundInspector] Automatically retiring Grade D alpha {alpha_id} on WQ platform...")
+        """自动物理退休 Grade C 垃圾因子"""
+        logger.info(f"[BackgroundInspector] Automatically retiring Grade C alpha {alpha_id} on WQ platform...")
         try:
             from app.services.wq_client import retire_wq_alpha
             retire_wq_alpha(session, alpha_id)
@@ -450,12 +450,12 @@ class BackgroundInspector:
             # 更新本地数据库，将 is_garbage 设为 1
             with connect() as conn:
                 conn.execute(
-                    "UPDATE alpha_records SET is_garbage = 1, alpha_type = 'D', updated_at = datetime('now') WHERE alpha_id = ?",
+                    "UPDATE alpha_records SET is_garbage = 1, alpha_type = 'C', updated_at = datetime('now') WHERE alpha_id = ?",
                     (alpha_id,)
                 )
-            logger.info(f"[BackgroundInspector] Retired and marked Grade D alpha {alpha_id} in database.")
+            logger.info(f"[BackgroundInspector] Retired and marked Grade C alpha {alpha_id} in database.")
         except Exception as e:
-            logger.error(f"[BackgroundInspector] Failed to retire Grade D alpha {alpha_id}: {e}")
+            logger.error(f"[BackgroundInspector] Failed to retire Grade C alpha {alpha_id}: {e}")
 
     def _run_autocorrelation(self, session: requests.Session, alpha_id: str, row_dict: dict[str, Any]) -> None:
         """自动拉取远程 PNL 并在本地做自相关性分析"""
@@ -670,13 +670,13 @@ class BackgroundInspector:
         # 决定更新入库的数据包
         logger.info(f"[BackgroundInspector] Alpha {alpha_id} re-graded to {new_grade} (prod_corr={prod_corr:.4f}, ppa_corr={ppa_corr:.4f})")
         
-        # 物理退休 D 级垃圾因子并设置 is_garbage = 1
-        if new_grade == "D":
+        # 物理退休 C 级垃圾因子并设置 is_garbage = 1
+        if new_grade == "C":
             try:
                 retire_wq_alpha(session, alpha_id)
-                logger.info(f"[BackgroundInspector] Successfully retired Grade D alpha {alpha_id} on WQ platform.")
+                logger.info(f"[BackgroundInspector] Successfully retired Grade C alpha {alpha_id} on WQ platform.")
             except Exception as re_err:
-                logger.error(f"[BackgroundInspector] Failed to retire Grade D alpha {alpha_id}: {re_err}")
+                logger.error(f"[BackgroundInspector] Failed to retire Grade C alpha {alpha_id}: {re_err}")
             with connect() as conn:
                 conn.execute(
                     "UPDATE alpha_records SET is_garbage = 1, updated_at = datetime('now') WHERE alpha_id = ?",

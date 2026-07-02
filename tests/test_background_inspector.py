@@ -52,7 +52,8 @@ class BackgroundInspectorTests(unittest.TestCase):
             "prod_corr": 0.0,
             "ppa_corr": 0.0,
             "status": "CHECKED_PASS",
-            "source": "test_src"
+            "source": "test_src",
+            "payload": {"pnl_fetched": True}
         })
  
         session_mock = MagicMock()
@@ -103,7 +104,8 @@ class BackgroundInspectorTests(unittest.TestCase):
             "prod_corr": 0.35,
             "ppa_corr": 0.25,
             "status": "UNSUBMITTED",
-            "source": "test_src"
+            "source": "test_src",
+            "payload": {"pnl_fetched": True, "self_corr_checked": True}
         })
  
         session_mock = MagicMock()
@@ -122,7 +124,7 @@ class BackgroundInspectorTests(unittest.TestCase):
 
     @patch("app.job_runner.JobRunner")
     @patch("app.storage.create_job")
-    def test_sync_alphas_endpoint(self, mock_create_job, mock_job_runner):
+    def test_get_server_alphas_endpoint(self, mock_create_job, mock_job_runner):
         from fastapi.testclient import TestClient
         from app.main import app, get_current_admin
         
@@ -134,38 +136,39 @@ class BackgroundInspectorTests(unittest.TestCase):
         mock_job_runner.return_value = runner_instance
         
         try:
-            response = client.post("/api/alphas/sync")
+            response = client.post("/api/alphas/get_server")
             self.assertEqual(response.status_code, 200)
-            self.assertIn("同步任务已成功启动", response.json()["message"])
+            self.assertIn("获取服务器因子任务已成功启动", response.json()["message"])
             self.assertEqual(response.json()["job_id"], 888)
             
             mock_create_job.assert_called_once_with(
-                kind="sync_alphas",
-                title="同步云端因子 (最近 30 天)",
+                kind="get_server_alphas",
+                title="获取服务器因子",
                 params={"lookback_days": 30}
             )
-            runner_instance.start_job.assert_called_once_with(888, "sync_alphas", {"lookback_days": 30})
+            runner_instance.start_job.assert_called_once_with(888, "get_server_alphas", {"lookback_days": 30})
         finally:
             app.dependency_overrides.clear()
 
     @patch("app.services.sync_service.login_with_credentials")
     @patch("app.services.sync_service.get_alphas_full")
-    @patch("app.services.sync_service.create_job")
-    @patch("app.services.sync_service.JobRunner")
-    def test_run_sync_alphas_job(self, mock_job_runner, mock_create_job, mock_get_alphas, mock_login):
-        from app.services.sync_service import run_sync_alphas_job
+    @patch("app.services.background_inspector.download_correlation_data")
+    @patch("app.services.background_inspector.BackgroundInspector")
+    def test_run_get_server_alphas_job(self, mock_inspector_cls, mock_download_corr, mock_get_alphas, mock_login):
+        from app.services.sync_service import run_get_server_alphas_job
         
         session_mock = MagicMock()
         mock_login.return_value = session_mock
         
-        # Cloud returned A_NEW_1 and A_CLOUD_1 (which is already in DB)
+        # Cloud returned A_NEW_1 (Sharpe 1.70, Fit 1.50, Margin 0.0015 -> S Grade)
+        # and A_CLOUD_1 (which is already in DB)
         mock_df = pd.DataFrame([
             {
                 "alpha_id": "A_NEW_1",
                 "name": "New Alpha 1",
-                "sharpe": 1.65,
-                "fitness": 1.2,
-                "margin": 0.0018,
+                "sharpe": 1.70,
+                "fitness": 1.5,
+                "margin": 0.0015,
                 "returns": 0.15,
                 "drawdown": 0.08,
                 "status": "UNSUBMITTED",
@@ -199,15 +202,14 @@ class BackgroundInspectorTests(unittest.TestCase):
             "source": "manual"
         })
         
-        mock_create_job.return_value = 999
-        runner_instance = MagicMock()
-        mock_job_runner.return_value = runner_instance
+        inspector_mock = MagicMock()
+        mock_inspector_cls.return_value = inspector_mock
         
         # Create a job in DB
         with connect() as conn:
-            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (888, 'sync_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
+            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (888, 'get_server_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
             
-        run_sync_alphas_job(888, {"lookback_days": 30})
+        run_get_server_alphas_job(888, {"lookback_days": 30})
         
         # Verify that only A_NEW_1 was added (since A_CLOUD_1 already existed)
         with connect() as conn:
@@ -215,18 +217,18 @@ class BackgroundInspectorTests(unittest.TestCase):
             ids = {r["alpha_id"]: r["source"] for r in rows}
             
         self.assertIn("A_NEW_1", ids)
-        self.assertEqual(ids["A_NEW_1"], "wq_sync")
+        self.assertEqual(ids["A_NEW_1"], "get_server_alphas")
         self.assertEqual(ids["A_CLOUD_1"], "manual") # Source should not change
         
-        # Verify that alpha_inspection job was triggered
-        mock_create_job.assert_called_once()
-        runner_instance.start_job.assert_called_once_with(999, "alpha_inspection", {"only_new": True})
+        # Verify that download correlation data and _run_autocorrelation were called because A_NEW_1 is S-grade
+        mock_download_corr.assert_called_once()
+        inspector_mock._run_autocorrelation.assert_called_once()
 
     @patch("app.services.sync_service.login_with_credentials")
     @patch("app.services.sync_service.get_alphas_full")
-    def test_run_sync_alphas_job_skips_successful_day_chunks(self, mock_get_alphas, mock_login):
+    def test_run_get_server_alphas_job_skips_successful_day_chunks(self, mock_get_alphas, mock_login):
         from datetime import datetime, timedelta
-        from app.services.sync_service import run_sync_alphas_job
+        from app.services.sync_service import run_get_server_alphas_job
 
         session_mock = MagicMock()
         mock_login.return_value = session_mock
@@ -236,7 +238,7 @@ class BackgroundInspectorTests(unittest.TestCase):
         yesterday = today - timedelta(days=10)
         yesterday_end = yesterday + timedelta(days=1)
         with connect() as conn:
-            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (889, 'sync_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
+            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (889, 'get_server_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
             conn.execute(
                 """
                 INSERT INTO sync_chunks(kind, region, chunk_start, chunk_end, status, fetched_count, error, updated_at)
@@ -245,24 +247,24 @@ class BackgroundInspectorTests(unittest.TestCase):
                 (yesterday.isoformat(), yesterday_end.isoformat()),
             )
 
-        run_sync_alphas_job(889, {"lookback_days": 10})
+        run_get_server_alphas_job(889, {"lookback_days": 10})
 
         self.assertEqual(mock_get_alphas.call_count, 10)
 
     @patch("app.services.sync_service.login_with_credentials")
     @patch("app.services.sync_service.get_alphas_full")
     @patch("app.services.sync_service.time.sleep")
-    def test_run_sync_alphas_job_records_failed_day_for_retry(self, mock_sleep, mock_get_alphas, mock_login):
-        from app.services.sync_service import run_sync_alphas_job
+    def test_run_get_server_alphas_job_records_failed_day_for_retry(self, mock_sleep, mock_get_alphas, mock_login):
+        from app.services.sync_service import run_get_server_alphas_job
 
         session_mock = MagicMock()
         mock_login.return_value = session_mock
         mock_get_alphas.side_effect = RuntimeError("temporary disconnect")
 
         with connect() as conn:
-            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (890, 'sync_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
+            conn.execute("INSERT INTO jobs (id, kind, status, title, params, progress_current, progress_total, message, created_at, updated_at) VALUES (890, 'get_server_alphas', 'queued', 'test', '{}', 0, 100, '', datetime('now'), datetime('now'))")
 
-        run_sync_alphas_job(890, {"lookback_days": 0})
+        run_get_server_alphas_job(890, {"lookback_days": 0})
 
         with connect() as conn:
             row = conn.execute("SELECT status, error FROM sync_chunks WHERE kind = 'wq_sync' AND region = 'USA'").fetchone()
