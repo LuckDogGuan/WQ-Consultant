@@ -1,8 +1,10 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import json
+import os
+os.environ["WQ_DB_NAME"] = "test_gui.db"
 import pandas as pd
- 
+
 from app.storage import connect, init_db, upsert_alpha
 from app.services.background_inspector import BackgroundInspector
  
@@ -313,7 +315,7 @@ class BackgroundInspectorTests(unittest.TestCase):
     @patch("app.services.background_inspector.login_with_credentials")
     @patch("app.services.background_inspector.get_alpha_pnl")
     @patch("app.services.background_inspector.calc_self_corr_local")
-    @patch("app.services.background_inspector.rename_wq_alpha_scheme_a")
+    @patch("app.services.wq_client.rename_wq_alpha_scheme_a")
     def test_process_candidates_error_fail_bypass_and_todo(
         self, mock_rename, mock_calc_self_corr, mock_get_pnl, mock_login
     ):
@@ -340,6 +342,8 @@ class BackgroundInspectorTests(unittest.TestCase):
         session_mock = MagicMock()
         mock_login.return_value = session_mock
         mock_rename.return_value = "S_USA_TOP3000_1P60_ERROR"
+        mock_get_pnl.return_value = pd.DataFrame({"Date": [f"2026-01-{i:02d}" for i in range(1, 11)], "A_ERR_999": [0.01 * i for i in range(1, 11)]})
+        mock_calc_self_corr.return_value = 0.0
         
         inspector = BackgroundInspector()
         inspector._process_candidates("test_user", "test_pass")

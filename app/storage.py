@@ -367,12 +367,31 @@ def add_error(area: str, message: str, payload: dict[str, Any] | None = None) ->
 def upsert_alpha(record: dict[str, Any]) -> None:
     alpha_id = record["alpha_id"]
     now = utc_now()
-    payload = json.dumps(record.get("payload", {}), ensure_ascii=False)
     
     def clean_str(v, default=""):
         if v is None or v != v:
             return default
         return str(v)
+        
+    alpha_type_str = clean_str(record.get("alpha_type"))
+    is_garb_int = 1 if record.get("is_garbage") == 1 else 0
+    raw_payload = record.get("payload", {})
+    if isinstance(raw_payload, str):
+        try:
+            raw_payload = json.loads(raw_payload)
+        except Exception:
+            raw_payload = {}
+    if not isinstance(raw_payload, dict):
+        raw_payload = {}
+        
+    if alpha_type_str == "C" or is_garb_int == 1:
+        minimal_payload = {}
+        for k in ("id", "alpha_id", "status", "name", "expression", "regular_code", "todo", "todo_category", "error_message", "message", "note"):
+            if k in raw_payload:
+                minimal_payload[k] = raw_payload[k]
+        raw_payload = minimal_payload
+        
+    payload = json.dumps(raw_payload, ensure_ascii=False)
         
     def clean_float(v):
         if v is None or v != v:
@@ -541,14 +560,24 @@ def refresh_alpha_tags(conn, alpha_id: str) -> None:
         
         is_garbage = 1 if is_high_risk_garbage_alpha(record, check_result) else 0
         
-        conn.execute(
-            """
-            UPDATE alpha_records 
-            SET alpha_class = ?, optimization_strategy = ?, economic_suggestion = ?, is_garbage = ? 
-            WHERE alpha_id = ?
-            """,
-            (alpha_class, strategy, economic_suggestion, is_garbage, alpha_id)
-        )
+        if is_garbage == 1 or str(record.get("alpha_type") or "").upper() == "C":
+            conn.execute(
+                """
+                UPDATE alpha_records 
+                SET alpha_class = ?, optimization_strategy = ?, economic_suggestion = ?, is_garbage = 1 
+                WHERE alpha_id = ?
+                """,
+                (alpha_class, strategy, economic_suggestion, alpha_id)
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE alpha_records 
+                SET alpha_class = ?, optimization_strategy = ?, economic_suggestion = ?, is_garbage = ? 
+                WHERE alpha_id = ?
+                """,
+                (alpha_class, strategy, economic_suggestion, is_garbage, alpha_id)
+            )
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Failed to refresh tags for {alpha_id}: {e}")

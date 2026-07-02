@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import json
+import os
+os.environ["WQ_DB_NAME"] = "test_gui.db"
 import pandas as pd
 
 from app.storage import connect, init_db, upsert_alpha, create_job

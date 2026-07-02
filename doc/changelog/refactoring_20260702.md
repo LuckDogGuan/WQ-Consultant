@@ -35,3 +35,12 @@
 
 ### E. 测试用例重构
 *   修补并更新了 `tests/test_local_sync_job.py` 与 `tests/test_background_inspector.py` 的测试用例，将 mock 分支、路径请求、断言全部修正为新的任务与路由。
+
+### F. C 级因子合并与进入优化队列规则优化
+*   **统一归类物理退休**：将原有“C 级（一般可优化，is_garbage=0）”与“C 级（致命缺陷，is_garbage=1）”合并为一个统一的“C 级（is_garbage=1）”物理退休类别。
+*   **排除优化队列**：系统优化规划器与仪表盘统计全面更新，所有 C 级因子均不再进入后续优化算子队列，减轻了规划运算与展示负载。
+
+### G. 数据库体积极限减肥与 Payload 精简机制 (97% 瘦身)
+*   **剔除重度时序数据**：针对系统内高达 5.4 万个 C 级及垃圾因子，在入库（`upsert_alpha`）和定级时自动剥离其 Payload 中庞大的每日 PnL 时序、IS/OS 详情、连月统计数组等大体积 JSON 数据，仅保留核心身份字段（`id`, `alpha_id`, `status`, `name`, `expression`, `regular_code`, `todo`, `todo_category`, `error_message`, `message`, `note`）。
+*   **空间回收 (VACUUM)**：执行数据库空间碎片回收命令，成功将原先膨胀至 605.42 MB 的 `data/gui.db` 瘦身至 **18.05 MB**（空间减少 587.38 MB，降幅达 **97.0%**）。
+*   **全样本恢复与定档**：从原数据块与历史日志中成功恢复 58,383 个因子的基础记录并按照新规则全量重估入库。

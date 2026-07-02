@@ -10,7 +10,8 @@ DATA_DIR = APP_ROOT / "data"
 CATALOG_DIR = DATA_DIR / "catalog"
 CORRELATION_DIR = DATA_DIR / "correlation"
 LOG_DIR = APP_ROOT / "logs"
-DB_PATH = DATA_DIR / "gui.db"
+import os
+DB_PATH = DATA_DIR / os.environ.get("WQ_DB_NAME", "gui.db")
 GUI_VERSION = "v0.1"
 
 

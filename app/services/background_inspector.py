@@ -450,7 +450,7 @@ class BackgroundInspector:
             # 更新本地数据库，将 is_garbage 设为 1
             with connect() as conn:
                 conn.execute(
-                    "UPDATE alpha_records SET is_garbage = 1, alpha_type = 'C', updated_at = datetime('now') WHERE alpha_id = ?",
+                    "UPDATE alpha_records SET is_garbage = 1, alpha_type = 'C', payload = '{}', updated_at = datetime('now') WHERE alpha_id = ?",
                     (alpha_id,)
                 )
             logger.info(f"[BackgroundInspector] Retired and marked Grade C alpha {alpha_id} in database.")
@@ -679,7 +679,7 @@ class BackgroundInspector:
                 logger.error(f"[BackgroundInspector] Failed to retire Grade C alpha {alpha_id}: {re_err}")
             with connect() as conn:
                 conn.execute(
-                    "UPDATE alpha_records SET is_garbage = 1, updated_at = datetime('now') WHERE alpha_id = ?",
+                    "UPDATE alpha_records SET is_garbage = 1, payload = '{}', updated_at = datetime('now') WHERE alpha_id = ?",
                     (alpha_id,)
                 )
         else:

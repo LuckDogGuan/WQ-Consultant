@@ -80,7 +80,7 @@ def get_dashboard_metrics(now: datetime | None = None) -> dict[str, int | str]:
             SELECT COUNT(*)
             FROM alpha_records
             WHERE COALESCE(is_garbage, 0) = 0
-              AND COALESCE(alpha_type, '') IN ('S', 'A', 'B', 'C')
+              AND COALESCE(alpha_type, '') IN ('S', 'A', 'B')
             """
         ).fetchone()[0]
         counts["optimization_optimizable"] = conn.execute(
@@ -88,7 +88,7 @@ def get_dashboard_metrics(now: datetime | None = None) -> dict[str, int | str]:
             SELECT COUNT(*)
             FROM alpha_records
             WHERE COALESCE(is_garbage, 0) = 0
-              AND COALESCE(alpha_type, '') IN ('A', 'B', 'C')
+              AND COALESCE(alpha_type, '') IN ('A', 'B')
             """
         ).fetchone()[0]
         counts["optimization_min_submit"] = counts["optimization_optimizable"]

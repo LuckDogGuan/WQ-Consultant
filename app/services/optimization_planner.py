@@ -173,7 +173,7 @@ def is_high_risk_garbage_alpha(alpha_record: dict[str, Any], check_result: str =
     # 2. 厂字 / 跳过
     alpha_type = str(alpha_record.get("alpha_type") or "").upper()
     status = str(alpha_record.get("status") or "").upper()
-    if alpha_type == "SKIP" or status == "SKIP":
+    if alpha_type in ("SKIP", "C", "D") or status == "SKIP":
         return True
         
     # 3. 失败 / 错误 (相关性超标 CORR_FAIL 除外)

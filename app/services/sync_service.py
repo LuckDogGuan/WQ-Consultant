@@ -272,7 +272,12 @@ def run_get_server_alphas_job(job_id: int, params: dict[str, Any]) -> None:
                 new_candidates.append(row)
                 
         if not new_candidates:
-            update_job(job_id, status="completed", message="过滤完成，未发现符合阈值要求的新增因子。", progress_current=100, progress_total=100)
+            if failed_chunks:
+                failed_days = ", ".join(st.strftime("%Y-%m-%d") for st, _, _ in failed_chunks[:5])
+                msg = f"过滤完成，未发现新增因子；另有 {len(failed_chunks)} 个日期分片拉取失败，下次会自动重试：{failed_days}"
+            else:
+                msg = "过滤完成，未发现符合阈值要求的新增因子。"
+            update_job(job_id, status="completed", message=msg, progress_current=100, progress_total=100)
             return
             
         # 3. 入库并筛选出定级为 S 级的因子
@@ -418,10 +423,17 @@ def run_alpha_inspection_job(job_id: int, params: dict[str, Any]) -> None:
         
         payload = {}
         if payload_str:
-            try:
-                payload = json.loads(payload_str)
-            except Exception:
-                pass
+            if isinstance(payload_str, dict):
+                payload = payload_str
+            elif isinstance(payload_str, str):
+                try:
+                    payload = json.loads(payload_str)
+                    if isinstance(payload, str):
+                        payload = json.loads(payload)
+                except Exception:
+                    pass
+        if not isinstance(payload, dict):
+            payload = {}
                 
         pnl_fetched = payload.get("pnl_fetched", False)
         self_corr_checked = payload.get("self_corr_checked", False)
